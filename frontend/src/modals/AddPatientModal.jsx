@@ -10,7 +10,8 @@ const AddPatientModal = ({ isOpen, onClose, onSave }) => {
     name: '',
     mobile: '',
     gender: '',
-    age: '',
+    bloodGroup: '',
+    dob: '',
     location: '',
     reference: '',
     history: '', // Comma separated string
@@ -36,18 +37,22 @@ const AddPatientModal = ({ isOpen, onClose, onSave }) => {
       const firstName = nameParts[0];
       const lastName = nameParts.slice(1).join(' ') || '';
 
-      // 2. Convert Age to Approximate DOB (Backend requirement)
-      const dobDate = new Date();
-      dobDate.setFullYear(dobDate.getFullYear() - parseInt(formData.age || 0));
+      // 2. Parse DOB
+      const dobDate = formData.dob ? new Date(formData.dob) : new Date();
 
       // 3. Prepare Payload matching Mongoose Schema
+      // Strip non-digits from mobile (user types just 10 digits, +91 is fixed prefix)
+      const cleanMobile = (formData.mobile || '').replace(/\D/g, '').slice(-10);
+      const fullMobile  = cleanMobile ? `+91${cleanMobile}` : '';
+
       const payload = {
         first_name: firstName,
         last_name: lastName,
-        dob: dobDate, 
+        dob: dobDate,
         gender: formData.gender,
+        blood_group: formData.bloodGroup,
         contact: {
-          mobile: formData.mobile,
+          mobile: fullMobile,
           city: formData.location
         },
         reference_source: formData.reference,
@@ -64,7 +69,7 @@ const AddPatientModal = ({ isOpen, onClose, onSave }) => {
       
       // Reset & Close
       setFormData({
-        name: '', mobile: '', gender: '', age: '', 
+        name: '', mobile: '', gender: '', bloodGroup: '', dob: '',
         location: '', reference: '', history: '', notes: ''
       });
       onClose();
@@ -108,15 +113,26 @@ const AddPatientModal = ({ isOpen, onClose, onSave }) => {
                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
                   Mobile Number <span className="text-red-500">*</span>
                 </label>
-                <input 
-                  name="mobile"
-                  value={formData.mobile}
-                  onChange={handleChange}
-                  required
-                  type="text" 
-                  placeholder="Enter mobile number" 
-                  className="w-full px-4 py-2.5 bg-[#F7F2F2] dark:bg-slate-800 border-none rounded-lg text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-[#137fec] focus:outline-none transition-all"
-                />
+                <div className="flex items-stretch bg-[#F7F2F2] dark:bg-slate-800 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-[#137fec] transition-all">
+                  <span className="px-3 flex items-center text-sm font-semibold text-slate-600 dark:text-slate-300 bg-slate-200/60 dark:bg-slate-700 select-none border-r border-slate-300/50 dark:border-slate-600">
+                    🇮🇳 +91
+                  </span>
+                  <input
+                    name="mobile"
+                    value={formData.mobile}
+                    onChange={(e) => {
+                      // accept only digits, max 10
+                      const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+                      setFormData(prev => ({ ...prev, mobile: digits }));
+                    }}
+                    required
+                    type="tel"
+                    inputMode="numeric"
+                    maxLength={10}
+                    placeholder="10-digit number"
+                    className="flex-1 px-4 py-2.5 bg-transparent border-none text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none"
+                  />
+                </div>
               </div>
               <div className="flex flex-col gap-2">
                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -134,12 +150,12 @@ const AddPatientModal = ({ isOpen, onClose, onSave }) => {
               </div>
             </div>
 
-            {/* Row 2: Gender & Age */}
+            {/* Row 2: Gender & Blood Group */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 xl:gap-6">
               <div className="flex flex-col gap-2">
                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Gender</label>
                 <div className="relative">
-                  <select 
+                  <select
                     name="gender"
                     value={formData.gender}
                     onChange={handleChange}
@@ -154,16 +170,39 @@ const AddPatientModal = ({ isOpen, onClose, onSave }) => {
                 </div>
               </div>
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Age</label>
-                <input 
-                  name="age"
-                  value={formData.age}
-                  onChange={handleChange}
-                  type="number" 
-                  placeholder="Enter patient age" 
-                  className="w-full px-4 py-2.5 bg-[#F7F2F2] dark:bg-slate-800 border-none rounded-lg text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-[#137fec] focus:outline-none transition-all"
-                />
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Blood Group</label>
+                <div className="relative">
+                  <select
+                    name="bloodGroup"
+                    value={formData.bloodGroup}
+                    onChange={handleChange}
+                    className="w-full px-4 py-2.5 bg-[#F7F2F2] dark:bg-slate-800 border-none rounded-lg text-slate-500 dark:text-slate-400 appearance-none focus:ring-2 focus:ring-[#137fec] focus:outline-none transition-all cursor-pointer"
+                  >
+                    <option value="">Select blood group</option>
+                    <option value="O+">O+</option>
+                    <option value="O-">O-</option>
+                    <option value="A+">A+</option>
+                    <option value="A-">A-</option>
+                    <option value="B+">B+</option>
+                    <option value="B-">B-</option>
+                    <option value="AB+">AB+</option>
+                    <option value="AB-">AB-</option>
+                  </select>
+                  <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
+                </div>
               </div>
+            </div>
+
+            {/* Row 2b: Date of Birth */}
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Date of Birth</label>
+              <input
+                name="dob"
+                value={formData.dob}
+                onChange={handleChange}
+                type="date"
+                className="w-full px-4 py-2.5 bg-[#F7F2F2] dark:bg-slate-800 border-none rounded-lg text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-[#137fec] focus:outline-none transition-all"
+              />
             </div>
 
             {/* Row 3: Location & Reference */}

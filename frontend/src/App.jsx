@@ -2,28 +2,29 @@ import './App.css';
 import { createBrowserRouter, RouterProvider, Outlet, Navigate } from 'react-router-dom';
 
 // Layout & Overlay
-import NavigationLayout from './components/NavigationLayout';
-import GlobalTreatmentOverlay from './components/GlobalTreatmentOverlay';
+import NavigationLayout from './components/NavigationLayout.jsx';
+import GlobalTreatmentOverlay from './components/GlobalTreatmentOverlay.jsx';
 
 // Pages
-import TreatmentPage from './pages/TreatmentPage';
-import InvoicesPage from './pages/InvoicePage';
-import AppointmentsPage from './pages/AppointmentsPage';
-import PatientsPage from './pages/PatientsPage';
-import PatientFilesPage from './pages/PatientFilesPage';
-import TransactionsPage from './pages/TransactionsPage';
-import LabPage from './pages/LabOrdersPage';
-import InventoryPage from './pages/InventoryPage';
-import ReportsPage from './pages/ReportsPage';
-import SettingsPage from './pages/SettingsPage';
-import WhatsAppPage from './pages/WhatsAppPage';
-import LoginPage from './pages/LoginPage';
-import RegisterPage from './pages/RegisterPage';
+import TreatmentPage from './pages/Treatmentpage.jsx';
+import InvoicesPage from './pages/InvoicePage.jsx';
+import AppointmentsPage from './pages/AppointmentsPage.jsx';
+import PatientsPage from './pages/PatientsPage.jsx';
+import PatientFilesPage from './pages/PatientFilesPage.jsx';
+import TransactionsPage from './pages/TransactionsPage.jsx';
+import LabPage from './pages/LabOrdersPage.jsx';
+import InventoryPage from './pages/InventoryPage.jsx';
+import ReportsPage from './pages/ReportsPage.jsx';
+import SettingsPage from './pages/SettingsPage.jsx';
+import WhatsAppPage from './pages/WhatsAppPage.jsx';
+import LoginPage from './pages/LoginPage.jsx';
+import RegisterPage from './pages/RegisterPage.jsx';
 
 // Context
-import { TreatmentProvider } from './Context/TreatmentContext';
-import { AuthProvider, useAuth } from './Context/AuthContext';
-import { UserProvider } from './Context/UserContext';
+import { TreatmentProvider } from './Context/TreatmentContext.jsx';
+import { AuthProvider, useAuth } from './Context/AuthContext.jsx';
+import { UserProvider } from './Context/UserContext.jsx';
+import { SettingsProvider } from './Context/SettingsContext.jsx';
 
 // Redirect to /login if not authenticated
 function ProtectedRoute() {
@@ -35,6 +36,14 @@ function ProtectedRoute() {
       <GlobalTreatmentOverlay />
     </NavigationLayout>
   );
+}
+
+// Redirect to / if user's role doesn't have access to this route
+function RoleRoute({ allow, children }) {
+  const { user } = useAuth();
+  const role = user?.role;
+  if (!allow.includes(role)) return <Navigate to="/" replace />;
+  return children;
 }
 
 const router = createBrowserRouter([
@@ -50,18 +59,18 @@ const router = createBrowserRouter([
     path: '/',
     element: <ProtectedRoute />,
     children: [
-      { path: '/', element: <AppointmentsPage /> },
-      { path: 'treatment/:id', element: <TreatmentPage /> },
-      { path: 'invoices', element: <InvoicesPage /> },
-      { path: 'patients', element: <PatientsPage /> },
-      { path: 'files', element: <PatientFilesPage /> },
-      { path: 'transactions', element: <TransactionsPage /> },
-      { path: 'lab', element: <LabPage /> },
-      { path: 'inventory', element: <InventoryPage /> },
-      { path: 'insights', element: <ReportsPage /> },
-      { path: 'promotions', element: <div>Promotions Page</div> },
-      { path: 'settings', element: <SettingsPage /> },
-      { path: 'whatsapp', element: <WhatsAppPage /> },
+      { path: '/',              element: <AppointmentsPage /> },
+      { path: 'treatment/:id',  element: <TreatmentPage /> },
+      { path: 'patients',       element: <PatientsPage /> },
+      { path: 'files',          element: <RoleRoute allow={['Owner','Assistant','Doctor']}><PatientFilesPage /></RoleRoute> },
+      { path: 'transactions',   element: <RoleRoute allow={['Owner','Assistant']}><TransactionsPage /></RoleRoute> },
+      { path: 'invoices',       element: <RoleRoute allow={['Owner','Assistant']}><InvoicesPage /></RoleRoute> },
+      { path: 'lab',            element: <RoleRoute allow={['Owner','Assistant','Doctor']}><LabPage /></RoleRoute> },
+      { path: 'inventory',      element: <RoleRoute allow={['Owner','Assistant']}><InventoryPage /></RoleRoute> },
+      { path: 'insights',       element: <RoleRoute allow={['Owner']}><ReportsPage /></RoleRoute> },
+      { path: 'whatsapp',       element: <RoleRoute allow={['Owner']}><WhatsAppPage /></RoleRoute> },
+      { path: 'settings',       element: <RoleRoute allow={['Owner']}><SettingsPage /></RoleRoute> },
+      { path: 'promotions',     element: <div>Promotions Page</div> },
     ],
   },
 ]);
@@ -70,9 +79,11 @@ function App() {
   return (
     <AuthProvider>
       <UserProvider>
-        <TreatmentProvider>
-          <RouterProvider router={router} />
-        </TreatmentProvider>
+        <SettingsProvider>
+          <TreatmentProvider>
+            <RouterProvider router={router} />
+          </TreatmentProvider>
+        </SettingsProvider>
       </UserProvider>
     </AuthProvider>
   );

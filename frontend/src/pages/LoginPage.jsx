@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../Context/AuthContext';
+import { useAuth } from '../Context/AuthContext.jsx';
 import api from '../services/api';
 
 export default function LoginPage() {
@@ -38,13 +38,11 @@ export default function LoginPage() {
       <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12 w-full max-w-md border border-white/20">
         {/* Logo / Brand */}
         <div className="mb-10 text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-[#137fec] shadow-lg shadow-blue-200 mb-6 transform rotate-3">
-            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5}
-                d="M9 12h6m-3-3v6M5.5 7.5C5.5 5 7.5 3 10 3c1.4 0 2.6.6 3.5 1.5C14.4 3.6 15.6 3 17 3c2.5 0 4.5 2 4.5 4.5 0 5-8 11-8 11S5.5 12.5 5.5 7.5z" />
-            </svg>
-          </div>
-          <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">DentalClinic DMS</h1>
+          <img
+            src="/MolarisLandscapeName.png"
+            alt="Molaris"
+            className="h-16 mx-auto mb-4 object-contain"
+          />
           <p className="text-gray-500 mt-2 font-medium">Welcome back to your practice</p>
         </div>
 
@@ -120,15 +118,28 @@ export default function LoginPage() {
               </button>
             </form>
 
-            <div className="mt-10 pt-8 border-t border-gray-100 text-center">
+            <div className="mt-10 pt-8 border-t border-gray-100 space-y-3 text-center">
               <p className="text-gray-500 font-medium">
                 New to the platform?{' '}
-                <button 
+                <button
                   onClick={() => navigate('/register')}
                   className="text-[#137fec] font-bold hover:underline"
                 >
                   Create Admin Account
                 </button>
+              </p>
+              <p className="text-gray-400 text-sm">
+                Want to register your clinic?{' '}
+                <a href="mailto:sales@connectgenai.in" className="text-[#137fec] font-semibold hover:underline">
+                  sales@connectgenai.in
+                </a>
+              </p>
+              <p className="text-gray-400 text-sm">
+                Need help?{' '}
+                <a href="mailto:support@connectgenai.in" className="text-[#137fec] font-semibold hover:underline">
+                  support@connectgenai.in
+                </a>
+                {' '}— we respond within 6 hours
               </p>
             </div>
           </>

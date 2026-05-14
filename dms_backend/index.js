@@ -29,6 +29,8 @@ import reportRoutes from './routes/report.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
 import whatsappRoutes from './routes/whatsapp.routes.js';
 import feedbackRoutes from './routes/feedback.routes.js';
+import emailRoutes from './routes/email.routes.js';
+import { startAppointmentStatusJob } from './services/appointmentStatusJob.js';
 
 dotenv.config();
 
@@ -74,6 +76,7 @@ app.use('/api/report',               tenantStack, reportRoutes);
 app.use('/api/analytics',            tenantStack, analyticsRoutes);
 app.use('/api/whatsapp',             tenantStack, whatsappRoutes);
 app.use('/api/feedback',             tenantStack, feedbackRoutes);
+app.use('/api/email',                tenantStack, emailRoutes);
 
 
 // Global error handler
@@ -90,6 +93,8 @@ async function startServer() {
     await connectAnalyticsDb();
     app.listen(PORT, () => {
       console.log(`🚀 DMS Multi-Tenant Backend running on port ${PORT}`);
+      // Start background appointment status transitions
+      startAppointmentStatusJob();
     });
   } catch (err) {
     console.error('❌ PANIC: Could not connect to Analytics DB. Server aborted.', err.message);

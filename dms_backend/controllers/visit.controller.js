@@ -77,8 +77,29 @@ export async function getPatientHistory(req, res) {
   try {
     const visits = await Visit.find({ patient_id: req.params.id })
       .populate('appointment_id')
+      .populate('treatments.invoice_id',    'status paid_amount total_amount')
+      .populate('prescriptions.invoice_id', 'status paid_amount total_amount')
       .sort({ date: -1 });
     res.json(visits);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+}
+
+// PATCH /api/visits/:id  (generic top-level field updates, e.g. chief_complaint)
+export async function updateVisit(req, res) {
+  const { Visit } = req.tenantModels;
+  try {
+    // Whitelist only safe top-level scalar fields to prevent overwriting subdoc arrays
+    const ALLOWED = ['chief_complaint', 'notes', 'ai_transcript'];
+    const updates = {};
+    for (const key of ALLOWED) {
+      if (key in req.body) updates[key] = req.body[key];
+    }
+    if (Object.keys(updates).length === 0)
+      return res.status(400).json({ error: 'No valid fields to update' });
+
+    const visit = await Visit.findByIdAndUpdate(req.params.id, { $set: updates }, { new: true });
+    if (!visit) return res.status(404).json({ error: 'Visit not found' });
+    res.json(visit);
   } catch (err) { res.status(500).json({ error: err.message }); }
 }
 
@@ -412,6 +433,37 @@ export async function updateTreatmentStatus(req, res) {
     res.json(visit);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+}
+
+// PUT /api/visits/:visitId/treatments/:treatmentId
+export async function updateTreatment(req, res) {
+  const { Visit } = req.tenantModels;
+  try {
+    const { visitId, treatmentId } = req.params;
+    const { treatment_name, cost, qty, teeth_numbers, status } = req.body;
+
+    const updateObj = {};
+    if (treatment_name !== undefined) updateObj['treatments.$.treatment_name'] = treatment_name;
+    if (cost !== undefined) updateObj['treatments.$.cost'] = cost;
+    if (qty !== undefined) updateObj['treatments.$.qty'] = qty;
+    if (teeth_numbers !== undefined) updateObj['treatments.$.teeth_numbers'] = teeth_numbers;
+    if (status !== undefined) updateObj['treatments.$.status'] = status;
+
+    if (Object.keys(updateObj).length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    const visit = await Visit.findOneAndUpdate(
+      { _id: visitId, 'treatments._id': treatmentId },
+      { $set: updateObj },
+      { new: true }
+    );
+
+    if (!visit) return res.status(404).json({ error: 'Visit or Treatment not found' });
+    res.json(visit);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 }
 

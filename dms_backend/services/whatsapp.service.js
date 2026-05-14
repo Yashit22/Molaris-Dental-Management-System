@@ -10,20 +10,35 @@
  * - Scheduling calculations use UTC for consistency
  */
 
+// ─── Phone normalizer ─────────────────────────────────────────────────────────
+// Ensures every number sent to WAAPI has the Indian country code 91 prepended.
+// Handles: 10-digit bare, +91XXXXXXXXXX, 91XXXXXXXXXX, hyphenated variants.
+export function normalizePhone(phone) {
+  if (!phone) return phone;
+  const digits = String(phone).replace(/\D/g, '');
+  if (digits.startsWith('91') && digits.length === 12) return digits;
+  if (digits.length === 10) return '91' + digits;
+  if (digits.length === 12) return '91' + digits.slice(-10); // wrong prefix
+  return digits;
+}
+
 // ─── Timezone helpers ─────────────────────────────────────────────────────────
 
 function formatDateIST(date) {
-  // Convert UTC date to IST (UTC+5:30) for display in message templates
-  const utcDate = new Date(date);
-  const istDate = new Date(utcDate.getTime() + (5.5 * 60 * 60 * 1000));
-  return istDate.toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' });
+  // Format the UTC instant in IST using an explicit timeZone — do NOT manually
+  // shift the millisecond value, otherwise toLocaleString applies the host's
+  // own timezone on top and the result becomes host-dependent.
+  return new Date(date).toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric', month: 'long', day: 'numeric'
+  });
 }
 
 function formatTimeIST(date) {
-  // Convert UTC date to IST (UTC+5:30) for display in message templates
-  const utcDate = new Date(date);
-  const istDate = new Date(utcDate.getTime() + (5.5 * 60 * 60 * 1000));
-  return istDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return new Date(date).toLocaleTimeString('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  });
 }
 
 // ─── Placeholder replacement ──────────────────────────────────────────────────
@@ -237,13 +252,15 @@ export async function buildMessage(tenantModels, tenantId, eventType, data, expl
 
 export async function sendToWAAPI(payload, waapiBaseUrl) {
   const waapiPayload = {
-    tenantId:    payload.tenantId,
-    to:          payload.to,
-    messageType: payload.messageType || 'general',
-    contentType: payload.contentType,
-    content:     payload.content,
-    message:     payload.message, // for legacy calls that pass message directly
-    scheduledAt: payload.scheduledAt || null,
+    tenantId:      payload.tenantId,
+    to:            payload.to,
+    messageType:   payload.messageType || 'general',
+    contentType:   payload.contentType,
+    content:       payload.content,
+    message:       payload.message, // for legacy calls that pass message directly
+    scheduledAt:   payload.scheduledAt || null,
+    patientId:     payload.patientId     || undefined,
+    appointmentId: payload.appointmentId || undefined,
   };
 
   // Ensure content exists for structured messages
@@ -301,6 +318,7 @@ export async function triggerJourney(tenantModels, tenantId, waapiBaseUrl, patie
   const { WhatsAppSettings, TreatmentJourney, WhatsAppLog } = tenantModels;
   try {
     if (!waapiBaseUrl) return;
+    patientPhone = normalizePhone(patientPhone);
 
     const settings = await WhatsAppSettings.findOne({}).lean();
     if (!settings?.enabled) return;
@@ -387,11 +405,12 @@ export async function triggerJourney(tenantModels, tenantId, waapiBaseUrl, patie
  * @param {string} [explicitLang]
  * @param {Date|string} [appointmentStartTime] appointment start for reminder scheduling
  */
-export async function triggerWhatsApp(tenantModels, tenantId, waapiBaseUrl, eventType, patientPhone, data, patientId, explicitLang, appointmentStartTime) {
+export async function triggerWhatsApp(tenantModels, tenantId, waapiBaseUrl, eventType, patientPhone, data, patientId, explicitLang, appointmentStartTime, appointmentId) {
   const { WhatsAppLog } = tenantModels;
   let payload = null;
   try {
-    console.log(`[WhatsApp] triggerWhatsApp called: event=${eventType}, phone=${patientPhone}, waapiUrl=${waapiBaseUrl}`);
+    const phone = normalizePhone(patientPhone);
+    console.log(`[WhatsApp] triggerWhatsApp called: event=${eventType}, phone=${phone} (raw=${patientPhone}), waapiUrl=${waapiBaseUrl}`);
     if (!waapiBaseUrl) {
       console.log('[WhatsApp] WAAPI_BASE_URL not configured, skipping');
       return;
@@ -405,6 +424,9 @@ export async function triggerWhatsApp(tenantModels, tenantId, waapiBaseUrl, even
     console.log(`[WhatsApp] Built payload for ${eventType}, scheduledAt=${payload.scheduledAt}`);
 
     payload.to = patientPhone;
+    if (patientId)     payload.patientId     = patientId;
+    if (appointmentId) payload.appointmentId = appointmentId;
+
     console.log(`[WhatsApp] Sending to WAAPI: ${waapiBaseUrl}/messages/send`);
     const waapiResponse = await sendToWAAPI(payload, waapiBaseUrl);
     console.log(`[WhatsApp] WAAPI response for ${eventType}:`, waapiResponse);

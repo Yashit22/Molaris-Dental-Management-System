@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 
 const PatientSchema = new mongoose.Schema({
   // --- IDENTIFIERS ---
-  patientId: { type: String, required: true, unique: true, index: true }, // e.g. "PID-2025-001"
+  patientId: { type: String, required: true, unique: true, index: true }, // e.g. "PID-2026-0001" (year-scoped, 4-digit counter resets annually)
   
   // --- DEMOGRAPHICS ---
   first_name: { type: String, required: true },
@@ -29,8 +29,13 @@ const PatientSchema = new mongoose.Schema({
   // Matches the "Medical History" tags in Profile Modal
   medical_history: [{ type: String }], // e.g. ["Diabetes", "BP High"]
   allergies: [{ type: String }],       // e.g. ["Penicillin", "Latex"]
-  chief_complaint: { type: String, default: '' },
   dental_history:  { type: String, default: '' },
+
+  // --- LIFESTYLE HABITS ---
+  tobacco_smoking: { type: Boolean, default: false },
+  tobacco_smokeless: { type: Boolean, default: false },
+  tea_consumption: { type: String, default: '' }, // e.g. "None", "1 cup", "2-3 cups", etc.
+  coffee_consumption: { type: String, default: '' }, // e.g. "None", "1 cup", "2-3 cups", etc.
   
   // --- META ---
   reference_source: { type: String }, // Who referred them?

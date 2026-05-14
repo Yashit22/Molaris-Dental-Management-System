@@ -1,28 +1,31 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Printer, FileText, Monitor, Phone,
-  MapPin, User, Plus, ChevronDown, NotebookPen, Pill, TestTube, Loader2, Save, Edit2, Receipt, Mic
+  MapPin, User, Plus, ChevronDown, X, NotebookPen, Pill, TestTube, Loader2, Save, Edit2, Receipt, Mic, AlertTriangle
 } from 'lucide-react';
 
 // --- IMPORTS ---
 import API from '../services/api';
-import { useAuth } from '../Context/AuthContext';
-import { useTreatment } from '../Context/TreatmentContext';
-import PatientProfileModal from '../modals/PatientProfileModal';
-import RichTextEditorModal from '../modals/RichTextEditorModal';
-import PrescriptionModal from '../modals/PrescriptionModal';
-import NewInvoiceModal from '../modals/NewInvoiceModal';
-import ClinicalReportModal from '../modals/ClinicalReportModal';
-import TreatmentTabs from '../components/TreatmentTabs';
-import TreatmentPlanBoard from '../components/TreatmentPlanBoard';
-import ReportsNotesSection from '../components/ReportNotesSection';
-import AppointmentTimeline from '../components/AppointmentTimeline';
-import InventoryConsumption from '../components/InventoryConsumption';
+import { useAuth } from '../Context/AuthContext.jsx';
+import { useTreatment } from '../Context/TreatmentContext.jsx';
+import PatientProfileModal from '../modals/PatientProfileModal.jsx';
+import RichTextEditorModal from '../modals/RichTextEditorModal.jsx';
+import PrescriptionModal from '../modals/PrescriptionModal.jsx';
+import NewInvoiceModal from '../modals/NewInvoiceModal.jsx';
+import ClinicalReportModal from '../modals/ClinicalReportModal.jsx';
+import TreatmentTabs from '../components/TreatmentTabs.jsx';
+import TreatmentPlanBoard from '../components/TreatmentPlanBoard.jsx';
+import ReportsNotesSection from '../components/ReportNotesSection.jsx';
+import AppointmentTimeline from '../components/AppointmentTimeline.jsx';
+import InventoryConsumption from '../components/InventoryConsumption.jsx';
+import { useInventorySettings } from '../Context/SettingsContext.jsx';
+import SendMailDropdown from '../components/SendMailDropdown.jsx';
 
 // --- Sub-Components ---
 
 // Updated to accept onViewProfile prop and appointments
+// eslint-disable-next-line react/prop-types
 const PatientInfoCard = ({ patient, onViewProfile, appointments = [] }) => {
   // Handle Loading/Empty State
   if (!patient) {
@@ -39,55 +42,60 @@ const PatientInfoCard = ({ patient, onViewProfile, appointments = [] }) => {
   const visitType = latestAppointment?.type || '-';
 
   return (
-    <div className="p-5 bg-white rounded-xl relative shadow-sm border border-gray-100 mb-6">
-      <div className="absolute top-0 left-5 bg-blue-50 text-blue-600 px-3 py-1.5 rounded-b-md text-sm font-medium">
+    <div className="p-4 sm:p-5 bg-white rounded-xl relative shadow-sm border border-gray-100 mb-3">
+      <div className="absolute top-0 left-4 sm:left-5 bg-blue-50 text-blue-600 px-3 py-1 rounded-b-md text-xs sm:text-sm font-medium">
         Patient Profile
       </div>
-      
-      <div className="pt-8 flex flex-col gap-6">
-        <div className="flex justify-between flex-wrap gap-5">
-          <h2 className="font-semibold text-2xl text-gray-800 capitalize">{fullName}</h2>
-          <div className="flex flex-wrap gap-5 items-center text-gray-600">
-            <div className="flex gap-2 items-center">
-              <MapPin size={18} /> <span>{patient.contact?.city || 'N/A'}</span>
+
+      <div className="pt-7 sm:pt-8 flex flex-col gap-3 sm:gap-5">
+        {/* Name row */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-col gap-1 min-w-0">
+            <h2 className="font-semibold text-xl sm:text-2xl text-gray-800 capitalize truncate">{fullName}</h2>
+            <div className="flex flex-wrap gap-2 sm:gap-4 items-center text-gray-500 text-xs sm:text-sm">
+              <span className="flex gap-1 items-center"><MapPin size={12} /> {patient.contact?.city || 'N/A'}</span>
+              <span className="flex gap-1 items-center"><Phone size={12} /> {patient.contact?.mobile || '--'}</span>
+              <span className="flex gap-1 items-center"><User size={12} /> {patient.gender}</span>
             </div>
-            <div className="flex gap-2 items-center">
-              <Phone size={18} /> <span>{patient.contact?.mobile || '--'}</span>
-            </div>
-            <div className="flex gap-2 items-center">
-              <User size={18} /> <span>{patient.gender}</span>
-            </div>
-            
-            {/* ACTION BUTTON LINKED TO MODAL */}
-            <button 
-              onClick={onViewProfile}
-              className="px-3 py-1.5 border border-[#137fec] text-[#137fec] rounded-md text-sm font-medium hover:bg-[#137fec] hover:text-white transition-colors"
-            >
-              View Profile
-            </button>
           </div>
+          <button
+            onClick={onViewProfile}
+            className="flex-shrink-0 px-2.5 sm:px-3 py-1.5 border border-[#137fec] text-[#137fec] rounded-md text-xs sm:text-sm font-medium hover:bg-[#137fec] hover:text-white transition-colors"
+          >
+            View Profile
+          </button>
         </div>
 
-        <div className="border-t border-gray-200 w-full"></div>
+        {/* Chief Complaint */}
+        {patient.chief_complaint && (
+          <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 sm:px-4 py-2.5">
+            <AlertTriangle size={14} className="text-red-500 mt-0.5 flex-shrink-0" />
+            <div>
+              <span className="text-xs font-bold text-red-500 uppercase tracking-wide">Chief Complaint</span>
+              <p className="text-sm text-red-800 font-medium mt-0.5">{patient.chief_complaint}</p>
+            </div>
+          </div>
+        )}
 
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-5">
+        <div className="border-t border-gray-100 w-full" />
+
+        {/* Stats grid — 3 cols on mobile, 6 on desktop */}
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 sm:gap-5">
           {[
-            { label: "Gender", value: patient.gender },
-            { label: "Age", value: `${age} Yrs` },
-            { label: "Patient ID", value: patient.patientId || patient._id?.slice(-6).toUpperCase() },
-            { label: "Blood Group", value: patient.blood_group || '-' },
-            { label: "Reg Date", value: new Date(patient.createdAt).toLocaleDateString() },
+            { label: 'Gender',      value: patient.gender },
+            { label: 'Age',         value: `${age} Yrs` },
+            { label: 'Patient ID',  value: patient.patientId || patient._id?.slice(-6).toUpperCase() },
+            { label: 'Blood Group', value: patient.blood_group || '-' },
+            { label: 'Reg Date',    value: new Date(patient.createdAt).toLocaleDateString() },
           ].map((item, idx) => (
-            <div key={idx} className="flex flex-col gap-1">
-              <p className="text-sm text-gray-400">{item.label}</p>
-              <p className="font-medium text-gray-800">{item.value}</p>
+            <div key={idx} className="flex flex-col gap-0.5">
+              <p className="text-[10px] text-gray-400 uppercase tracking-wide">{item.label}</p>
+              <p className="font-medium text-gray-800 text-xs sm:text-sm truncate">{item.value}</p>
             </div>
           ))}
-          <div className="flex flex-col gap-1">
-              <p className="text-sm text-gray-400">Visit Type</p>
-              <div className="flex items-center gap-2">
-                 <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded border border-blue-100 font-medium capitalize">{visitType}</span>
-              </div>
+          <div className="flex flex-col gap-0.5">
+            <p className="text-[10px] text-gray-400 uppercase tracking-wide">Visit Type</p>
+            <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100 font-medium capitalize self-start">{visitType}</span>
           </div>
         </div>
       </div>
@@ -95,58 +103,91 @@ const PatientInfoCard = ({ patient, onViewProfile, appointments = [] }) => {
   );
 };
 
-const ClinicalHistory = ({ patient, onSaveHistory }) => {
+const ClinicalHistory = ({ patient, currentVisit, onSaveHistory, onSaveVisitComplaint }) => {
   // Local state for editing fields
   const [formData, setFormData] = useState({
     chief_complaint: '',
-    medical_history: [], // Array of strings
-    dental_history: ''
+    medical_history: [],
+    dental_history: '',
+    tobacco_smoking: false,
+    tobacco_smokeless: false,
+    tea_consumption: '',
+    coffee_consumption: '',
+    dentition_type: 'Adult'
   });
   const [isEditing, setIsEditing] = useState(false);
+  const [saveStatus, setSaveStatus] = useState(null); // 'saving' | 'saved' | 'error'
 
-  // Initialize data from patient prop
+  // Initialize data from patient prop and current visit
   useEffect(() => {
     if (patient) {
       setFormData({
-        chief_complaint: patient.chief_complaint || '',
+        // chief_complaint comes from the current visit, not the patient
+        chief_complaint: currentVisit?.chief_complaint || '',
         medical_history: patient.medical_history || [],
-        dental_history: patient.dental_history || ''
+        dental_history: patient.dental_history || '',
+        tobacco_smoking: patient.tobacco_smoking || false,
+        tobacco_smokeless: patient.tobacco_smokeless || false,
+        tea_consumption: patient.tea_consumption || '',
+        coffee_consumption: patient.coffee_consumption || '',
+        dentition_type: patient.dentition_type || 'Adult'
       });
     }
-  }, [patient]);
+  }, [patient, currentVisit]);
 
-  const handleSave = () => {
-    onSaveHistory(formData);
+  const handleSave = async () => {
+    // 1. Save medical_history, dental_history, lifestyle habits, and dentition type to patient
+    onSaveHistory({
+      medical_history: formData.medical_history,
+      dental_history: formData.dental_history,
+      tobacco_smoking: formData.tobacco_smoking,
+      tobacco_smokeless: formData.tobacco_smokeless,
+      tea_consumption: formData.tea_consumption,
+      coffee_consumption: formData.coffee_consumption,
+      dentition_type: formData.dentition_type
+    });
+    // 2. Save chief_complaint to current visit (if a visit exists)
+    if (currentVisit?._id) {
+      await onSaveVisitComplaint(currentVisit._id, formData.chief_complaint);
+    }
     setIsEditing(false);
   };
 
   const handleMedicalHistoryChange = (e) => {
-      // Split comma-separated string into array for backend
-      const val = e.target.value;
-      setFormData({...formData, medical_history: val ? val.split(',').map(s => s.trim()) : []});
+    const val = e.target.value;
+    setFormData({ ...formData, medical_history: val ? val.split(',').map(s => s.trim()) : [] });
   };
 
   return (
-    <div className="p-5 bg-white rounded-xl shadow-sm border border-gray-100 mb-6 relative group">
-      {/* Edit/Save Controls */}
-      <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-         {isEditing ? (
-             <button onClick={handleSave} className="flex items-center gap-1 px-3 py-1.5 bg-green-50 text-green-600 rounded-md text-xs font-bold border border-green-200 hover:bg-green-100">
-                 <Save size={14} /> Save Changes
-             </button>
-         ) : (
-             <button onClick={() => setIsEditing(true)} className="flex items-center gap-1 px-3 py-1.5 bg-slate-50 text-slate-500 rounded-md text-xs font-bold border border-slate-200 hover:bg-slate-100">
-                 <NotebookPen size={14} /> Edit History
-             </button>
-         )}
+    <div className="p-5 bg-white rounded-xl shadow-sm border border-gray-100 mb-6 relative">
+      {/* Always-visible edit/save controls */}
+      <div className="absolute top-4 right-4 flex items-center gap-2">
+        {saveStatus === 'saved' && <span className="text-xs text-green-600 font-medium">✓ Saved</span>}
+        {saveStatus === 'error' && <span className="text-xs text-red-500 font-medium">Save failed</span>}
+        {isEditing ? (
+          <button
+            onClick={handleSave}
+            disabled={saveStatus === 'saving'}
+            className="flex items-center gap-1 px-3 py-1.5 bg-green-50 text-green-600 rounded-md text-xs font-bold border border-green-200 hover:bg-green-100 disabled:opacity-60"
+          >
+            <Save size={14} /> {saveStatus === 'saving' ? 'Saving…' : 'Save Changes'}
+          </button>
+        ) : (
+          <button onClick={() => setIsEditing(true)} className="flex items-center gap-1 px-3 py-1.5 bg-slate-50 text-slate-500 rounded-md text-xs font-bold border border-slate-200 hover:bg-slate-100">
+            <NotebookPen size={14} /> Edit History
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="flex flex-col gap-5">
           
-          {/* 1. Chief Complaint */}
+          {/* 1. Chief Complaint — per visit */}
           <div className="flex flex-col gap-2">
-            <label className="font-semibold text-gray-700">Chief Complaints</label>
+            <div className="flex items-center gap-2">
+              <label className="font-semibold text-gray-700">Chief Complaints</label>
+              <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-500 border border-blue-100 rounded font-medium">This Visit</span>
+            </div>
             {isEditing ? (
                 <textarea 
                     className="w-full border border-gray-300 rounded-md p-2 text-sm focus:outline-none focus:border-[#137fec] resize-none"
@@ -190,7 +231,7 @@ const ClinicalHistory = ({ patient, onSaveHistory }) => {
           <div className="flex flex-col gap-2">
             <label className="font-semibold text-gray-700">Dental History</label>
             {isEditing ? (
-                <textarea 
+                <textarea
                     className="w-full border border-gray-300 rounded-md p-2 text-sm focus:outline-none focus:border-[#137fec] resize-none"
                     rows={2}
                     value={formData.dental_history}
@@ -200,6 +241,105 @@ const ClinicalHistory = ({ patient, onSaveHistory }) => {
             ) : (
                 <div className="p-2 bg-slate-50 rounded-md text-sm text-gray-700 min-h-[40px] flex items-center">
                     {formData.dental_history || <span className="text-gray-400 italic">No record</span>}
+                </div>
+            )}
+          </div>
+
+        </div>
+
+        {/* Right Column: Dentition Type & Lifestyle Habits */}
+        <div className="flex flex-col gap-5">
+
+          {/* 4. Dentition Type */}
+          <div className="flex flex-col gap-2">
+            <label className="font-semibold text-gray-700">Dentition Type</label>
+            {isEditing ? (
+                <div className="relative">
+                  <select
+                    value={formData.dentition_type}
+                    onChange={(e) => setFormData({...formData, dentition_type: e.target.value})}
+                    className="w-full border border-gray-300 rounded-md p-2 text-sm focus:outline-none focus:border-[#137fec] bg-white cursor-pointer"
+                  >
+                    <option value="Adult">Adult</option>
+                    <option value="Pedo">Pedo (Pediatric)</option>
+                    <option value="Mixed">Mixed</option>
+                  </select>
+                </div>
+            ) : (
+                <div className="p-2 bg-slate-50 rounded-md text-sm text-gray-700 min-h-[40px] flex items-center">
+                  {formData.dentition_type === 'Pedo' ? 'Pedo (Pediatric)' : formData.dentition_type}
+                </div>
+            )}
+          </div>
+
+          {/* 5. Tobacco Consumption */}
+          <div className="flex flex-col gap-2">
+            <label className="font-semibold text-gray-700">Tobacco Consumption</label>
+            {isEditing ? (
+                <div className="flex flex-col gap-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.tobacco_smoking}
+                      onChange={(e) => setFormData({...formData, tobacco_smoking: e.target.checked})}
+                      className="w-4 h-4 rounded border-gray-300 cursor-pointer"
+                    />
+                    <span className="text-sm text-gray-700">Smoking</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.tobacco_smokeless}
+                      onChange={(e) => setFormData({...formData, tobacco_smokeless: e.target.checked})}
+                      className="w-4 h-4 rounded border-gray-300 cursor-pointer"
+                    />
+                    <span className="text-sm text-gray-700">Smokeless (Chewing/Snuff)</span>
+                  </label>
+                </div>
+            ) : (
+                <div className="flex flex-wrap gap-2 min-h-[40px] items-center">
+                  {formData.tobacco_smoking || formData.tobacco_smokeless ? (
+                    <>
+                      {formData.tobacco_smoking && <span className="px-2 py-1 bg-orange-50 text-orange-600 rounded text-xs border border-orange-100 font-medium">Smoking</span>}
+                      {formData.tobacco_smokeless && <span className="px-2 py-1 bg-orange-50 text-orange-600 rounded text-xs border border-orange-100 font-medium">Smokeless</span>}
+                    </>
+                  ) : <span className="text-gray-400 italic text-sm">None</span>}
+                </div>
+            )}
+          </div>
+
+          {/* 6. Tea Consumption */}
+          <div className="flex flex-col gap-2">
+            <label className="font-semibold text-gray-700">Tea Consumption</label>
+            {isEditing ? (
+                <input
+                    type="text"
+                    className="w-full border border-gray-300 rounded-md p-2 text-sm focus:outline-none focus:border-[#137fec]"
+                    value={formData.tea_consumption}
+                    onChange={(e) => setFormData({...formData, tea_consumption: e.target.value})}
+                    placeholder="e.g. 1-2 cups daily, None, Occasional"
+                />
+            ) : (
+                <div className="p-2 bg-slate-50 rounded-md text-sm text-gray-700 min-h-[40px] flex items-center">
+                    {formData.tea_consumption || <span className="text-gray-400 italic">No record</span>}
+                </div>
+            )}
+          </div>
+
+          {/* 7. Coffee Consumption */}
+          <div className="flex flex-col gap-2">
+            <label className="font-semibold text-gray-700">Coffee Consumption</label>
+            {isEditing ? (
+                <input
+                    type="text"
+                    className="w-full border border-gray-300 rounded-md p-2 text-sm focus:outline-none focus:border-[#137fec]"
+                    value={formData.coffee_consumption}
+                    onChange={(e) => setFormData({...formData, coffee_consumption: e.target.value})}
+                    placeholder="e.g. 1 cup daily, None, Occasional"
+                />
+            ) : (
+                <div className="p-2 bg-slate-50 rounded-md text-sm text-gray-700 min-h-[40px] flex items-center">
+                    {formData.coffee_consumption || <span className="text-gray-400 italic">No record</span>}
                 </div>
             )}
           </div>
@@ -511,13 +651,20 @@ const Medications = ({ visits = [], patientId, onRefresh }) => {
                   <td className="py-2 text-slate-600">{p.instructions || '-'}</td>
                   <td className="py-2 text-slate-400 text-xs">{formatVisitDate(p.visitDate)}</td>
                   <td className="py-2">
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
-                      p.invoice_id
-                        ? 'bg-green-50 text-green-600 border-green-100'
-                        : 'bg-orange-50 text-orange-500 border-orange-100'
-                    }`}>
-                      {p.invoice_id ? 'Paid' : 'Unpaid'}
-                    </span>
+                    {(() => {
+                      const inv = p.invoice_id;
+                      const isPaid    = inv?.status === 'Paid';
+                      const isPartial = inv && !isPaid;
+                      return (
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                          isPaid    ? 'bg-green-50 text-green-600 border-green-100'
+                          : isPartial ? 'bg-yellow-50 text-yellow-600 border-yellow-100'
+                          : 'bg-orange-50 text-orange-500 border-orange-100'
+                        }`}>
+                          {isPaid ? 'Paid' : isPartial ? 'Partial' : 'Unpaid'}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td className="py-2">
                     <button
@@ -578,6 +725,15 @@ const LabOrders = ({ patientId, onRefresh, onOrdersLoaded }) => {
     }).catch(() => {});
   }, [patientId]);
 
+  const handleItemSelect = (itemName) => {
+    const selectedItem = catalogItems.find(item => item.name === itemName);
+    const newForm = { ...form, item_name: itemName };
+    if (selectedItem && selectedItem.price) {
+      newForm.cost_to_clinic = selectedItem.price;
+    }
+    setForm(newForm);
+  };
+
   const handleAdd = async () => {
     if (!form.item_name.trim()) return;
     setSaving(true);
@@ -628,7 +784,7 @@ const LabOrders = ({ patientId, onRefresh, onOrdersLoaded }) => {
                 className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#137fec]"
                 placeholder="Type or select lab item..."
                 value={form.item_name}
-                onChange={e => setForm({ ...form, item_name: e.target.value })}
+                onChange={e => handleItemSelect(e.target.value)}
               />
               <datalist id="lab-catalog-items">
                 {catalogItems.map(item => <option key={item._id} value={item.name} />)}
@@ -719,13 +875,20 @@ const LabOrders = ({ patientId, onRefresh, onOrdersLoaded }) => {
                   {order.cost_to_clinic > 0 && (
                     <span className="text-xs text-slate-500">₹{order.cost_to_clinic}</span>
                   )}
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
-                    order.invoice_id
-                      ? 'bg-green-50 text-green-600 border-green-100'
-                      : 'bg-orange-50 text-orange-500 border-orange-100'
-                  }`}>
-                    {order.invoice_id ? 'Paid' : 'Unpaid'}
-                  </span>
+                  {(() => {
+                    const inv = order.invoice_id;
+                    const isPaid    = inv?.status === 'Paid';
+                    const isPartial = inv && !isPaid;
+                    return (
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                        isPaid    ? 'bg-green-50 text-green-600 border-green-100'
+                        : isPartial ? 'bg-yellow-50 text-yellow-600 border-yellow-100'
+                        : 'bg-orange-50 text-orange-500 border-orange-100'
+                      }`}>
+                        {isPaid ? 'Paid' : isPartial ? 'Partial' : 'Unpaid'}
+                      </span>
+                    );
+                  })()}
                   <select
                     value={order.status}
                     onChange={e => handleStatusChange(order._id, e.target.value)}
@@ -864,12 +1027,219 @@ const AdvicesRecall = ({ visits, patientId, patient, onRefresh, onSelectDate }) 
 
 // --- MAIN PAGE COMPONENT ---
 
+// eslint-disable-next-line react/prop-types
+function Section({ number, title, description, defaultOpen = false, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="mb-3">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-3 px-4 py-3 bg-white rounded-xl border border-slate-100 shadow-sm text-left hover:bg-slate-50 transition-colors"
+      >
+        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-[#137fec] text-white text-xs font-bold flex items-center justify-center">{number}</span>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-slate-800 text-sm">{title}</p>
+          {description && <p className="text-xs text-slate-400 mt-0.5 hidden sm:block">{description}</p>}
+        </div>
+        <ChevronDown size={16} className={`flex-shrink-0 text-slate-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && <div className="mt-3 space-y-3">{children}</div>}
+    </div>
+  );
+}
+
+// eslint-disable-next-line react/prop-types
+function MobileActionBar({ onConclude, onPrescription, onInvoice, patientId, patient }) {
+  const [open, setOpen]       = useState(false);
+  const [pos, setPos]         = useState(() => ({
+    x: Math.max(0, window.innerWidth / 2 - 28),
+    y: window.innerHeight - 100,
+  }));
+  const [dragging, setDragging] = useState(false);
+  const startRef  = useRef(null);
+  const movedRef  = useRef(false);
+
+  const onMouseDown = useCallback((e) => {
+    e.preventDefault();
+    movedRef.current = false;
+    startRef.current = { mouseX: e.clientX, mouseY: e.clientY, elX: pos.x, elY: pos.y };
+    setDragging(true);
+  }, [pos]);
+
+  const onTouchStart = useCallback((e) => {
+    const t = e.touches[0];
+    movedRef.current = false;
+    startRef.current = { mouseX: t.clientX, mouseY: t.clientY, elX: pos.x, elY: pos.y };
+    setDragging(true);
+  }, [pos]);
+
+  useEffect(() => {
+    if (!dragging) return;
+    const SIZE = 56;
+    const move = (cx, cy) => {
+      const dx = cx - startRef.current.mouseX;
+      const dy = cy - startRef.current.mouseY;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+        movedRef.current = true;
+        setOpen(false);
+      }
+      setPos({
+        x: Math.max(0, Math.min(window.innerWidth  - SIZE, startRef.current.elX + dx)),
+        y: Math.max(0, Math.min(window.innerHeight - SIZE, startRef.current.elY + dy)),
+      });
+    };
+    const onMouseMove = (e) => move(e.clientX, e.clientY);
+    const onTouchMove = (e) => { e.preventDefault(); move(e.touches[0].clientX, e.touches[0].clientY); };
+    const stop = () => setDragging(false);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup',   stop);
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend',  stop);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup',   stop);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend',  stop);
+    };
+  }, [dragging]);
+
+  return (
+    <div className="sm:hidden">
+      {open && (
+        <div className="fixed inset-0 z-30 bg-black/40" onClick={() => setOpen(false)} />
+      )}
+      <div
+        style={{ position: 'fixed', left: pos.x, top: pos.y, zIndex: 40, touchAction: 'none' }}
+        className="flex flex-col items-center gap-2"
+      >
+        {open && (
+          <div className="flex flex-col items-end gap-2 mb-1 w-52" style={{ position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)', paddingBottom: 8 }}>
+            <button
+              onClick={() => { onConclude(); setOpen(false); }}
+              className="w-full flex items-center gap-2 px-4 py-2.5 bg-white border-2 border-red-300 text-red-600 font-semibold rounded-xl shadow-lg text-sm"
+            >
+              ✓ Conclude Appointment
+            </button>
+            <div className="w-full" onClick={() => setOpen(false)}>
+              <SendMailDropdown patientId={patientId} patient={patient} fullWidth />
+            </div>
+            <button
+              onClick={() => { onPrescription(); setOpen(false); }}
+              className="w-full flex items-center gap-2 px-4 py-2.5 bg-white border border-[#137fec] text-[#137fec] font-semibold rounded-xl shadow-lg text-sm"
+            >
+              <FileText size={16} /> Prescription
+            </button>
+            <button
+              onClick={() => { onInvoice(); setOpen(false); }}
+              className="w-full flex items-center gap-2 px-4 py-2.5 bg-[#137fec] text-white font-semibold rounded-xl shadow-lg text-sm"
+            >
+              <Receipt size={16} /> Generate Invoice
+            </button>
+          </div>
+        )}
+        <button
+          onMouseDown={onMouseDown}
+          onTouchStart={onTouchStart}
+          onClick={() => { if (!movedRef.current) setOpen(o => !o); }}
+          className={`w-14 h-14 rounded-full bg-[#137fec] text-white shadow-xl shadow-blue-400/40 flex items-center justify-center transition-transform active:scale-95 ${dragging ? 'cursor-grabbing scale-110' : 'cursor-grab'}`}
+        >
+          {open ? <X size={22} /> : <Plus size={22} />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// eslint-disable-next-line react/prop-types
+function MolarisFAB({ onOpen }) {
+  const [pos, setPos]         = useState(() => ({
+    x: window.innerWidth - 88,
+    y: Math.max(80, window.innerHeight / 2 - 32),
+  }));
+  const [dragging, setDragging] = useState(false);
+  const [showTip, setShowTip]   = useState(false);
+  const dragRef   = useRef(null);
+  const startRef  = useRef(null); // { mouseX, mouseY, elX, elY }
+  const movedRef  = useRef(false);
+
+  const onMouseDown = useCallback((e) => {
+    e.preventDefault();
+    movedRef.current = false;
+    startRef.current = { mouseX: e.clientX, mouseY: e.clientY, elX: pos.x, elY: pos.y };
+    setDragging(true);
+  }, [pos]);
+
+  const onTouchStart = useCallback((e) => {
+    const t = e.touches[0];
+    movedRef.current = false;
+    startRef.current = { mouseX: t.clientX, mouseY: t.clientY, elX: pos.x, elY: pos.y };
+    setDragging(true);
+  }, [pos]);
+
+  useEffect(() => {
+    if (!dragging) return;
+    const SIZE = 64;
+
+    const move = (cx, cy) => {
+      const dx = cx - startRef.current.mouseX;
+      const dy = cy - startRef.current.mouseY;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) movedRef.current = true;
+      setPos({
+        x: Math.max(0, Math.min(window.innerWidth  - SIZE, startRef.current.elX + dx)),
+        y: Math.max(0, Math.min(window.innerHeight - SIZE, startRef.current.elY + dy)),
+      });
+    };
+
+    const onMouseMove = (e) => move(e.clientX, e.clientY);
+    const onTouchMove = (e) => { e.preventDefault(); move(e.touches[0].clientX, e.touches[0].clientY); };
+    const stop = () => setDragging(false);
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup',   stop);
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend',  stop);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup',   stop);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend',  stop);
+    };
+  }, [dragging]);
+
+  return (
+    <div
+      ref={dragRef}
+      style={{ position: 'fixed', left: pos.x, top: pos.y, zIndex: 50, touchAction: 'none' }}
+      className="group"
+      onMouseDown={onMouseDown}
+      onTouchStart={onTouchStart}
+    >
+      {/* Hover tooltip */}
+      <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1 bg-slate-900 text-white text-xs font-semibold rounded-lg whitespace-nowrap shadow-lg pointer-events-none transition-all duration-150 ${showTip && !dragging ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}>
+        Molaris TCO
+        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900" />
+      </div>
+
+      <button
+        onClick={() => { if (!movedRef.current) onOpen(); }}
+        onMouseEnter={() => setShowTip(true)}
+        onMouseLeave={() => setShowTip(false)}
+        className={`relative w-16 h-16 rounded-full bg-gradient-to-br from-violet-500 to-purple-700 text-white shadow-xl shadow-purple-400/50 flex items-center justify-center transition-all duration-200 ${dragging ? 'scale-110 shadow-purple-500/70 cursor-grabbing' : 'hover:scale-110 active:scale-95 cursor-grab'}`}
+      >
+        <span className="absolute inset-0 rounded-full bg-purple-500 opacity-25 animate-ping" />
+        <Mic size={26} />
+      </button>
+    </div>
+  );
+}
+
 export default function TreatmentPage({ patientIdProp }) {
   const { id: paramId } = useParams();
   const id = patientIdProp || paramId;
 
   const { user } = useAuth();
-  const { closeTreatment } = useTreatment();
+  const { closeTreatment, activeTreatment } = useTreatment();
+  const { inventorySettings } = useInventorySettings();
 
   const [patient, setPatient]               = useState(null);
   const [visits, setVisits]                 = useState([]);
@@ -884,6 +1254,12 @@ export default function TreatmentPage({ patientIdProp }) {
   const [viewingDate, setViewingDate]             = useState(null); // ISO date string or null (= today)
   const [showConcludeModal, setShowConcludeModal] = useState(false);
   const [concludingAppointment, setConcludingAppointment] = useState(null);
+  const [pageBanner, setPageBanner] = useState(null); // { type: 'success'|'error', msg: string }
+
+  const showBanner = (type, msg) => {
+    setPageBanner({ type, msg });
+    setTimeout(() => setPageBanner(null), 3500);
+  };
 
   // Central Data Fetch Function
   const fetchPageData = async () => {
@@ -913,13 +1289,24 @@ export default function TreatmentPage({ patientIdProp }) {
 
   const handleSaveHistory = async (updatedData) => {
       try {
+          // Only patient-level fields (NO chief_complaint)
           await API.put(`/patients/${id}`, updatedData);
-          // Optimistic update or refresh
           setPatient(prev => ({ ...prev, ...updatedData }));
           alert("Clinical History Updated");
       } catch (err) {
           console.error("Failed to update history", err);
           alert("Update failed");
+      }
+  };
+
+  const handleSaveVisitComplaint = async (visitId, chief_complaint) => {
+      try {
+          await API.patch(`/visits/${visitId}`, { chief_complaint });
+          // Optimistically update local visits state
+          setVisits(prev => prev.map(v => v._id === visitId ? { ...v, chief_complaint } : v));
+      } catch (err) {
+          console.error("Failed to update visit chief complaint", err);
+          alert("Failed to save Chief Complaint");
       }
   };
 
@@ -936,11 +1323,10 @@ export default function TreatmentPage({ patientIdProp }) {
       await fetchPageData();
       setShowConcludeModal(false);
       setConcludingAppointment(null);
-      alert('Appointment marked as completed');
       closeTreatment(true);
     } catch (err) {
       console.error('Error concluding appointment:', err);
-      alert('Failed to conclude appointment: ' + err.message);
+      showBanner('error', 'Failed to conclude appointment: ' + err.message);
       throw err;
     }
   };
@@ -962,106 +1348,107 @@ export default function TreatmentPage({ patientIdProp }) {
     ? new Date(viewingDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
     : null;
 
-  return (
-    <div className="min-h-screen bg-[#EBF2F7] px-4 font-sans pb-20">
-      <div className="max-w-7xl mx-auto pt-6">
-        
-        {/* Note: PatientHeader removed as requested */}
-        
-        {/* Pass 'onViewProfile' to open the modal and appointments for visit type */}
-        <PatientInfoCard
-            patient={patient}
-            onViewProfile={() => setIsProfileOpen(true)}
-            appointments={appointments}
-        />
+  const handleConclude = () => {
+    const apptId = activeTreatment?.appointmentId;
+    const activeAppt = apptId ? appointments.find(a => a._id === apptId) : null;
+    if (activeAppt) { setConcludingAppointment(activeAppt); setShowConcludeModal(true); }
+    else showBanner('error', 'No active appointment found for this patient.');
+  };
 
-        {/* "Viewing past date" banner */}
+  return (
+    <div className="min-h-screen bg-[#EBF2F7] px-3 sm:px-4 font-sans pb-32 sm:pb-24">
+      <div className="max-w-7xl mx-auto pt-4 sm:pt-6">
+
+        {/* Page banner */}
+        {pageBanner && (
+          <div className={`flex items-center gap-2 px-4 py-3 rounded-xl mb-4 text-sm font-medium border ${
+            pageBanner.type === 'success' ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'
+          }`}>
+            {pageBanner.type === 'success' ? '✓' : '✕'} {pageBanner.msg}
+          </div>
+        )}
+
+        <PatientInfoCard patient={patient} onViewProfile={() => setIsProfileOpen(true)} appointments={appointments} />
+
+        {/* Past date banner */}
         {viewingDate && (
-          <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 mb-6">
-            <p className="text-sm text-amber-800">
-              Viewing entries for <span className="font-semibold">{viewingDateLabel}</span>
-            </p>
-            <button
-              onClick={() => setViewingDate(null)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-amber-300 text-amber-700 rounded-lg text-xs font-semibold hover:bg-amber-100 transition-colors"
-            >
+          <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-3">
+            <p className="text-sm text-amber-800">Viewing <span className="font-semibold">{viewingDateLabel}</span></p>
+            <button onClick={() => setViewingDate(null)} className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-amber-300 text-amber-700 rounded-lg text-xs font-semibold hover:bg-amber-100 transition-colors">
               ← Back to Today
             </button>
           </div>
         )}
 
-        <ClinicalHistory
-            patient={patient}
-            onSaveHistory={handleSaveHistory}
-        />
+        {/* ── Section 1: Assessment ── */}
+        <Section number="1" title="Assessment" description="Clinical history & dental chart" defaultOpen={false}>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <ClinicalHistory
+              patient={patient}
+              currentVisit={visits[visits.length - 1] || null}
+              onSaveHistory={handleSaveHistory}
+              onSaveVisitComplaint={handleSaveVisitComplaint}
+            />
+            <TreatmentTabs
+              onTreatmentAdded={fetchPageData}
+              visits={visits}
+              patientId={id}
+              initialDentition={patient?.dentition_type || 'Adult'}
+            />
+          </div>
+        </Section>
 
-        <ReportsNotesSection
-            patientId={id}
-            refreshTrigger={reportRefreshKey}
-            visits={visits}
-            onRefresh={fetchPageData}
-        />
+        {/* ── Section 2: Treatment Plan ── */}
+        <Section number="2" title="Treatment Plan" description="Planned treatments, prescriptions & lab orders" defaultOpen={false}>
+          <TreatmentPlanBoard visits={displayVisits} onRefresh={fetchPageData} />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <Medications visits={displayVisits} patientId={id} onRefresh={fetchPageData} />
+            <LabOrders patientId={id} onRefresh={fetchPageData} onOrdersLoaded={setLabOrders} />
+          </div>
+          {inventorySettings.consumableEnabled && (
+            <InventoryConsumption visits={displayVisits} patientId={id} onRefresh={fetchPageData} />
+          )}
+        </Section>
 
-        {/* 1. Dental Chart Tabs */}
-        <TreatmentTabs
-          onTreatmentAdded={fetchPageData}
-          visits={visits}
-          patientId={id}
-          initialDentition={patient?.dentition_type || 'Adult'} />
+        {/* ── Section 3: Visit Notes ── */}
+        <Section number="3" title="Visit Notes" description="Consultation notes & patient advice" defaultOpen={false}>
+          <ConsultationNotes visits={displayVisits} patientId={id} onRefresh={fetchPageData} />
+          <AdvicesRecall visits={displayVisits} patientId={id} patient={patient} onRefresh={fetchPageData} onSelectDate={setViewingDate} />
+        </Section>
 
-        {/* 2. Treatment Plan Board */}
-        <TreatmentPlanBoard
-            visits={displayVisits}
-            onRefresh={fetchPageData}
-        />
+        {/* ── Section 4: Files & Reports ── */}
+        <Section number="4" title="Files & Reports" description="Uploaded files and AI reports" defaultOpen={false}>
+          <ReportsNotesSection patientId={id} refreshTrigger={reportRefreshKey} visits={visits} onRefresh={fetchPageData} />
+        </Section>
 
-        {/* 3. Other Sections — use displayVisits so they reflect the selected date */}
-        <ConsultationNotes visits={displayVisits} patientId={id} onRefresh={fetchPageData} />
-        <InventoryConsumption visits={displayVisits} patientId={id} onRefresh={fetchPageData} />
-        <Medications visits={displayVisits} patientId={id} onRefresh={fetchPageData} />
-        <LabOrders patientId={id} onRefresh={fetchPageData} onOrdersLoaded={setLabOrders} />
-        <AdvicesRecall visits={displayVisits} patientId={id} patient={patient} onRefresh={fetchPageData} onSelectDate={setViewingDate} />
-
-        {/* Sticky Bottom Action Bar */}
-        <div className="sticky bottom-4 z-10 bg-white p-4 rounded-xl shadow-[0_-4px_20px_rgba(0,0,0,0.05)] border border-gray-100 flex justify-between items-center">
-          <button
-            onClick={() => {
-              const latestAppointment = appointments.length > 0
-                ? appointments.sort((a, b) => new Date(b.start_time) - new Date(a.start_time))[0]
-                : null;
-              if (latestAppointment) {
-                setConcludingAppointment(latestAppointment);
-                setShowConcludeModal(true);
-              } else {
-                alert("No active appointment found");
-              }
-            }}
-            className="px-6 py-2 border-2 border-red-300 text-red-600 font-medium rounded-lg hover:bg-red-50 flex items-center gap-2 transition-colors"
-          >
+        {/* Desktop bottom bar */}
+        <div className="hidden sm:flex sticky bottom-4 z-10 bg-white p-3 sm:p-4 rounded-xl shadow-[0_-4px_20px_rgba(0,0,0,0.05)] border border-gray-100 justify-between items-center gap-3">
+          <button onClick={handleConclude} className="px-4 sm:px-6 py-2 border-2 border-red-300 text-red-600 font-medium rounded-lg hover:bg-red-50 flex items-center gap-2 transition-colors text-sm whitespace-nowrap">
             ✓ Conclude Appointment
           </button>
-          <div className="flex gap-3">
-            <button
-              onClick={() => setIsReportModalOpen(true)}
-              className="px-6 py-2 border border-purple-300 text-purple-600 font-medium rounded-lg hover:bg-purple-50 flex items-center gap-2 transition-colors"
-            >
-              <Mic size={18} /> AI Report
+          <div className="flex gap-2 sm:gap-3 flex-wrap justify-end">
+            <SendMailDropdown patientId={id} patient={patient} />
+            <button onClick={() => setIsPrescriptionOpen(true)} className="px-4 sm:px-6 py-2 border border-[#137fec] text-[#137fec] font-medium rounded-lg hover:bg-blue-50 flex items-center gap-2 transition-colors text-sm">
+              <FileText size={16} /> Prescription
             </button>
-            <button
-              onClick={() => setIsPrescriptionOpen(true)}
-              className="px-6 py-2 border border-[#137fec] text-[#137fec] font-medium rounded-lg hover:bg-blue-50 flex items-center gap-2 transition-colors"
-            >
-              <FileText size={18} /> Prescription
-            </button>
-            <button
-              onClick={() => setIsInvoiceOpen(true)}
-              className="px-6 py-2 bg-[#137fec] text-white font-medium rounded-lg hover:bg-blue-700 flex items-center gap-2 transition-colors"
-            >
-              <Receipt size={18} /> Generate Invoice
+            <button onClick={() => setIsInvoiceOpen(true)} className="px-4 sm:px-6 py-2 bg-[#137fec] text-white font-medium rounded-lg hover:bg-blue-700 flex items-center gap-2 transition-colors text-sm">
+              <Receipt size={16} /> Generate Invoice
             </button>
           </div>
         </div>
       </div>
+
+      {/* Mobile action FAB */}
+      <MobileActionBar
+        onConclude={handleConclude}
+        onPrescription={() => setIsPrescriptionOpen(true)}
+        onInvoice={() => setIsInvoiceOpen(true)}
+        patientId={id}
+        patient={patient}
+      />
+
+      {/* Molaris TCO — Draggable FAB */}
+      <MolarisFAB onOpen={() => setIsReportModalOpen(true)} />
 
       <ClinicalReportModal
         isOpen={isReportModalOpen}
@@ -1091,10 +1478,14 @@ export default function TreatmentPage({ patientIdProp }) {
         onSuccess={() => { setIsInvoiceOpen(false); fetchPageData(); }}
         initialPatient={patient}
         initialItems={[
-          // Unpaid treatments
+          // Unpaid treatments (no invoice or invoice status is not 'Paid')
           ...visits.flatMap(v =>
             (v.treatments || [])
-              .filter(t => !t.invoice_id && t.status !== 'Cancelled' && t.treatment_name !== 'Missing')
+              .filter(t => {
+                  const inv = t.invoice_id;
+                  const isUnpaid = !inv || inv.status !== 'Paid';
+                  return isUnpaid && t.status !== 'Cancelled' && t.treatment_name !== 'Missing';
+              })
               .map(t => ({
                 name:           t.treatment_name,
                 type:           'Service',
@@ -1105,10 +1496,10 @@ export default function TreatmentPage({ patientIdProp }) {
                 _treatmentRef:  { visitId: v._id, treatmentId: t._id },
               }))
           ),
-          // Unpaid prescriptions
+          // Unpaid prescriptions (no invoice or invoice status is not 'Paid')
           ...visits.flatMap(v =>
             (v.prescriptions || [])
-              .filter(p => !p.invoice_id)
+              .filter(p => !p.invoice_id || p.invoice_id.status !== 'Paid')
               .map(p => ({
                 name:               p.drug_name,
                 type:               'Pharmacy',
@@ -1119,9 +1510,9 @@ export default function TreatmentPage({ patientIdProp }) {
                 _prescriptionRef:   { visitId: v._id, prescriptionId: p._id },
               }))
           ),
-          // Unpaid lab orders
+          // Unpaid lab orders (no invoice or invoice status is not 'Paid')
           ...labOrders
-            .filter(o => !o.invoice_id)
+            .filter(o => !o.invoice_id || o.invoice_id.status !== 'Paid')
             .map(o => ({
               name:     o.items?.[0]?.item_name || 'Lab Order',
               type:     'Lab',

@@ -2,12 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   X, User, Edit2, Phone, MapPin, Activity,
-  ArrowRight, Stethoscope
+  ArrowRight, Stethoscope, ChevronDown
 } from 'lucide-react';
 import API from '../services/api';
-import TreatmentPlanBoard from '../components/TreatmentPlanBoard';
-import ReportsNotesSection from '../components/ReportNotesSection';
-import AppointmentTimeline from '../components/AppointmentTimeline';
+import TreatmentPlanBoard from '../components/TreatmentPlanBoard.jsx';
+import ReportsNotesSection from '../components/ReportNotesSection.jsx';
+import AppointmentTimeline from '../components/AppointmentTimeline.jsx';
 
 
 const PatientProfileModal = ({ isOpen, onClose, patient: initialPatient }) => {
@@ -17,11 +17,22 @@ const PatientProfileModal = ({ isOpen, onClose, patient: initialPatient }) => {
   // Data States
   const [patientData, setPatientData] = useState(null);
   const [visits, setVisits] = useState([]);
+  const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(false);
   
   // Notes State
   const [notes, setNotes] = useState('');
   const [isEditingNotes, setIsEditingNotes] = useState(false);
+
+  // Edit Patient State
+  const [isEditingPatient, setIsEditingPatient] = useState(false);
+  const [editFormData, setEditFormData] = useState({
+    address: '',
+    email: '',
+    blood_group: '',
+    emergency_contact_name: '',
+    emergency_contact_phone: ''
+  });
 
   // Tabs Configuration
   const tabs = [
@@ -38,6 +49,7 @@ const PatientProfileModal = ({ isOpen, onClose, patient: initialPatient }) => {
     if (isOpen && initialPatient?._id) {
       fetchPatientDetails();
       fetchVisits(); // Needed for Treatment Board & Records
+      fetchInvoices();
     }
   }, [isOpen, initialPatient]);
 
@@ -49,6 +61,13 @@ const PatientProfileModal = ({ isOpen, onClose, patient: initialPatient }) => {
       const res = await API.get(`/patients/${initialPatient._id}`);
       setPatientData(res.data);
       setNotes(res.data.general_notes || '');
+      setEditFormData({
+        address: res.data.contact?.address || '',
+        email: res.data.contact?.email || '',
+        blood_group: res.data.blood_group || '',
+        emergency_contact_name: res.data.emergency_contact?.name || '',
+        emergency_contact_phone: res.data.emergency_contact?.phone || ''
+      });
     } catch (err) {
       console.error("Failed to fetch patient details", err);
     } finally {
@@ -60,6 +79,13 @@ const PatientProfileModal = ({ isOpen, onClose, patient: initialPatient }) => {
       try {
           const res = await API.get(`/visits/patient/${initialPatient._id}`);
           setVisits(res.data);
+      } catch (err) { console.error(err); }
+  };
+
+  const fetchInvoices = async () => {
+      try {
+          const res = await API.get(`/invoices?patient_id=${initialPatient._id}`);
+          setInvoices(res.data);
       } catch (err) { console.error(err); }
   };
 
@@ -77,6 +103,31 @@ const PatientProfileModal = ({ isOpen, onClose, patient: initialPatient }) => {
   const handleContinueTreatment = () => {
       onClose(); // Close modal first
       navigate(`/treatment/${initialPatient._id}`); // Go to full page
+  };
+
+  const handleSavePatientDetails = async () => {
+    try {
+      const payload = {
+        contact: {
+          address: editFormData.address,
+          email: editFormData.email,
+          mobile: p.contact?.mobile,
+          city: p.contact?.city
+        },
+        blood_group: editFormData.blood_group,
+        emergency_contact: {
+          name: editFormData.emergency_contact_name,
+          phone: editFormData.emergency_contact_phone,
+          relation: p.emergency_contact?.relation || ''
+        }
+      };
+      await API.put(`/patients/${initialPatient._id}`, payload);
+      setIsEditingPatient(false);
+      fetchPatientDetails(); // Refresh data
+    } catch (err) {
+      alert("Failed to save patient details");
+      console.error(err);
+    }
   };
 
 
@@ -200,9 +251,21 @@ const PatientProfileModal = ({ isOpen, onClose, patient: initialPatient }) => {
                   </div>
 
                   {/* Contact Details */}
-                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-                     <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><User size={18}/> Personal Details</h4>
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative">
+                     <div className="flex justify-between items-center mb-4">
+                        <h4 className="font-bold text-slate-800 flex items-center gap-2"><User size={18}/> Personal Details</h4>
+                        <button
+                          onClick={() => setIsEditingPatient(true)}
+                          className="flex items-center gap-1 text-xs font-bold text-[#137fec] bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors"
+                        >
+                          <Edit2 size={12}/> Edit
+                        </button>
+                     </div>
                      <div className="space-y-3 text-sm">
+                        <div className="flex justify-between border-b border-slate-50 pb-2">
+                            <span className="text-slate-500">Blood Group</span>
+                            <span className="font-medium text-slate-900">{p.blood_group || '-'}</span>
+                        </div>
                         <div className="flex justify-between border-b border-slate-50 pb-2">
                             <span className="text-slate-500">Address</span>
                             <span className="font-medium text-slate-900">{p.contact?.address || '-'}</span>
@@ -283,10 +346,171 @@ const PatientProfileModal = ({ isOpen, onClose, patient: initialPatient }) => {
                 />
               )}
 
+              {/* === FINANCIALS TAB === */}
+              {activeTab === 'Financials' && (
+                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                  <h4 className="font-bold text-slate-800 mb-4">Financial Overview</h4>
+                  
+                  {/* Summary Cards */}
+                  <div className="grid grid-cols-2 gap-4 mb-6">
+                    <div className="p-4 bg-blue-50 border border-blue-100 rounded-lg">
+                      <p className="text-sm text-blue-600 font-semibold">Total Billed</p>
+                      <h2 className="text-2xl font-bold text-blue-900">
+                        ₹{invoices.reduce((sum, inv) => sum + (inv.total_amount || 0), 0).toLocaleString()}
+                      </h2>
+                    </div>
+                    <div className="p-4 bg-orange-50 border border-orange-100 rounded-lg">
+                      <p className="text-sm text-orange-600 font-semibold">Total Pending</p>
+                      <h2 className="text-2xl font-bold text-orange-900">
+                        ₹{invoices.reduce((sum, inv) => sum + (inv.pending_amount || 0), 0).toLocaleString()}
+                      </h2>
+                    </div>
+                  </div>
+
+                  {/* Transactions / Invoices List */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse min-w-[600px]">
+                      <thead>
+                        <tr className="border-b border-slate-200 bg-slate-50 text-sm">
+                          <th className="p-3 font-semibold text-slate-600">Date</th>
+                          <th className="p-3 font-semibold text-slate-600">Invoice ID</th>
+                          <th className="p-3 font-semibold text-slate-600">Total Bill</th>
+                          <th className="p-3 font-semibold text-slate-600">Paid Amount</th>
+                          <th className="p-3 font-semibold text-slate-600">Pending Amount</th>
+                          <th className="p-3 font-semibold text-slate-600">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {invoices.length > 0 ? (
+                          invoices.map((inv) => (
+                            <tr key={inv._id} className="border-b border-slate-100 text-sm hover:bg-slate-50">
+                              <td className="p-3 text-slate-800">{formatDate(inv.date)}</td>
+                              <td className="p-3 font-mono text-slate-600">{inv.invoice_id}</td>
+                              <td className="p-3 font-medium text-slate-800">₹{inv.total_amount?.toLocaleString() || 0}</td>
+                              <td className="p-3 text-green-600 font-medium">₹{inv.paid_amount?.toLocaleString() || 0}</td>
+                              <td className="p-3 text-orange-600 font-medium">₹{inv.pending_amount?.toLocaleString() || 0}</td>
+                              <td className="p-3">
+                                <span className={`px-2 py-1 text-xs font-bold rounded-full ${inv.status === 'Paid' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
+                                  {inv.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan="6" className="p-4 text-center text-slate-500 italic">No transactions found.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
             </div>
           </div>
 
         </div>
+
+        {/* --- EDIT PATIENT DETAILS MODAL --- */}
+        {isEditingPatient && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+              <div className="flex justify-between items-center px-6 py-4 border-b border-slate-100">
+                <h3 className="font-bold text-lg text-slate-800">Edit Patient Details</h3>
+                <button
+                  onClick={() => setIsEditingPatient(false)}
+                  className="p-1 rounded-full hover:bg-slate-100 text-slate-400 hover:text-red-500 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Blood Group</label>
+                  <div className="relative">
+                    <select
+                      value={editFormData.blood_group}
+                      onChange={(e) => setEditFormData({...editFormData, blood_group: e.target.value})}
+                      className="w-full px-4 py-2.5 bg-[#F7F2F2] border-none rounded-lg text-slate-700 appearance-none focus:ring-2 focus:ring-[#137fec] focus:outline-none cursor-pointer"
+                    >
+                      <option value="">Select blood group</option>
+                      <option value="O+">O+</option>
+                      <option value="O-">O-</option>
+                      <option value="A+">A+</option>
+                      <option value="A-">A-</option>
+                      <option value="B+">B+</option>
+                      <option value="B-">B-</option>
+                      <option value="AB+">AB+</option>
+                      <option value="AB-">AB-</option>
+                    </select>
+                    <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Address</label>
+                  <input
+                    type="text"
+                    value={editFormData.address}
+                    onChange={(e) => setEditFormData({...editFormData, address: e.target.value})}
+                    placeholder="Enter address"
+                    className="w-full px-4 py-2.5 bg-[#F7F2F2] border-none rounded-lg text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-[#137fec] focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Email</label>
+                  <input
+                    type="email"
+                    value={editFormData.email}
+                    onChange={(e) => setEditFormData({...editFormData, email: e.target.value})}
+                    placeholder="Enter email"
+                    className="w-full px-4 py-2.5 bg-[#F7F2F2] border-none rounded-lg text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-[#137fec] focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Emergency Contact Name</label>
+                  <input
+                    type="text"
+                    value={editFormData.emergency_contact_name}
+                    onChange={(e) => setEditFormData({...editFormData, emergency_contact_name: e.target.value})}
+                    placeholder="Enter name"
+                    className="w-full px-4 py-2.5 bg-[#F7F2F2] border-none rounded-lg text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-[#137fec] focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Emergency Contact Phone</label>
+                  <input
+                    type="tel"
+                    value={editFormData.emergency_contact_phone}
+                    onChange={(e) => setEditFormData({...editFormData, emergency_contact_phone: e.target.value})}
+                    placeholder="Enter phone number"
+                    className="w-full px-4 py-2.5 bg-[#F7F2F2] border-none rounded-lg text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-[#137fec] focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="px-6 py-4 border-t border-slate-100 flex gap-3 justify-end">
+                <button
+                  onClick={() => setIsEditingPatient(false)}
+                  className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSavePatientDetails}
+                  className="px-4 py-2 rounded-lg bg-[#137fec] hover:bg-blue-600 text-white font-medium transition-colors"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

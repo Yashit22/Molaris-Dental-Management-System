@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  Search, Calendar, ChevronDown, Upload, FileText,
+  Search, Calendar, ChevronDown, Download, FileText,
   ArrowUpRight, Wallet, Building2,
   Printer
 } from 'lucide-react';
@@ -169,12 +169,45 @@ const TransactionsPage = () => {
     setShowCustomInput(false);
   };
 
+  // Handle Export to CSV
+  const handleExportCSV = () => {
+    if (filteredTransactions.length === 0) {
+      alert("No transactions to export.");
+      return;
+    }
+
+    const headers = ['No.', 'Date', 'Party', 'Type', 'Category', 'Mode', 'Amount'];
+    const rows = filteredTransactions.map((txn, index) => [
+      index + 1,
+      `"${txn.date}"`,
+      `"${txn.party}"`,
+      `"${txn.type}"`,
+      `"${txn.category}"`,
+      `"${txn.method}"`,
+      txn.amount
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Transactions_${activeTab}_${dateFilterLabel.replace(/[\s\-]/g, '_')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
-      <div className="flex flex-col h-full relative">
-        
-        {/* KPI Cards (Unchanged) */}
-        <div className="pb-2">
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
+      <div className="flex flex-col min-h-full md:h-full relative">
+
+        {/* KPI Cards */}
+        <div className="px-6 md:px-8 pt-6 pb-2">
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 md:gap-5">
             <div className="p-4 bg-white dark:bg-card-dark rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4">
               <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl text-red-500"><ArrowUpRight size={28} /></div>
               <div>
@@ -210,7 +243,7 @@ const TransactionsPage = () => {
         </div>
 
         {/* Title & Filters */}
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 px-6 md:px-8 pt-6 pb-4">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 px-6 md:px-8 pt-4 pb-4">
             <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">
               <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Transactions</h1>
               <div className="bg-slate-100 dark:bg-slate-800 p-1 rounded-lg flex text-sm font-medium w-fit">
@@ -312,8 +345,8 @@ const TransactionsPage = () => {
             </div>
         </div>
 
-        {/* Table Area (Unchanged) */}
-        <div className="flex-1 overflow-auto px-6 md:px-8 pb-8">
+        {/* Table Area */}
+        <div className="md:flex-1 md:overflow-auto overflow-x-auto px-6 md:px-8 pb-8">
           <div className="bg-white dark:bg-card-dark border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm overflow-hidden min-h-[400px]">
             <table className="w-full text-left border-collapse">
               <thead className="bg-[#F7F2F2] dark:bg-slate-800/50 sticky top-0 z-10">
@@ -390,18 +423,15 @@ const TransactionsPage = () => {
           </div>
         </div>
 
-        {/* FABs (Unchanged) */}
-        <div className="absolute bottom-8 right-8 flex flex-col gap-4 z-30 items-end">
+        {/* FABs */}
+        <div className="fixed bottom-8 right-8 flex flex-col gap-4 z-30 items-end md:absolute">
           <div className="group flex items-center justify-end">
-            <button className="flex items-center justify-center bg-[#137fec] hover:bg-blue-700 text-white h-12 w-12 group-hover:w-auto group-hover:px-4 rounded-full transition-all duration-300 shadow-lg overflow-hidden whitespace-nowrap">
-              <Upload size={20} className="flex-shrink-0" />
-              <span className="w-0 group-hover:w-auto opacity-0 group-hover:opacity-100 transition-all duration-300 font-medium text-sm">Import CSV</span>
-            </button>
-          </div>
-          <div className="group flex items-center justify-end">
-            <button className="flex items-center justify-center bg-orange-100 dark:bg-card-dark border border-orange-400 dark:border-slate-700 text-orange-600 dark:text-white hover:border-orange-500 hover:text-orange-600 h-12 w-12 group-hover:w-auto group-hover:px-4 rounded-full transition-all duration-300 shadow-lg overflow-hidden whitespace-nowrap">
-              <FileText size={20} className="flex-shrink-0" />
-              <span className="w-0 group-hover:w-auto opacity-0 group-hover:opacity-100 transition-all duration-300 font-medium text-sm">Report</span>
+            <button 
+              onClick={handleExportCSV}
+              className="flex items-center justify-center bg-[#137fec] hover:bg-blue-700 text-white h-12 w-12 group-hover:w-auto group-hover:px-4 rounded-full transition-all duration-300 shadow-lg overflow-hidden whitespace-nowrap"
+            >
+              <Download size={20} className="flex-shrink-0" />
+              <span className="w-0 group-hover:w-auto opacity-0 group-hover:opacity-100 group-hover:ml-2 transition-all duration-300 font-medium text-sm">Export CSV</span>
             </button>
           </div>
         </div>

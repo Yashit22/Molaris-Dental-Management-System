@@ -1,5 +1,6 @@
 import { logEvent } from '../services/analyticsLogger.js';
 import { triggerWhatsApp, triggerJourney } from '../services/whatsapp.service.js';
+import { triggerAppointmentCompleted } from './email.controller.js';
 
 // GET /api/appointments?date=2025-12-25
 export async function getAppointments(req, res) {
@@ -44,6 +45,26 @@ export async function getPatientAppointments(req, res) {
 export async function createAppointment(req, res) {
   const { Appointment } = req.tenantModels;
   try {
+    if (req.body.start_time) {
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      if (new Date(req.body.start_time) < oneHourAgo) {
+        return res.status(400).json({ error: 'Cannot book an appointment more than 1 hour in the past.' });
+      }
+    }
+
+    // Check if the doctor already has an appointment at the exact same start time
+    if (req.body.doctor_id && req.body.start_time) {
+      const conflictingAppt = await Appointment.findOne({
+        doctor_id: req.body.doctor_id,
+        status: { $ne: 'Cancelled' },
+        start_time: new Date(req.body.start_time),
+      });
+
+      if (conflictingAppt) {
+        return res.status(400).json({ error: 'Doctor already has an appointment at this time. Please choose a different time slot.' });
+      }
+    }
+
     const newAppt = new Appointment(req.body);
     const saved = await newAppt.save();
 
@@ -61,7 +82,8 @@ export async function createAppointment(req, res) {
             return;
           }
 
-          const phone = patient.contact.mobile;
+          const rawPhone = patient.contact.mobile.toString().replace(/\D/g, '');
+          const phone = rawPhone.startsWith('91') ? rawPhone : `91${rawPhone}`;
           const firstName = patient.first_name;
           const name = `${firstName} ${patient.last_name || ''}`.trim();
           const lang = saved.whatsapp_language || null;
@@ -76,16 +98,17 @@ export async function createAppointment(req, res) {
             }
           }
 
-          // Convert UTC appointment time to IST for message templates
-          const utcStartDate = new Date(saved.start_time);
-          const istStartDate = new Date(utcStartDate.getTime() + (5.5 * 60 * 60 * 1000));
+          // Format UTC appointment time in IST via explicit timeZone — never
+          // manually +5:30 the milliseconds, since toLocaleString applies the
+          // host timezone on top and the result becomes environment-dependent.
+          const startInstant = new Date(saved.start_time);
           const data = {
             name,
             firstName,
             patientId: patient.patientId,
             mobile: phone,
-            date: istStartDate.toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' }),
-            time: istStartDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false }),
+            date: startInstant.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', year: 'numeric', month: 'long', day: 'numeric' }),
+            time: startInstant.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }),
             doctorName: doctor?.name || 'Doctor',
             appointmentType: saved.type || 'Consultation',
           };
@@ -114,6 +137,9 @@ export async function updateStatus(req, res) {
   const { Appointment } = req.tenantModels;
   try {
     const { status } = req.body;
+    const currentAppt = await Appointment.findById(req.params.id);
+
+
     const appt = await Appointment.findByIdAndUpdate(
       req.params.id,
       { status },
@@ -132,18 +158,24 @@ export async function updateStatus(req, res) {
           const firstName = patient.first_name;
           const name = `${firstName} ${patient.last_name || ''}`.trim();
 
-          // Convert UTC appointment time to IST for message templates
-          const utcStartDate = new Date(appt.start_time);
-          const istStartDate = new Date(utcStartDate.getTime() + (5.5 * 60 * 60 * 1000));
+          // Normalize phone: prepend 91 if not already present
+          const rawPhone = patient.contact.mobile.toString().replace(/\D/g, '');
+          const phone = rawPhone.startsWith('91') ? rawPhone : `91${rawPhone}`;
+
+          // Format UTC appointment time in IST via explicit timeZone (host-tz independent).
+          const startInstant = new Date(appt.start_time);
           const baseData = {
             name,
             firstName,
             patientId: patient.patientId,
-            mobile: patient.contact.mobile,
-            date: istStartDate.toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' }),
-            time: istStartDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false }),
+            mobile: phone,
+            date: startInstant.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', year: 'numeric', month: 'long', day: 'numeric' }),
+            time: startInstant.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }),
             doctorName: doctor?.name || 'Doctor',
           };
+
+          const patientMongoId  = patient._id.toString();
+          const appointmentId   = appt._id.toString();
 
           // 1. Send feedback message if enabled (scheduled with delayMinutes from settings)
           triggerWhatsApp(
@@ -151,9 +183,9 @@ export async function updateStatus(req, res) {
             req.user.tenantId,
             process.env.WAAPI_BASE_URL,
             'feedbackMessage',
-            patient.contact.mobile,
+            phone,
             baseData,
-            patient._id.toString(),
+            patientMongoId,
             appt.whatsapp_language || null
           );
 
@@ -163,10 +195,12 @@ export async function updateStatus(req, res) {
             req.user.tenantId,
             process.env.WAAPI_BASE_URL,
             'feedbackPoll',
-            patient.contact.mobile,
+            phone,
             baseData,
-            patient._id.toString(),
-            appt.whatsapp_language || null
+            patientMongoId,
+            appt.whatsapp_language || null,
+            null,
+            appointmentId
           );
 
           // 2. Trigger post-care journeys for each treatment in the visit
@@ -177,7 +211,7 @@ export async function updateStatus(req, res) {
                   req.tenantModels,
                   req.user.tenantId,
                   process.env.WAAPI_BASE_URL,
-                  patient.contact.mobile,
+                  phone,
                   treatment.treatment_name,
                   new Date(),
                   {
@@ -194,6 +228,13 @@ export async function updateStatus(req, res) {
         .catch(err => {
           console.error('Error triggering WhatsApp messages:', err.message);
         });
+
+      // Fire-and-forget email on completion
+      triggerAppointmentCompleted({
+        tenantModels: req.tenantModels,
+        patientId: appt.patient_id.toString(),
+        doctorName: req.user?.name || 'Attending Doctor',
+      });
     }
 
     res.json(appt);
@@ -204,6 +245,33 @@ export async function updateStatus(req, res) {
 export async function updateAppointment(req, res) {
   const { Appointment } = req.tenantModels;
   try {
+    if (req.body.start_time) {
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      if (new Date(req.body.start_time) < oneHourAgo) {
+        return res.status(400).json({ error: 'Cannot reschedule an appointment more than 1 hour in the past.' });
+      }
+    }
+
+    // Check if the doctor already has an appointment at the exact same start time
+    if (req.body.doctor_id || req.body.start_time) {
+      const existingAppt = await Appointment.findById(req.params.id);
+      const doctorId = req.body.doctor_id || existingAppt?.doctor_id;
+      const proposedStart = new Date(req.body.start_time || existingAppt?.start_time);
+
+      if (doctorId && proposedStart) {
+        const conflictingAppt = await Appointment.findOne({
+          _id: { $ne: req.params.id },
+          doctor_id: doctorId,
+          status: { $ne: 'Cancelled' },
+          start_time: proposedStart,
+        });
+
+        if (conflictingAppt) {
+          return res.status(400).json({ error: 'Doctor already has an appointment at this time. Please choose a different time slot.' });
+        }
+      }
+    }
+
     const appt = await Appointment.findByIdAndUpdate(req.params.id, req.body, { new: true });
 
     // Fire-and-forget WhatsApp notification if start_time changed
@@ -216,23 +284,24 @@ export async function updateAppointment(req, res) {
           if (!patient?.contact?.mobile) return;
           const firstName = patient.first_name;
           const name = `${firstName} ${patient.last_name || ''}`.trim();
+          const rawPhone = patient.contact.mobile.toString().replace(/\D/g, '');
+          const phone = rawPhone.startsWith('91') ? rawPhone : `91${rawPhone}`;
 
-          // Convert UTC appointment time to IST for message templates
-          const utcStartDate = new Date(appt.start_time);
-          const istStartDate = new Date(utcStartDate.getTime() + (5.5 * 60 * 60 * 1000));
+          // Format UTC appointment time in IST via explicit timeZone (host-tz independent).
+          const startInstant = new Date(appt.start_time);
           triggerWhatsApp(
             req.tenantModels,
             req.user.tenantId,
             process.env.WAAPI_BASE_URL,
             'appointmentRescheduled',
-            patient.contact.mobile,
+            phone,
             {
               name,
               firstName,
               patientId: patient.patientId,
-              mobile: patient.contact.mobile,
-              date: istStartDate.toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' }),
-              time: istStartDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false }),
+              mobile: phone,
+              date: startInstant.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', year: 'numeric', month: 'long', day: 'numeric' }),
+              time: startInstant.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }),
               doctorName: doctor?.name || 'Doctor',
               appointmentType: appt.type || 'Consultation',
             },
@@ -259,18 +328,13 @@ export async function getDashboardStats(req, res) {
     const dayStart = new Date(searchDate); dayStart.setHours(0, 0, 0, 0);
     const dayEnd = new Date(searchDate); dayEnd.setHours(23, 59, 59, 999);
 
-    // --- Month date range ---
-    const monthStart = new Date(searchDate.getFullYear(), searchDate.getMonth(), 1);
-    const monthEnd = new Date(searchDate.getFullYear(), searchDate.getMonth() + 1, 0, 23, 59, 59, 999);
-
     const [visits, labOrders, monthlyInvoices] = await Promise.all([
       // Visits on the selected date
       Visit.find({ date: { $gte: dayStart, $lte: dayEnd } }, 'treatments').lean(),
       // Lab orders on the selected date
       LabOrder.find({ order_date: { $gte: dayStart, $lte: dayEnd } }, 'cost_to_clinic items').lean(),
-      // Outstanding invoices for the month
+      // Outstanding invoices overall
       Invoice.find({
-        date: { $gte: monthStart, $lte: monthEnd },
         pending_amount: { $gt: 0 },
         status: { $ne: 'Cancelled' },
       }, 'pending_amount').lean(),
