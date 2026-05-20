@@ -9,7 +9,6 @@ import { OrderSchema }              from '../models/Order.model.js';
 import { VendorSchema }             from '../models/Vendor.model.js';
 import { LabCatalogItemSchema }     from '../models/LabCatalogItem.model.js';
 import { LabOrderSchema }           from '../models/LabOrder.model.js';
-import { ServiceSchema }            from '../models/Services.model.js';
 import DoctorModel                  from '../models/Doctor.model.js';
 import ClinicalFindingModel         from '../models/ClinicalFinding.model.js';
 import DiagnosisModel               from '../models/Diagnosis.model.js';
@@ -51,7 +50,6 @@ export function getTenantModels(conn) {
     Vendor:          getOrCreate('Vendor',          VendorSchema),
     LabCatalogItem:  getOrCreate('LabCatalogItem',  LabCatalogItemSchema),
     LabOrder:        getOrCreate('LabOrder',        LabOrderSchema),
-    Service:         getOrCreate('Service',         ServiceSchema),
     Doctor:          getOrCreate('Doctor',          DoctorModel.schema),
     ClinicalFinding:    getOrCreate('ClinicalFinding',    ClinicalFindingModel.schema),
     Diagnosis:          getOrCreate('Diagnosis',          DiagnosisModel.schema),

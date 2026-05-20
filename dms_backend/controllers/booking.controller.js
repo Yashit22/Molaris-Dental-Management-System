@@ -92,8 +92,8 @@ export async function getClinicInfo(req, res) {
 export async function getServices(req, res) {
   try {
     const { models } = await resolveTenantModels(req.params.tenantId);
-    const services = await models.Service.find({ isActive: true })
-      .select('name cost category description duration_minutes')
+    const services = await models.SuggestedTreatment.find({ is_active: true })
+      .select('name cost category description')
       .sort({ category: 1, name: 1 })
       .lean();
     res.json(services);
@@ -106,7 +106,7 @@ export async function getServices(req, res) {
 export async function getAvailability(req, res) {
   try {
     const { models } = await resolveTenantModels(req.params.tenantId);
-    const { Doctor, Appointment, Service, ClinicProfile } = models;
+    const { Doctor, Appointment, SuggestedTreatment, ClinicProfile } = models;
 
     const { date, service_id } = req.query;
     if (!date) return res.status(400).json({ error: 'date query param required (YYYY-MM-DD)' });
@@ -119,7 +119,7 @@ export async function getAvailability(req, res) {
     // Load clinic slot settings
     const [profile, service] = await Promise.all([
       ClinicProfile.findOne({}).lean(),
-      service_id ? Service.findById(service_id).lean() : Promise.resolve(null),
+      service_id ? SuggestedTreatment.findById(service_id).lean() : Promise.resolve(null),
     ]);
 
     const slotDuration = service?.duration_minutes || profile?.slot_duration_minutes || 30;
