@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useDrSmilo } from './useDrSmilo.js';
 import SmiloAvatar from './components/SmiloAvatar.jsx';
@@ -8,6 +8,9 @@ import WalkthroughCard from './components/WalkthroughCard.jsx';
 import TypingIndicator from './components/TypingIndicator.jsx';
 import ConfettiBurst from './components/ConfettiBurst.jsx';
 
+// Default anchor: bottom-right (matches original fixed bottom-6 right-6)
+const DEFAULT_POS = { right: 24, bottom: 24 };
+
 export default function DrSmilo() {
   const location  = useLocation();
   const navigate  = useNavigate();
@@ -16,6 +19,11 @@ export default function DrSmilo() {
   const inputRef  = useRef(null);
   const [inputValue, setInputValue] = useState('');
   const [hasOpened, setHasOpened]   = useState(false);
+
+  // Drag state: position stored as { right, bottom } from viewport edges
+  const [pos, setPos]         = useState(DEFAULT_POS);
+  const [dragging, setDragging] = useState(false);
+  const dragOrigin             = useRef(null); // { startX, startY, startRight, startBottom }
 
   // Auto-scroll to bottom whenever messages change
   useEffect(() => {
@@ -31,9 +39,48 @@ export default function DrSmilo() {
     }
   }, [smilo.inputMode]);
 
+  const onPointerDown = useCallback((e) => {
+    // Only drag on primary button; ignore clicks on child interactive elements
+    if (e.button !== 0) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragOrigin.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startRight: pos.right,
+      startBottom: pos.bottom,
+    };
+    setDragging(true);
+  }, [pos]);
+
+  const onPointerMove = useCallback((e) => {
+    if (!dragging || !dragOrigin.current) return;
+    const dx = e.clientX - dragOrigin.current.startX;
+    const dy = e.clientY - dragOrigin.current.startY;
+    const newRight  = Math.max(8, Math.min(window.innerWidth  - 60, dragOrigin.current.startRight  - dx));
+    const newBottom = Math.max(8, Math.min(window.innerHeight - 60, dragOrigin.current.startBottom - dy));
+    setPos({ right: newRight, bottom: newBottom });
+  }, [dragging]);
+
+  const onPointerUp = useCallback((e) => {
+    if (!dragging) return;
+    setDragging(false);
+    // If pointer barely moved, treat as a click (handled by onClick)
+    const dx = Math.abs(e.clientX - dragOrigin.current.startX);
+    const dy = Math.abs(e.clientY - dragOrigin.current.startY);
+    dragOrigin.current = null;
+    if (dx < 5 && dy < 5) return; // propagate click naturally
+    e.stopPropagation();
+  }, [dragging]);
+
   function handleOpen() {
     setHasOpened(true);
     smilo.open(location.pathname);
+  }
+
+  function handleFabClick() {
+    // Skip click if we just finished a drag
+    if (dragging) return;
+    smilo.isOpen ? smilo.close() : handleOpen();
   }
 
   function handleSubmit(e) {
@@ -43,20 +90,35 @@ export default function DrSmilo() {
     setInputValue('');
   }
 
-  // Latest message's quickReplies determine what chips to show
-  const lastSmiloMsg = [...smilo.messages].reverse().find(m => m.sender === 'smilo');
-  const activeChips  = lastSmiloMsg?.quickReplies ?? null;
+  const lastSmiloMsg    = [...smilo.messages].reverse().find(m => m.sender === 'smilo');
+  const activeChips     = lastSmiloMsg?.quickReplies ?? null;
   const isInWalkthrough = smilo.walkthrough !== null;
+
+  // Chat panel sits above the FAB
+  const PANEL_W  = 380;
+  const PANEL_H  = 560;
+  const GAP      = 12; // gap between FAB and panel
+  const FAB_H    = 44; // approximate FAB height
+
+  // Clamp panel so it stays within viewport
+  const panelRight  = Math.max(8, Math.min(window.innerWidth  - PANEL_W  - 8, pos.right));
+  const panelBottom = Math.max(8, Math.min(window.innerHeight - PANEL_H  - 8, pos.bottom + FAB_H + GAP));
 
   return (
     <>
       {/* ── Floating launcher button ── */}
       <button
-        onClick={smilo.isOpen ? smilo.close : handleOpen}
-        className={`fixed bottom-6 right-6 z-50 flex items-center gap-2.5 shadow-lg transition-all duration-300 ${
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onClick={handleFabClick}
+        style={{ right: pos.right, bottom: pos.bottom, touchAction: 'none' }}
+        className={`fixed z-50 flex items-center gap-2.5 shadow-lg transition-shadow duration-300 select-none ${
+          dragging ? 'cursor-grabbing shadow-xl' : 'cursor-grab'
+        } ${
           smilo.isOpen
             ? 'bg-white border border-slate-200 rounded-full px-3 py-2 text-slate-600 hover:bg-slate-50'
-            : 'bg-white border-2 border-[#137fec] rounded-2xl px-3 py-2 hover:shadow-xl hover:scale-105'
+            : 'bg-white border-2 border-[#137fec] rounded-2xl px-3 py-2 hover:shadow-xl'
         }`}
         title={smilo.isOpen ? 'Close Dr. Smilo' : 'Ask Dr. Smilo'}
       >
@@ -71,12 +133,11 @@ export default function DrSmilo() {
 
       {/* ── Chat panel ── */}
       <div
-        className={`fixed z-[60] transition-all duration-300 ease-in-out ${
-          smilo.isOpen ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'
+        style={{ right: panelRight, bottom: panelBottom }}
+        className={`fixed z-[60] transition-opacity duration-300 ease-in-out ${
+          smilo.isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }
-        bottom-20 right-6
         w-[380px] max-w-[calc(100vw-2rem)]
-        md:bottom-6 md:right-[5.5rem]
         h-[560px] max-h-[calc(100vh-6rem)]
         bg-white rounded-2xl shadow-2xl border border-slate-200
         flex flex-col overflow-hidden`}
@@ -116,7 +177,7 @@ export default function DrSmilo() {
           {smilo.isTyping && <TypingIndicator />}
         </div>
 
-        {/* Quick reply chips (only shown when not in walkthrough + not typing) */}
+        {/* Quick reply chips */}
         {!isInWalkthrough && !smilo.isTyping && activeChips && (
           <QuickReplies
             options={activeChips}

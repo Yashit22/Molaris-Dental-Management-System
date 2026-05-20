@@ -214,20 +214,20 @@ export const CreateOrderModal = ({ isOpen, onClose, onSave, editOrder }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl w-full max-w-4xl p-6 shadow-2xl flex flex-col max-h-[90vh]">
-        
-        <div className="flex justify-between items-center mb-6">
-          <div className="flex items-center gap-3">
-             <h3 className="font-bold text-xl text-slate-800">{editOrder ? 'View / Edit Order' : 'Create Purchase Order'}</h3>
+      <div className="bg-white rounded-2xl w-full max-w-4xl p-4 sm:p-6 shadow-2xl flex flex-col max-h-[90vh]">
+
+        <div className="flex justify-between items-center mb-4 sm:mb-6">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+             <h3 className="font-bold text-base sm:text-xl text-slate-800">{editOrder ? 'View / Edit Order' : 'Create Purchase Order'}</h3>
              {isReadOnly && <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-xs font-bold border border-orange-200">Read Only ({editOrder.status})</span>}
           </div>
-          <button onClick={onClose} className="p-1 rounded-full hover:bg-slate-100 text-slate-400 hover:text-red-500 transition-colors"><X size={20}/></button>
+          <button onClick={onClose} className="p-1 rounded-full hover:bg-slate-100 text-slate-400 hover:text-red-500 transition-colors flex-shrink-0"><X size={20}/></button>
         </div>
-        
+
         <form className="flex flex-col flex-1 overflow-hidden" onSubmit={handleSubmit}>
-          
+
           {/* Header Controls */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
              <div>
                 <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Vendor</label>
                 <select disabled={isReadOnly} required value={orderMeta.vendor} onChange={e => setOrderMeta({...orderMeta, vendor: e.target.value})} className="w-full border border-slate-300 p-2 rounded-lg text-sm focus:ring-2 focus:ring-[#137fec] outline-none bg-white disabled:bg-slate-100">
@@ -390,7 +390,40 @@ const InventoryOrders = ({ SectionHeader, medicineEnabled = true, consumableEnab
              onAdd={handleCreateNew}
           />
           
-          <div className="overflow-auto flex-1">
+          {/* Mobile cards */}
+          <div className="sm:hidden overflow-auto flex-1 divide-y divide-slate-100">
+            {visibleOrders.map(o => (
+              <div
+                key={o._id}
+                className="p-3 flex items-center justify-between gap-2 cursor-pointer hover:bg-slate-50 active:bg-slate-100"
+                onClick={() => { setEditingOrder(o); setIsModalOpen(true); }}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="font-semibold text-slate-700 text-sm">{o.vendor}</span>
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                      o.status === 'Received' ? 'bg-green-100 text-green-700 border-green-200' :
+                      o.status === 'Confirmed' ? 'bg-blue-100 text-blue-700 border-blue-200' :
+                      o.status === 'Cancelled' ? 'bg-red-100 text-red-700 border-red-200' :
+                      'bg-orange-100 text-orange-700 border-orange-200'
+                    }`}>{o.status}</span>
+                  </div>
+                  <div className="text-xs text-slate-400 truncate">{o.items?.map(i => i.item_name).join(', ')}</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">
+                    {new Date(o.order_date).toLocaleDateString()}
+                    {o.due_date && <span className="text-orange-500"> · Due {new Date(o.due_date).toLocaleDateString()}</span>}
+                  </div>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <div className="font-bold text-slate-700 text-sm">₹{o.total_cost.toLocaleString()}</div>
+                  <div className="text-[10px] text-slate-400">{o.items?.reduce((s, i) => s + i.qty, 0)} units</div>
+                </div>
+              </div>
+            ))}
+            {visibleOrders.length === 0 && <div className="p-8 text-center text-slate-400 text-sm">No orders found.</div>}
+          </div>
+          {/* Desktop table */}
+          <div className="hidden sm:block overflow-auto flex-1">
             <table className="w-full text-left border-collapse">
                 <thead className="bg-slate-50 sticky top-0 z-10 text-[11px] font-bold text-slate-500 uppercase">
                   <tr>
@@ -403,8 +436,8 @@ const InventoryOrders = ({ SectionHeader, medicineEnabled = true, consumableEnab
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
                     {visibleOrders.map(o => (
-                        <tr 
-                            key={o._id} 
+                        <tr
+                            key={o._id}
                             className="hover:bg-slate-50 cursor-context-menu select-none"
                             onContextMenu={(e) => handleContextMenu(e, o)}
                         >
@@ -417,7 +450,6 @@ const InventoryOrders = ({ SectionHeader, medicineEnabled = true, consumableEnab
                                 <div className="max-w-[300px] truncate" title={o.items?.map(i => i.item_name).join(', ')}>
                                     {o.items?.map(i => i.item_name).join(', ')}
                                 </div>
-                                {/* TOTAL UNITS DISPLAY */}
                                 <div className="text-[10px] text-slate-400 font-medium mt-0.5">
                                     Total Units: {o.items?.reduce((sum, i) => sum + i.qty, 0)}
                                 </div>
@@ -425,7 +457,7 @@ const InventoryOrders = ({ SectionHeader, medicineEnabled = true, consumableEnab
                             <td className="p-3 text-right font-bold text-slate-700">₹{o.total_cost.toLocaleString()}</td>
                             <td className="p-3 text-center">
                               <span className={`px-2 py-0.5 rounded text-xs font-bold border ${
-                                  o.status === 'Received' ? 'bg-green-100 text-green-700 border-green-200' : 
+                                  o.status === 'Received' ? 'bg-green-100 text-green-700 border-green-200' :
                                   o.status === 'Confirmed' ? 'bg-blue-100 text-blue-700 border-blue-200' :
                                   o.status === 'Cancelled' ? 'bg-red-100 text-red-700 border-red-200' :
                                   'bg-orange-100 text-orange-700 border-orange-200'

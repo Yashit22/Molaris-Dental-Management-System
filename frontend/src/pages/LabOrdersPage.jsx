@@ -21,7 +21,6 @@ function ItemCombobox({ value = '', onChange, onSelect, catalogItems = [] }) {
     i.name?.toLowerCase().includes(value.toLowerCase())
   );
 
-  // Close on outside click
   useEffect(() => {
     function handleOutside(e) {
       if (containerRef.current && !containerRef.current.contains(e.target)) {
@@ -108,13 +107,13 @@ function LabOrderModal({ isOpen, onClose, order, patients, labVendors, catalogIt
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
-        <div className="flex items-center justify-between px-6 py-4 border-b bg-slate-50">
-          <h3 className="text-xl font-bold text-slate-800">{order ? 'Edit Lab Order' : 'New Lab Order'}</h3>
+        <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b bg-slate-50">
+          <h3 className="text-lg sm:text-xl font-bold text-slate-800">{order ? 'Edit Lab Order' : 'New Lab Order'}</h3>
           <button onClick={onClose} className="p-2 hover:bg-red-50 hover:text-red-500 rounded-full"><X size={20}/></button>
         </div>
 
-        <div className="p-6 overflow-y-auto">
-          <form id="lab-order-form" onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div className="p-4 sm:p-6 overflow-y-auto">
+          <form id="lab-order-form" onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5">
             <div className="space-y-1">
               <label className="text-sm font-medium text-slate-700">Patient *</label>
               <select required value={form.patient_id} onChange={e => set('patient_id', e.target.value)}
@@ -184,7 +183,7 @@ function LabOrderModal({ isOpen, onClose, order, patients, labVendors, catalogIt
                 className="w-full p-2.5 border rounded-xl outline-none focus:border-[#137fec]"/>
             </div>
 
-            <div className="md:col-span-2 space-y-1">
+            <div className="sm:col-span-2 space-y-1">
               <label className="text-sm font-medium text-slate-700">Notes / Instructions</label>
               <textarea rows="2" value={form.notes} onChange={e => set('notes', e.target.value)}
                 className="w-full p-2.5 border rounded-xl resize-none outline-none focus:border-[#137fec]"/>
@@ -335,7 +334,8 @@ function LabVendorModal({ isOpen, onClose, vendor, onSave }) {
               className="w-full mt-1 p-2 border rounded-lg focus:border-[#137fec] outline-none"
               placeholder="e.g. City Dental Lab"/>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          {/* Stack on mobile, side-by-side on sm+ */}
+          <div className="grid grid-cols-1 xs:grid-cols-2 gap-4">
             <div>
               <label className="text-xs font-bold text-slate-500 uppercase">Contact Person</label>
               <input value={form.contact_person} onChange={e => set('contact_person', e.target.value)}
@@ -574,6 +574,88 @@ function BulkUploadLabVendorsModal({ isOpen, onClose, onSuccess }) {
   );
 }
 
+// ─── Mobile card renderers ────────────────────────────────────────────────────
+function OrderCards({ orders, onEdit, onStatusChange }) {
+  if (orders.length === 0) return <p className="text-center py-10 text-slate-400">No orders found</p>;
+  return (
+    <div className="space-y-3 p-3">
+      {orders.map(o => (
+        <div key={o._id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+          <div className="flex items-start justify-between gap-2 mb-2">
+            <div className="min-w-0">
+              <p className="font-semibold text-slate-800 truncate">{o.items?.[0]?.item_name || '—'}</p>
+              <p className="text-sm text-[#137fec]">{o.patient_id?.first_name} {o.patient_id?.last_name}</p>
+            </div>
+            <button onClick={() => onEdit(o)} className="flex-shrink-0 p-1.5 text-slate-400 hover:text-blue-600 rounded-lg hover:bg-blue-50">
+              <Edit size={15}/>
+            </button>
+          </div>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="text-xs text-slate-500 space-y-0.5">
+              <p>{o.vendor_id?.name || '—'}</p>
+              <p>{o.order_date ? new Date(o.order_date).toLocaleDateString('en-GB') : '—'}</p>
+              {o.cost_to_clinic != null && <p className="font-semibold text-slate-700">₹{o.cost_to_clinic.toLocaleString()}</p>}
+            </div>
+            <select
+              value={o.status}
+              onChange={e => onStatusChange(o._id, e.target.value)}
+              className={`text-xs font-semibold px-2 py-1 rounded border cursor-pointer outline-none ${STATUS_STYLES[o.status] || STATUS_STYLES['Sent']}`}
+            >
+              {LAB_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ItemCards({ items, onEdit }) {
+  if (items.length === 0) return <p className="text-center py-10 text-slate-400">No items in catalog</p>;
+  return (
+    <div className="space-y-3 p-3">
+      {items.map(i => (
+        <div key={i._id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <Package size={14} className="text-slate-400 flex-shrink-0"/>
+              <p className="font-semibold text-slate-800 truncate">{i.name}</p>
+            </div>
+            <div className="mt-1 flex gap-2 flex-wrap text-xs">
+              <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-600">{i.category}</span>
+              <span className="font-bold text-slate-700">₹{i.price?.toLocaleString()}</span>
+              {i.turnaround_time && <span className="text-slate-500">{i.turnaround_time}</span>}
+            </div>
+            {i.preferred_vendor_id?.name && <p className="text-xs text-[#137fec] mt-1">{i.preferred_vendor_id.name}</p>}
+          </div>
+          <button onClick={() => onEdit(i)} className="flex-shrink-0 p-1.5 text-slate-400 hover:text-blue-600 rounded-lg hover:bg-blue-50"><Edit size={15}/></button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function VendorCards({ vendors, onEdit }) {
+  if (vendors.length === 0) return <p className="text-center py-10 text-slate-400">No lab vendors found</p>;
+  return (
+    <div className="space-y-3 p-3">
+      {vendors.map(v => (
+        <div key={v._id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="font-semibold text-slate-800">{v.name}</p>
+            <div className="mt-1 text-xs text-slate-500 space-y-0.5">
+              {v.contact_person && <p className="flex items-center gap-1"><User size={11}/>{v.contact_person}</p>}
+              {v.phone && <p>{v.phone}</p>}
+              {v.email && <p className="text-[#137fec] truncate">{v.email}</p>}
+            </div>
+          </div>
+          <button onClick={() => onEdit(v)} className="flex-shrink-0 p-1.5 text-slate-400 hover:text-blue-600 rounded-lg hover:bg-blue-50"><Edit size={15}/></button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function LabOrdersPage() {
   const [activeModule, setActiveModule] = useState('Lab Order');
@@ -705,23 +787,23 @@ export default function LabOrdersPage() {
     URL.revokeObjectURL(url);
   }
 
-  function renderTable() {
-    if (loading) {
-      return (
-        <div className="flex-1 flex items-center justify-center py-20">
-          <Loader2 className="animate-spin text-[#137fec]" size={28}/>
-        </div>
-      );
-    }
+  // Filtered data for current tab
+  const filteredOrders = orders.filter(o => {
+    const q = searchQuery.toLowerCase();
+    const name = `${o.patient_id?.first_name || ''} ${o.patient_id?.last_name || ''}`.toLowerCase();
+    return name.includes(q) || (o.items?.[0]?.item_name || '').toLowerCase().includes(q);
+  });
+  const filteredItems   = items.filter(i => i.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredVendors = vendors.filter(v => v.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
-    // ── Lab Orders ──
+  function renderDesktopTable() {
+    if (loading) return (
+      <div className="flex-1 flex items-center justify-center py-20">
+        <Loader2 className="animate-spin text-[#137fec]" size={28}/>
+      </div>
+    );
+
     if (activeModule === 'Lab Order') {
-      const filtered = orders.filter(o => {
-        const q = searchQuery.toLowerCase();
-        const name = `${o.patient_id?.first_name || ''} ${o.patient_id?.last_name || ''}`.toLowerCase();
-        return name.includes(q) || (o.items?.[0]?.item_name || '').toLowerCase().includes(q);
-      });
-
       return (
         <table className="w-full text-left border-collapse">
           <thead className="bg-[#F7F2F2] sticky top-0 z-10 text-xs text-slate-500 uppercase">
@@ -736,34 +818,23 @@ export default function LabOrdersPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {filtered.length === 0 ? (
+            {filteredOrders.length === 0 ? (
               <tr><td colSpan="7" className="p-10 text-center text-slate-400">No orders found</td></tr>
-            ) : filtered.map(o => (
+            ) : filteredOrders.map(o => (
               <tr key={o._id} className="hover:bg-slate-50 text-sm">
-                <td className="p-4 text-slate-600">
-                  {o.order_date ? new Date(o.order_date).toLocaleDateString('en-GB') : '—'}
-                </td>
-                <td className="p-4 text-[#137fec] font-medium">
-                  {o.patient_id?.first_name} {o.patient_id?.last_name}
-                </td>
+                <td className="p-4 text-slate-600">{o.order_date ? new Date(o.order_date).toLocaleDateString('en-GB') : '—'}</td>
+                <td className="p-4 text-[#137fec] font-medium">{o.patient_id?.first_name} {o.patient_id?.last_name}</td>
                 <td className="p-4 text-slate-900">{o.items?.[0]?.item_name}</td>
                 <td className="p-4 text-slate-500">{o.vendor_id?.name || '—'}</td>
-                <td className="p-4 font-medium text-slate-700">
-                  {o.cost_to_clinic != null ? `₹${o.cost_to_clinic.toLocaleString()}` : '—'}
-                </td>
+                <td className="p-4 font-medium text-slate-700">{o.cost_to_clinic != null ? `₹${o.cost_to_clinic.toLocaleString()}` : '—'}</td>
                 <td className="p-4">
-                  <select
-                    value={o.status}
-                    onChange={e => handleStatusChange(o._id, e.target.value)}
-                    className={`text-xs font-semibold px-2 py-1 rounded border cursor-pointer outline-none ${STATUS_STYLES[o.status] || STATUS_STYLES['Sent']}`}
-                  >
+                  <select value={o.status} onChange={e => handleStatusChange(o._id, e.target.value)}
+                    className={`text-xs font-semibold px-2 py-1 rounded border cursor-pointer outline-none ${STATUS_STYLES[o.status] || STATUS_STYLES['Sent']}`}>
                     {LAB_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </td>
                 <td className="p-4 text-center">
-                  <button onClick={() => handleEdit(o)} className="text-slate-400 hover:text-blue-600">
-                    <Edit size={16}/>
-                  </button>
+                  <button onClick={() => handleEdit(o)} className="text-slate-400 hover:text-blue-600"><Edit size={16}/></button>
                 </td>
               </tr>
             ))}
@@ -772,11 +843,7 @@ export default function LabOrdersPage() {
       );
     }
 
-    // ── Lab Items ──
     if (activeModule === 'Lab Item') {
-      const filtered = items.filter(i =>
-        i.name.toLowerCase().includes(searchQuery.toLowerCase())
-      );
       return (
         <table className="w-full text-left border-collapse">
           <thead className="bg-[#F7F2F2] sticky top-0 z-10 text-xs text-slate-500 uppercase">
@@ -790,24 +857,16 @@ export default function LabOrdersPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {filtered.length === 0 ? (
+            {filteredItems.length === 0 ? (
               <tr><td colSpan="6" className="p-10 text-center text-slate-400">No items in catalog</td></tr>
-            ) : filtered.map(i => (
+            ) : filteredItems.map(i => (
               <tr key={i._id} className="hover:bg-slate-50 text-sm">
-                <td className="p-4 font-bold text-slate-800">
-                  <span className="flex items-center gap-2"><Package size={16} className="text-slate-400"/>{i.name}</span>
-                </td>
-                <td className="p-4">
-                  <span className="bg-slate-100 px-2 py-1 rounded text-slate-600 text-xs">{i.category}</span>
-                </td>
+                <td className="p-4 font-bold text-slate-800"><span className="flex items-center gap-2"><Package size={16} className="text-slate-400"/>{i.name}</span></td>
+                <td className="p-4"><span className="bg-slate-100 px-2 py-1 rounded text-slate-600 text-xs">{i.category}</span></td>
                 <td className="p-4 font-bold text-slate-700">₹{i.price?.toLocaleString()}</td>
                 <td className="p-4 text-slate-500">{i.turnaround_time || '—'}</td>
                 <td className="p-4 text-[#137fec]">{i.preferred_vendor_id?.name || '—'}</td>
-                <td className="p-4 text-center">
-                  <button onClick={() => handleEdit(i)} className="text-slate-400 hover:text-blue-600">
-                    <Edit size={16}/>
-                  </button>
-                </td>
+                <td className="p-4 text-center"><button onClick={() => handleEdit(i)} className="text-slate-400 hover:text-blue-600"><Edit size={16}/></button></td>
               </tr>
             ))}
           </tbody>
@@ -815,10 +874,6 @@ export default function LabOrdersPage() {
       );
     }
 
-    // ── Vendor Labs ──
-    const filtered = vendors.filter(v =>
-      v.name.toLowerCase().includes(searchQuery.toLowerCase())
-    );
     return (
       <table className="w-full text-left border-collapse">
         <thead className="bg-[#F7F2F2] sticky top-0 z-10 text-xs text-slate-500 uppercase">
@@ -831,21 +886,15 @@ export default function LabOrdersPage() {
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
-          {filtered.length === 0 ? (
+          {filteredVendors.length === 0 ? (
             <tr><td colSpan="5" className="p-10 text-center text-slate-400">No lab vendors found</td></tr>
-          ) : filtered.map(v => (
+          ) : filteredVendors.map(v => (
             <tr key={v._id} className="hover:bg-slate-50 text-sm">
               <td className="p-4 font-bold text-slate-800">{v.name}</td>
-              <td className="p-4 text-slate-600">
-                <span className="flex items-center gap-2"><User size={14}/>{v.contact_person || '—'}</span>
-              </td>
+              <td className="p-4 text-slate-600"><span className="flex items-center gap-2"><User size={14}/>{v.contact_person || '—'}</span></td>
               <td className="p-4 text-slate-600">{v.phone || '—'}</td>
               <td className="p-4 text-[#137fec]">{v.email || '—'}</td>
-              <td className="p-4 text-center">
-                <button onClick={() => handleEdit(v)} className="text-slate-400 hover:text-blue-600">
-                  <Edit size={16}/>
-                </button>
-              </td>
+              <td className="p-4 text-center"><button onClick={() => handleEdit(v)} className="text-slate-400 hover:text-blue-600"><Edit size={16}/></button></td>
             </tr>
           ))}
         </tbody>
@@ -853,8 +902,21 @@ export default function LabOrdersPage() {
     );
   }
 
+  function renderMobileCards() {
+    if (loading) return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="animate-spin text-[#137fec]" size={28}/>
+      </div>
+    );
+    if (activeModule === 'Lab Order') return <OrderCards orders={filteredOrders} onEdit={handleEdit} onStatusChange={handleStatusChange}/>;
+    if (activeModule === 'Lab Item')  return <ItemCards  items={filteredItems}   onEdit={handleEdit}/>;
+    return <VendorCards vendors={filteredVendors} onEdit={handleEdit}/>;
+  }
+
+  const addLabel = activeModule === 'Lab Order' ? 'Order' : activeModule === 'Lab Item' ? 'Item' : 'Vendor';
+
   return (
-    <div className="flex flex-col h-full bg-slate-50 p-6">
+    <div className="flex flex-col h-full bg-slate-50 p-3 sm:p-6">
       <LabOrderModal
         isOpen={modalState.type === 'order'}
         onClose={closeModals}
@@ -888,71 +950,76 @@ export default function LabOrdersPage() {
         onSuccess={fetchAll}
       />
 
-      {/* Tabs */}
-      <div className="flex justify-between items-center mb-6">
-        <div className="bg-slate-200/60 p-1.5 rounded-xl inline-flex">
+      {/* Top bar: tabs + export */}
+      <div className="flex flex-wrap items-center gap-2 mb-4 sm:mb-6">
+        <div className="bg-slate-200/60 p-1 sm:p-1.5 rounded-xl inline-flex flex-shrink-0">
           {['Lab Order', 'Lab Item', 'Vendor Labs'].map(tab => (
             <button
               key={tab}
               onClick={() => { setActiveModule(tab); setSearchQuery(''); }}
-              className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all ${
+              className={`px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold rounded-lg transition-all whitespace-nowrap ${
                 activeModule === tab ? 'bg-[#137fec] text-white shadow' : 'text-slate-600 hover:bg-white/50'
               }`}
             >{tab}</button>
           ))}
         </div>
         <button onClick={exportCSV}
-          className="flex items-center gap-2 bg-white border px-4 py-2.5 rounded-xl text-sm font-medium hover:border-[#137fec] text-slate-600">
-          <Download size={18}/> Export CSV
+          className="ml-auto flex items-center gap-1.5 bg-white border px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-medium hover:border-[#137fec] text-slate-600 flex-shrink-0">
+          <Download size={16}/> <span className="hidden xs:inline">Export CSV</span><span className="xs:hidden">Export</span>
         </button>
       </div>
 
       {/* Toolbar */}
-      <div className="bg-white p-4 rounded-2xl border shadow-sm mb-6 flex justify-between items-center">
-        <h2 className="text-xl font-bold text-slate-800">
-          {activeModule === 'Lab Order' ? 'Orders' : activeModule === 'Lab Item' ? 'Items Catalog' : 'Lab Directory'}
-        </h2>
-        <div className="flex gap-4">
-          <div className="relative">
-            <Search size={18} className="absolute left-3 top-2.5 text-slate-400"/>
-            <input
-              type="text"
-              placeholder="Search..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="pl-10 pr-4 py-2 border rounded-xl text-sm w-64 focus:ring-1 focus:ring-[#137fec] outline-none"
-            />
+      <div className="bg-white p-3 sm:p-4 rounded-2xl border shadow-sm mb-4 sm:mb-6">
+        <div className="flex flex-col xs:flex-row xs:items-center gap-3">
+          <h2 className="text-base sm:text-xl font-bold text-slate-800 flex-shrink-0">
+            {activeModule === 'Lab Order' ? 'Orders' : activeModule === 'Lab Item' ? 'Items Catalog' : 'Lab Directory'}
+          </h2>
+          <div className="flex items-center gap-2 xs:ml-auto flex-wrap">
+            {/* Search */}
+            <div className="relative flex-1 xs:flex-none">
+              <Search size={16} className="absolute left-3 top-2.5 text-slate-400"/>
+              <input
+                type="text"
+                placeholder="Search..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="pl-9 pr-3 py-2 border rounded-xl text-sm w-full xs:w-48 sm:w-64 focus:ring-1 focus:ring-[#137fec] outline-none"
+              />
+            </div>
+
+            {/* Bulk Upload */}
+            {activeModule === 'Lab Item' && (
+              <button onClick={() => setBulkItemsOpen(true)}
+                className="flex items-center gap-1.5 bg-[#137fec] text-white px-3 py-2 rounded-xl text-sm font-medium hover:bg-blue-700 shadow-md transition-all whitespace-nowrap">
+                <Upload size={14}/> <span className="hidden sm:inline">Bulk Upload</span>
+              </button>
+            )}
+            {activeModule === 'Vendor Labs' && (
+              <button onClick={() => setBulkVendorsOpen(true)}
+                className="flex items-center gap-1.5 bg-purple-600 text-white px-3 py-2 rounded-xl text-sm font-medium hover:bg-purple-700 shadow-md transition-all whitespace-nowrap">
+                <Upload size={14}/> <span className="hidden sm:inline">Bulk Upload</span>
+              </button>
+            )}
+
+            <button onClick={handleAddNew}
+              className="flex items-center gap-1.5 bg-[#137fec] text-white px-3 sm:px-5 py-2 rounded-xl text-sm font-medium hover:bg-blue-700 shadow-md whitespace-nowrap">
+              <Plus size={16}/> Add {addLabel}
+            </button>
           </div>
-
-          {/* Bulk Upload — shown only for Lab Item and Vendor Labs tabs */}
-          {activeModule === 'Lab Item' && (
-            <button
-              onClick={() => setBulkItemsOpen(true)}
-              className="flex items-center gap-2 bg-[#137fec] text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-blue-700 shadow-md transition-all"
-            >
-              <Upload size={16}/> Bulk Upload
-            </button>
-          )}
-          {activeModule === 'Vendor Labs' && (
-            <button
-              onClick={() => setBulkVendorsOpen(true)}
-              className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-purple-700 shadow-md transition-all"
-            >
-              <Upload size={16}/> Bulk Upload
-            </button>
-          )}
-
-          <button onClick={handleAddNew}
-            className="flex items-center gap-2 bg-[#137fec] text-white px-5 py-2 rounded-xl text-sm font-medium hover:bg-blue-700 shadow-md">
-            <Plus size={18}/>
-            Add {activeModule === 'Lab Order' ? 'Order' : activeModule === 'Lab Item' ? 'Item' : 'Vendor'}
-          </button>
         </div>
       </div>
 
-      {/* Table */}
+      {/* Table (desktop) / Cards (mobile) */}
       <div className="flex-1 bg-white border rounded-xl shadow-sm overflow-auto">
-        {renderTable()}
+        {/* Mobile cards */}
+        <div className="sm:hidden">
+          {renderMobileCards()}
+        </div>
+        {/* Desktop table */}
+        <div className="hidden sm:block h-full overflow-auto">
+          {renderDesktopTable()}
+        </div>
       </div>
     </div>
   );

@@ -393,7 +393,7 @@ const InventoryItems = ({ SectionHeader, medicineEnabled = true, consumableEnabl
   const [isBulkMedOpen, setIsBulkMedOpen]         = useState(false);
   const [isBulkConOpen, setIsBulkConOpen]         = useState(false);
   const [contextMenu, setContextMenu] = useState(null);
-  const [expandedSections, setExpandedSections]   = useState({ pharmacy: true, consumable: true });
+  const [expandedSections, setExpandedSections]   = useState({ pharmacy: false, consumable: false });
   const contextMenuRef = useRef(null);
 
   const toggleSection = (type) => setExpandedSections(prev => ({ ...prev, [type]: !prev[type] }));
@@ -447,81 +447,113 @@ const InventoryItems = ({ SectionHeader, medicineEnabled = true, consumableEnabl
   return (
     <>
       <div className="h-full flex flex-col relative" onClick={() => setContextMenu(null)}>
-        <div className={`grid grid-cols-1 ${SECTIONS.length > 1 ? 'lg:grid-cols-2' : ''} gap-6 flex-1 min-h-0`}>
-          {SECTIONS.map((sec, idx) => (
-            <div key={idx} className="flex flex-col bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden h-full">
-              {/* Section header with Bulk Upload button */}
-              <div className={`flex items-center justify-between p-3 border-b border-slate-200 ${sec.c}`}>
-                <button
-                  onClick={() => toggleSection(sec.type)}
-                  className="flex items-center gap-2 flex-1 text-left"
-                >
-                  <div className="p-1.5 bg-white/60 rounded-lg shadow-sm">
-                    <sec.i size={16} className="text-slate-700" />
-                  </div>
+
+        {/* ── Shared section renderer ── */}
+        {(() => {
+          const SectionCard = ({ sec }) => (
+            <div className="flex flex-col bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden sm:h-full">
+              <div className={`flex items-center justify-between p-3 border-b border-slate-200 ${sec.c} flex-shrink-0`}>
+                <button onClick={() => toggleSection(sec.type)} className="flex items-center gap-2 flex-1 text-left">
+                  <div className="p-1.5 bg-white/60 rounded-lg shadow-sm"><sec.i size={16} className="text-slate-700" /></div>
                   <h3 className="font-bold text-slate-800 text-sm">{sec.t}</h3>
                   <ChevronDown size={14} className={`text-slate-400 transition-transform ${expandedSections[sec.type] ? '' : '-rotate-90'}`} />
                 </button>
                 <div className="flex items-center gap-2">
                   {sec.type === 'pharmacy' && (
-                    <button
-                      onClick={() => setIsBulkMedOpen(true)}
-                      className="flex items-center gap-1.5 px-2.5 py-1 bg-[#137fec] hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors"
-                    >
+                    <button onClick={() => setIsBulkMedOpen(true)} className="flex items-center gap-1.5 px-2.5 py-1 bg-[#137fec] hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors">
                       <Upload size={12} /> Bulk Upload
                     </button>
                   )}
                   {sec.type === 'consumable' && (
-                    <button
-                      onClick={() => setIsBulkConOpen(true)}
-                      className="flex items-center gap-1.5 px-2.5 py-1 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors"
-                    >
+                    <button onClick={() => setIsBulkConOpen(true)} className="flex items-center gap-1.5 px-2.5 py-1 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors">
                       <Upload size={12} /> Bulk Upload
                     </button>
                   )}
                   <span className="bg-white/50 px-2 py-0.5 rounded text-xs font-semibold text-slate-600">{sec.d.length} Items</span>
                 </div>
               </div>
-              {expandedSections[sec.type] && <div className="overflow-auto flex-1">
-                <table className="w-full text-left border-collapse">
-                  <thead className="bg-slate-50 sticky top-0 z-10 text-[11px] font-bold text-slate-500 uppercase">
-                    <tr>
-                      <th className="p-3">Name & Company</th>
-                      <th className="p-3">Category</th>
-                      {sec.type === 'consumable' && <th className="p-3 text-center text-teal-600">Unit</th>}
-                      <th className="p-3 text-right text-blue-600">Cost</th>
-                      {sec.type === 'pharmacy' && <th className="p-3 text-right text-green-600">SP</th>}
-                      <th className="p-3 text-right">Stock / Min</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-sm">
-                    {sec.d.map((item, i) => (
-                      <tr key={item._id} onContextMenu={(e) => handleContextMenu(e, item)} className="hover:bg-slate-50 cursor-context-menu transition-colors select-none">
-                        <td className="p-3">
-                          <div className="font-bold text-slate-700">{item.name}</div>
-                          <div className="text-xs text-slate-500">{item.manufacturer}</div>
-                        </td>
-                        <td className="p-3"><span className="bg-slate-100 px-2 py-1 rounded text-xs border border-slate-200">{item.category}</span></td>
-                        {sec.type === 'consumable' && <td className="p-3 text-center"><span className="bg-teal-100 px-2 py-1 rounded text-xs border border-teal-200 text-teal-700 font-medium">{item.consumption_unit ? `${item.consumption_unit}` : '-'}</span></td>}
-                        <td className="p-3 text-right font-medium text-slate-600">₹{item.cost_price || 0}</td>
-                        {sec.type === 'pharmacy' && <td className="p-3 text-right font-medium text-green-700">₹{item.selling_price || 0}</td>}
-
-                        <td className="p-3 text-right">
-                          <div className="flex flex-col items-end">
-                              <span className={`font-bold text-md ${item.stock_on_hand <= item.min_stock_level ? 'text-red-600' : 'text-slate-800'}`}>
-                                  {item.stock_on_hand}
-                              </span>
-                              <span className="text-[10px] text-slate-400">Min: {item.min_stock_level}</span>
+              {expandedSections[sec.type] && (
+                <>
+                  {/* Mobile cards — natural height */}
+                  <div className="sm:hidden divide-y divide-slate-100">
+                    {sec.d.map(item => (
+                      <div key={item._id} className="p-3 flex items-center justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold text-slate-700 text-sm truncate">{item.name}</div>
+                          <div className="text-xs text-slate-400">{item.manufacturer}</div>
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[10px] border border-slate-200">{item.category}</span>
+                            <span className="text-[10px] text-blue-600">₹{item.cost_price || 0}</span>
+                            {sec.type === 'pharmacy' && <span className="text-[10px] text-green-700">SP ₹{item.selling_price || 0}</span>}
                           </div>
-                        </td>
-                      </tr>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <div className="flex flex-col items-end">
+                            <span className={`font-bold text-base ${item.stock_on_hand <= item.min_stock_level ? 'text-red-600' : 'text-slate-800'}`}>{item.stock_on_hand}</span>
+                            <span className="text-[10px] text-slate-400">Min: {item.min_stock_level}</span>
+                          </div>
+                          <button onClick={() => { setEditingItem(item); setIsModalOpen(true); }} className="p-1.5 rounded-lg text-slate-400 hover:text-[#137fec] hover:bg-blue-50 transition-colors">
+                            <Edit size={15} />
+                          </button>
+                        </div>
+                      </div>
                     ))}
-                  </tbody>
-                </table>
-              </div>}
+                    {sec.d.length === 0 && <div className="p-4 text-center text-slate-400 text-xs">No items found.</div>}
+                  </div>
+                  {/* Desktop table — flex-1 fills card height */}
+                  <div className="hidden sm:block overflow-auto flex-1">
+                    <table className="w-full text-left border-collapse">
+                      <thead className="bg-slate-50 sticky top-0 z-10 text-[11px] font-bold text-slate-500 uppercase">
+                        <tr>
+                          <th className="p-3">Name & Company</th>
+                          <th className="p-3">Category</th>
+                          {sec.type === 'consumable' && <th className="p-3 text-center text-teal-600">Unit</th>}
+                          <th className="p-3 text-right text-blue-600">Cost</th>
+                          {sec.type === 'pharmacy' && <th className="p-3 text-right text-green-600">SP</th>}
+                          <th className="p-3 text-right">Stock / Min</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-sm">
+                        {sec.d.map((item) => (
+                          <tr key={item._id} onContextMenu={(e) => handleContextMenu(e, item)} className="hover:bg-slate-50 cursor-context-menu transition-colors select-none">
+                            <td className="p-3">
+                              <div className="font-bold text-slate-700">{item.name}</div>
+                              <div className="text-xs text-slate-500">{item.manufacturer}</div>
+                            </td>
+                            <td className="p-3"><span className="bg-slate-100 px-2 py-1 rounded text-xs border border-slate-200">{item.category}</span></td>
+                            {sec.type === 'consumable' && <td className="p-3 text-center"><span className="bg-teal-100 px-2 py-1 rounded text-xs border border-teal-200 text-teal-700 font-medium">{item.consumption_unit ? `${item.consumption_unit}` : '-'}</span></td>}
+                            <td className="p-3 text-right font-medium text-slate-600">₹{item.cost_price || 0}</td>
+                            {sec.type === 'pharmacy' && <td className="p-3 text-right font-medium text-green-700">₹{item.selling_price || 0}</td>}
+                            <td className="p-3 text-right">
+                              <div className="flex flex-col items-end">
+                                <span className={`font-bold text-md ${item.stock_on_hand <= item.min_stock_level ? 'text-red-600' : 'text-slate-800'}`}>{item.stock_on_hand}</span>
+                                <span className="text-[10px] text-slate-400">Min: {item.min_stock_level}</span>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
             </div>
-          ))}
-        </div>
+          );
+
+          return (
+            <>
+              {/* Mobile: vertical stack, parent page scrolls */}
+              <div className="sm:hidden flex flex-col gap-4">
+                {SECTIONS.map((sec, idx) => <SectionCard key={idx} sec={sec} />)}
+              </div>
+              {/* Desktop: side-by-side constrained grid */}
+              <div className={`hidden sm:grid grid-cols-1 ${SECTIONS.length > 1 ? 'lg:grid-cols-2' : ''} gap-6 flex-1 min-h-0`}>
+                {SECTIONS.map((sec, idx) => <SectionCard key={idx} sec={sec} />)}
+              </div>
+            </>
+          );
+        })()}
+
         {contextMenu && (
           <div ref={contextMenuRef} className="fixed bg-white border border-slate-200 shadow-xl rounded-lg py-1 w-40 z-50 animate-in fade-in zoom-in-95 duration-100" style={{ top: contextMenu.y, left: contextMenu.x }} onClick={(e) => e.stopPropagation()}>
             <button onClick={handleEdit} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"><Edit size={14} /> Edit Item</button>

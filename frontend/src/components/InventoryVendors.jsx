@@ -68,8 +68,8 @@ export const AddVendorModal = ({ isOpen, onClose, editVendor, onSave }) => {
 
         <form className="p-6 space-y-4 max-h-[80vh] overflow-y-auto" onSubmit={handleSubmit}>
           
-          <div className="grid grid-cols-2 gap-4">
-             <div className="col-span-2">
+          <div className="grid grid-cols-1 xs:grid-cols-2 gap-4">
+             <div className="col-span-1 xs:col-span-2">
                 <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Vendor Name</label>
                 <div className="relative">
                   <span className="absolute left-3 top-2.5 text-slate-400"><Briefcase size={16}/></span>
@@ -96,7 +96,7 @@ export const AddVendorModal = ({ isOpen, onClose, editVendor, onSave }) => {
              </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 xs:grid-cols-2 gap-4">
             <div>
               <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Contact Person</label>
               <div className="relative">
@@ -355,7 +355,37 @@ const InventoryVendors = () => {
               </button>
             </div>
           </div>
-          <div className="overflow-auto flex-1">
+          {/* Mobile cards */}
+          <div className="sm:hidden overflow-auto flex-1 divide-y divide-slate-100">
+            {vendors.map(v => (
+              <div key={v._id} className="p-3 flex items-center justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                    <span className="font-bold text-slate-800 text-sm">{v.name}</span>
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium border ${
+                      v.type === 'Pharmacy' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                      v.type === 'Consumable' ? 'bg-teal-50 text-teal-700 border-teal-200' :
+                      'bg-slate-100 border-slate-200'
+                    }`}>{v.type}</span>
+                  </div>
+                  <div className="text-xs text-slate-500 flex items-center gap-1">
+                    {v.contact_person && <><User size={11} className="text-slate-400" />{v.contact_person} · </>}
+                    <Phone size={11} className="text-slate-400" />{v.phone || '-'}
+                  </div>
+                  {v.email && <div className="text-xs text-slate-400 truncate">{v.email}</div>}
+                </div>
+                <button
+                  onClick={() => { setEditingVendor(v); setIsModalOpen(true); }}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-[#137fec] hover:bg-blue-50 transition-colors flex-shrink-0"
+                >
+                  <Edit size={15} />
+                </button>
+              </div>
+            ))}
+            {vendors.length === 0 && <div className="p-8 text-center text-slate-400 text-sm">No vendors found.</div>}
+          </div>
+          {/* Desktop table */}
+          <div className="hidden sm:block overflow-auto flex-1">
             <table className="w-full text-left border-collapse">
               <thead className="bg-[#F7F2F2] sticky top-0 z-10 text-xs font-semibold text-slate-500 uppercase">
                 <tr>
@@ -368,15 +398,15 @@ const InventoryVendors = () => {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {vendors.map((v) => (
-                  <tr 
-                    key={v._id} 
+                  <tr
+                    key={v._id}
                     className="hover:bg-slate-50 text-sm cursor-context-menu select-none transition-colors"
                     onContextMenu={(e) => handleContextMenu(e, v)}
                   >
                     <td className="p-4 font-bold text-slate-800">{v.name}</td>
                     <td className="p-4">
                         <span className={`px-2 py-1 rounded text-xs font-medium border ${
-                            v.type === 'Pharmacy' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
+                            v.type === 'Pharmacy' ? 'bg-blue-50 text-blue-700 border-blue-200' :
                             v.type === 'Consumable' ? 'bg-teal-50 text-teal-700 border-teal-200' :
                             'bg-slate-100 border-slate-200'
                         }`}>
