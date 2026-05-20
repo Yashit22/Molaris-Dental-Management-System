@@ -11,11 +11,14 @@ const AppointmentSchema = new mongoose.Schema({
   title: String, // "Root Canal - John Doe"
   type: { type: String, default: 'Consultation' },
   
-  status: { 
-    type: String, 
-    enum: ['Scheduled', 'Confirmed', 'Checked In', 'In Progress', 'Completed', 'Cancelled', 'No Show'],
+  status: {
+    type: String,
+    enum: ['Requested', 'Scheduled', 'Confirmed', 'Checked In', 'In Progress', 'Completed', 'Cancelled', 'No Show'],
     default: 'Scheduled'
   },
+  booking_source: { type: String, enum: ['staff', 'online'], default: 'staff' },
+  patient_name_snapshot: String, // for Requested appointments before patient record exists
+  patient_phone_snapshot: String,
   
   room_number: String,
   token_number: Number,

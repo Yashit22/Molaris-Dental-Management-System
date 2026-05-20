@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { X, Trash2, Stethoscope, Pill, TestTube, Search, Loader2 } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { X, Trash2, Stethoscope, Pill, TestTube, Search, Loader2, Minus, ChevronUp } from 'lucide-react';
 import API from '../services/api';
 import { useInventorySettings } from '../Context/SettingsContext';
 
@@ -200,6 +201,7 @@ export default function NewInvoiceModal({
   const { inventorySettings } = useInventorySettings();
   const medicineEnabled = inventorySettings.medicineEnabled;
 
+  const [minimized, setMinimized] = useState(false);
   const [patientInfo, setPatientInfo] = useState({ name: '', phone: '', id: null });
   const [items, setItems] = useState([]);
   const [date, setDate] = useState(today);
@@ -213,6 +215,7 @@ export default function NewInvoiceModal({
   // Reset & pre-fill when modal opens
   useEffect(() => {
     if (!isOpen) return;
+    setMinimized(false);
     setDate(today);
     setPaymentMethod('Cash');
     setAmountPaid('');
@@ -251,6 +254,22 @@ export default function NewInvoiceModal({
   }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!isOpen) return null;
+
+  if (minimized) {
+    return createPortal(
+      <div
+        className="fixed bottom-4 right-4 z-[500] flex items-center gap-3 bg-white border border-slate-200 rounded-xl shadow-2xl px-4 py-3 cursor-pointer hover:bg-slate-50 transition-colors"
+        onClick={() => setMinimized(false)}
+      >
+        <div>
+          <p className="text-sm font-bold text-slate-800">New Invoice</p>
+          {patientInfo.name && <p className="text-xs text-slate-500">{patientInfo.name} · {items.length} item{items.length !== 1 ? 's' : ''}</p>}
+        </div>
+        <ChevronUp size={18} className="text-slate-400" />
+      </div>,
+      document.body
+    );
+  }
 
   // ── Item helpers ────────────────────────────────────────────────────────────
   const addItem = (type) =>
@@ -350,17 +369,22 @@ export default function NewInvoiceModal({
     Lab:      'text-purple-600',
   };
 
-  return (
+  return createPortal(
     <>
-      <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex justify-end">
+      <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[300] flex justify-end">
         <div className="w-full max-w-2xl bg-white h-full shadow-2xl flex flex-col">
 
           {/* Header */}
           <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
             <h2 className="text-lg font-bold text-slate-900">New Invoice</h2>
-            <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-500">
-              <X size={24} />
-            </button>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setMinimized(true)} className="p-2 hover:bg-slate-200 rounded-full text-slate-500" title="Minimise">
+                <Minus size={18} />
+              </button>
+              <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-500" title="Close">
+                <X size={24} />
+              </button>
+            </div>
           </div>
 
           {/* Body */}
@@ -541,6 +565,7 @@ export default function NewInvoiceModal({
           }}
         />
       )}
-    </>
+    </>,
+    document.body
   );
 }

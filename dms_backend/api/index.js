@@ -29,6 +29,8 @@ import reportRoutes from '../routes/report.routes.js';
 import analyticsRoutes from '../routes/analytics.routes.js';
 import whatsappRoutes from '../routes/whatsapp.routes.js';
 import feedbackRoutes from '../routes/feedback.routes.js';
+import emailRoutes from '../routes/email.routes.js';
+import bookingRoutes from '../routes/booking.routes.js';
 
 dotenv.config();
 
@@ -51,6 +53,9 @@ app.use('/api/users', userRoutes);
 import { handlePollResponse } from '../controllers/whatsapp.controller.js';
 app.post('/api/whatsapp/feedback/webhook', handlePollResponse);
 
+// Online Booking Routes (public, no auth required)
+app.use('/api/booking', bookingRoutes);
+
 // Multi-Tenant Aware Routes
 const tenantStack = [authenticate, resolveTenant];
 
@@ -72,6 +77,7 @@ app.use('/api/report',               tenantStack, reportRoutes);
 app.use('/api/analytics',            tenantStack, analyticsRoutes);
 app.use('/api/whatsapp',             tenantStack, whatsappRoutes);
 app.use('/api/feedback',             tenantStack, feedbackRoutes);
+app.use('/api/email',                tenantStack, emailRoutes);
 
 // Global error handler
 app.use((err, req, res, next) => {

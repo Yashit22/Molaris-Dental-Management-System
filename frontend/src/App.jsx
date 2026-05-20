@@ -19,6 +19,9 @@ import SettingsPage from './pages/SettingsPage.jsx';
 import WhatsAppPage from './pages/WhatsAppPage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/RegisterPage.jsx';
+import BookingPage from './pages/BookingPage.jsx';
+import BookingConfirmPage from './pages/BookingConfirmPage.jsx';
+import HelpPage from './features/help/components/HelpPage.jsx';
 
 // Context
 import { TreatmentProvider } from './Context/TreatmentContext.jsx';
@@ -54,6 +57,18 @@ const router = createBrowserRouter([
   {
     path: '/register',
     element: <RegisterPage />,
+  },
+  {
+    path: '/book/:clinicName/:tenantId',
+    element: <BookingPage />,
+  },
+  {
+    path: '/book-confirm',
+    element: <BookingConfirmPage />,
+  },
+  {
+    path: '/help',
+    element: <HelpPage />,
   },
   {
     path: '/',

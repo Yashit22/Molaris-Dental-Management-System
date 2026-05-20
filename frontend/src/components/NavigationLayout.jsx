@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../Context/AuthContext.jsx';
 import { useUser } from '../Context/UserContext.jsx';
 import { useInventorySettings } from '../Context/SettingsContext.jsx';
+import DrSmilo from '../features/help/assistant/DrSmilo.jsx';
 
 const SidebarItem = ({ icon, label, to = "#", active = false, onClick }) => {
   return (
@@ -176,9 +177,10 @@ const NavigationLayout = ({ children }) => {
               {showAssistantRoutes && showInventoryNav && (
                 <SidebarItem icon="inventory" label="Inventory" to="/inventory" active={isActive('/inventory')} />
               )}
-              {showOwnerRoutes && <SidebarItem icon="dashboard" label="Insights"  to="/insights"  active={isActive('/insights')} />}
-              {showOwnerRoutes && <SidebarItem icon="chat"      label="WhatsApp"  to="/whatsapp"  active={isActive('/whatsapp')} />}
-              {showOwnerRoutes && <SidebarItem icon="settings"  label="Settings"  to="/settings"  active={isActive('/settings')} />}
+              {showOwnerRoutes && <SidebarItem icon="dashboard"   label="Insights"     to="/insights"  active={isActive('/insights')} />}
+              {showOwnerRoutes && <SidebarItem icon="chat"        label="WhatsApp"     to="/whatsapp"  active={isActive('/whatsapp')} />}
+              {showOwnerRoutes && <SidebarItem icon="settings"    label="Settings"     to="/settings"  active={isActive('/settings')} />}
+              <SidebarItem icon="menu_book" label="Help Center" to="/help"      active={isActive('/help')} />
             </nav>
           </div>
 
@@ -339,9 +341,10 @@ const NavigationLayout = ({ children }) => {
               {showAssistantRoutes && showInventoryNav && (
                 <DrawerItem icon="inventory" label="Inventory" to="/inventory" active={isActive('/inventory')} onClick={closeDrawer} />
               )}
-              {showOwnerRoutes && <DrawerItem icon="dashboard" label="Insights"  to="/insights"  active={isActive('/insights')}  onClick={closeDrawer} />}
-              {showOwnerRoutes && <DrawerItem icon="chat"      label="WhatsApp"  to="/whatsapp"  active={isActive('/whatsapp')}  onClick={closeDrawer} />}
-              {showOwnerRoutes && <DrawerItem icon="settings"  label="Settings"  to="/settings"  active={isActive('/settings')}  onClick={closeDrawer} />}
+              {showOwnerRoutes && <DrawerItem icon="dashboard"   label="Insights"     to="/insights"  active={isActive('/insights')}  onClick={closeDrawer} />}
+              {showOwnerRoutes && <DrawerItem icon="chat"        label="WhatsApp"     to="/whatsapp"  active={isActive('/whatsapp')}  onClick={closeDrawer} />}
+              {showOwnerRoutes && <DrawerItem icon="settings"    label="Settings"     to="/settings"  active={isActive('/settings')}  onClick={closeDrawer} />}
+              <DrawerItem icon="menu_book" label="Help Center" to="/help"      active={isActive('/help')}      onClick={closeDrawer} />
             </div>
 
             {/* Support */}
@@ -379,6 +382,7 @@ const NavigationLayout = ({ children }) => {
       )}
 
       <ClinicInfoModal isOpen={showClinicModal} onClose={() => setShowClinicModal(false)} tenant={tenant} />
+      <DrSmilo />
     </div>
   );
 };
