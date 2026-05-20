@@ -14,7 +14,7 @@ export async function logEvent(tenantId, eventType, data = {}) {
   try {
     const analyticsDb = getAnalyticsDb();
     await analyticsDb.collection('dms_activity_logs').insertOne({
-      tenantId:  new mongoose.Types.ObjectId(tenantId),
+      tenantId:  tenantId ? new mongoose.Types.ObjectId(tenantId) : null,
       product:   'dms',
       eventType,
       data,

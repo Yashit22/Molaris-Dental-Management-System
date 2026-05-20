@@ -98,6 +98,8 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
   const analyserRef      = useRef(null);
   const audioCtxRef      = useRef(null);
   const streamRef        = useRef(null);
+  const audioPlaybackRef = useRef(null);
+  const playbackUrlRef   = useRef(null);
 
   // stages: idle | recording | paused | transcribing | editing | generating | done
   const [stage, setStage]             = useState('idle');
@@ -115,6 +117,11 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
   const [jobId, setJobId]             = useState(null);
   const [cachedTranscript, setCachedTranscript] = useState(false);
   const jobPollRef = useRef(null);
+
+  const [playbackUrl, setPlaybackUrl]           = useState(null);
+  const [isPlayingBack, setIsPlayingBack]       = useState(false);
+  const [playbackProgress, setPlaybackProgress] = useState(0);
+  const [playbackDuration, setPlaybackDuration] = useState(0);
 
   // Template state
   const [templates, setTemplates]           = useState([]);
@@ -152,6 +159,20 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
     }
   }, [stage]);
 
+  function fmtTime(secs) {
+    const s = Math.floor(secs || 0);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }
+
+  function revokePlaybackUrl() {
+    if (playbackUrlRef.current) URL.revokeObjectURL(playbackUrlRef.current);
+    playbackUrlRef.current = null;
+    setPlaybackUrl(null);
+    setIsPlayingBack(false);
+    setPlaybackProgress(0);
+    setPlaybackDuration(0);
+  }
+
   function resetState() {
     setStage('idle');
     setTranscript('');
@@ -178,6 +199,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
     setSending(null);
     setSendResult(null);
     if (jobPollRef.current) { clearInterval(jobPollRef.current); jobPollRef.current = null; }
+    revokePlaybackUrl();
   }
 
   function handleClose() {
@@ -195,6 +217,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
     if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null; }
     analyserRef.current = null;
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+    revokePlaybackUrl();
   }
 
   function handleTemplateChange(e) {
@@ -290,9 +313,34 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
       source.connect(analyser);
       analyserRef.current = analyser;
 
+      // Interruption detection (incoming call, permission withdrawn)
+      const track = stream.getAudioTracks()[0];
+      if (track) {
+        track.onmute = () => setError('Microphone paused — incoming call? Tap Stop to save what was captured.');
+        track.onunmute = () => setError('');
+        track.onended = () => {
+          setError('Recording interrupted — the microphone was taken by another app.');
+          if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+            try { mediaRecorderRef.current.stop(); } catch (_) {}
+          }
+        };
+      }
+
       audioChunksRef.current = [];
       const mimeType = pickMimeType();
-      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      let recorder;
+      try {
+        recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      } catch {
+        // Android: isTypeSupported() lied — retry bare
+        try {
+          recorder = new MediaRecorder(stream);
+        } catch (err2) {
+          setError('Recorder failed to start: ' + err2.message);
+          stream.getTracks().forEach(t => t.stop());
+          return;
+        }
+      }
       recorder.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       recorder.onstop = () => { stream.getTracks().forEach(t => t.stop()); processRecording(); };
       mediaRecorderRef.current = recorder;
@@ -304,21 +352,45 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
         navigator.mediaSession.metadata = new MediaMetadata({ title: 'Recording — Dental DMS' });
         navigator.mediaSession.playbackState = 'playing';
       }
-    } catch {
-      setError('Microphone access denied. Please allow microphone permissions and try again.');
+    } catch (err) {
+      const msg =
+        (err.name === 'NotAllowedError'  || err.name === 'PermissionDeniedError') ? 'Microphone permission was denied. Please allow access in your browser settings.' :
+        (err.name === 'NotFoundError'    || err.name === 'DevicesNotFoundError')  ? 'No microphone found on this device.' :
+        (err.name === 'NotReadableError' || err.name === 'TrackStartError')       ? 'Microphone is in use by another app.' :
+        (err.message || 'Could not access the microphone. Please try again.');
+      setError(msg);
     }
   }
 
   function pauseRecording() {
     if (mediaRecorderRef.current?.state === 'recording') {
+      // Flush any buffered audio before pausing so the preview blob is complete
+      try { mediaRecorderRef.current.requestData(); } catch (_) {}
       mediaRecorderRef.current.pause();
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
       setStage('paused');
+
+      // Build preview blob after 150ms to let requestData() flush
+      setTimeout(() => {
+        const mime = mediaRecorderRef.current?.mimeType || 'audio/webm';
+        const blob = new Blob([...audioChunksRef.current], { type: mime });
+        if (playbackUrlRef.current) URL.revokeObjectURL(playbackUrlRef.current);
+        const url = URL.createObjectURL(blob);
+        playbackUrlRef.current = url;
+        setPlaybackUrl(url);
+        setPlaybackProgress(0);
+      }, 150);
     }
   }
 
   function resumeRecording() {
     if (mediaRecorderRef.current?.state === 'paused') {
+      // Stop any active playback before resuming the mic
+      if (audioPlaybackRef.current) {
+        audioPlaybackRef.current.pause();
+        audioPlaybackRef.current.currentTime = 0;
+      }
+      setIsPlayingBack(false);
       mediaRecorderRef.current.resume();
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
       setStage('recording');
@@ -566,6 +638,26 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
     if (failures.length > 0) console.warn('[Autofill] Some endpoints failed:', failures.map(f => f.reason?.message));
   }
 
+  function togglePlayback() {
+    const audio = audioPlaybackRef.current;
+    if (!audio) return;
+    if (isPlayingBack) {
+      audio.pause();
+      setIsPlayingBack(false);
+    } else {
+      audio.play().catch(() => {});
+      setIsPlayingBack(true);
+    }
+  }
+
+  function seekPlayback(e) {
+    const audio = audioPlaybackRef.current;
+    if (!audio || !playbackDuration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ratio = (e.clientX - rect.left) / rect.width;
+    audio.currentTime = ratio * playbackDuration;
+  }
+
   if (!isOpen) return null;
 
   // ── MINIMIZED PILL ──────────────────────────────────────────────────────────
@@ -757,6 +849,36 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
                   {stage === 'paused' && (
                     <p className="text-xs text-amber-600 font-semibold animate-pulse">Recording paused — press Resume to continue</p>
                   )}
+                </div>
+              )}
+
+              {/* Playback preview (paused stage only) */}
+              {stage === 'paused' && playbackUrl && (
+                <div className="w-full max-w-sm bg-amber-50 border border-amber-200 rounded-xl p-3">
+                  <p className="text-xs font-semibold text-amber-700 mb-2 flex items-center gap-1.5">
+                    🎧 Preview recording
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={togglePlayback}
+                      className="flex-shrink-0 size-8 rounded-full bg-amber-500 hover:bg-amber-600 text-white flex items-center justify-center transition-colors"
+                    >
+                      {isPlayingBack ? <Pause size={14} /> : <Play size={14} />}
+                    </button>
+                    {/* Progress bar */}
+                    <div
+                      className="flex-1 h-2 bg-amber-200 rounded-full cursor-pointer relative"
+                      onClick={seekPlayback}
+                    >
+                      <div
+                        className="h-full bg-amber-500 rounded-full transition-all"
+                        style={{ width: playbackDuration ? `${(playbackProgress / playbackDuration) * 100}%` : '0%' }}
+                      />
+                    </div>
+                    <span className="text-xs text-amber-700 font-mono flex-shrink-0">
+                      {fmtTime(playbackProgress)} / {fmtTime(playbackDuration)}
+                    </span>
+                  </div>
                 </div>
               )}
 
@@ -1114,6 +1236,19 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
         </div>
 
       </div>
+
+      {/* Hidden audio element for playback preview */}
+      {playbackUrl && (
+        <audio
+          ref={audioPlaybackRef}
+          src={playbackUrl}
+          preload="metadata"
+          onLoadedMetadata={e => setPlaybackDuration(e.target.duration)}
+          onTimeUpdate={e => setPlaybackProgress(e.target.currentTime)}
+          onEnded={() => setIsPlayingBack(false)}
+          style={{ display: 'none' }}
+        />
+      )}
     </div>
   );
 }

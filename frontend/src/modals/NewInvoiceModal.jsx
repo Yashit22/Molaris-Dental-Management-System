@@ -68,7 +68,7 @@ const PatientSearchInput = ({ onSelect, onAddNew }) => {
 };
 
 // ── Searchable select for Services / Pharmacy / Lab items ────────────────────
-const ENDPOINTS = { Service: '/services', Pharmacy: '/inventory', Lab: '/labs/items' };
+const ENDPOINTS = { Service: '/suggested-treatments', Pharmacy: '/inventory', Lab: '/labs/items' };
 
 const SearchableSelect = ({ placeholder, type, onSelect, initialValue = '' }) => {
   const [query, setQuery] = useState(initialValue);

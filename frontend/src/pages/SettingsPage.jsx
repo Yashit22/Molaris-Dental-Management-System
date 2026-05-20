@@ -614,18 +614,18 @@ function EmailTab() {
   const inputCls = 'w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 focus:ring-2 focus:ring-[#137fec] outline-none';
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-6">
-      <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
-        <Mail size={22} /> Email
+    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-4 sm:p-6">
+      <h2 className="text-lg sm:text-2xl font-bold text-slate-800 dark:text-white mb-5 sm:mb-6 flex items-center gap-2">
+        <Mail size={20} /> Email
       </h2>
 
-      {/* Sub-tabs */}
-      <div className="flex gap-1 mb-6 border-b border-slate-200 dark:border-slate-700">
+      {/* Sub-tabs — scrollable on mobile */}
+      <div className="flex gap-0 mb-6 border-b border-slate-200 dark:border-slate-700 overflow-x-auto scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-0">
         {['connection', 'automation', 'templates', 'logs'].map(t => (
           <button
             key={t}
             onClick={() => setEmailSubTab(t)}
-            className={`px-4 py-2.5 text-sm font-semibold capitalize transition-all ${
+            className={`flex-shrink-0 px-3 sm:px-4 py-2.5 text-sm font-semibold capitalize transition-all whitespace-nowrap ${
               emailSubTab === t
                 ? 'text-[#137fec] border-b-2 border-[#137fec]'
                 : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
@@ -818,7 +818,7 @@ function EmailTab() {
             <input type="password" value={smtpForm.smtp.password} onChange={e => setSmtpForm(f => ({ ...f, smtp: { ...f.smtp, password: e.target.value } }))} placeholder={settings?.smtp?.user ? '••••••••  (leave blank to keep existing)' : 'Password'} className={inputCls} />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-bold text-slate-500 uppercase block mb-1">From Name</label>
               <input type="text" value={smtpForm.fromName} onChange={e => setSmtpForm(f => ({ ...f, fromName: e.target.value }))} placeholder="Dr. Name" className={inputCls} />
@@ -827,7 +827,7 @@ function EmailTab() {
               <label className="text-xs font-bold text-slate-500 uppercase block mb-1">From Email</label>
               <input type="email" value={smtpForm.fromEmail} onChange={e => setSmtpForm(f => ({ ...f, fromEmail: e.target.value }))} placeholder="clinic@example.com" className={inputCls} />
             </div>
-            <div className="col-span-2">
+            <div className="xs:col-span-2">
               <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Reply-To (optional)</label>
               <input type="email" value={smtpForm.replyTo} onChange={e => setSmtpForm(f => ({ ...f, replyTo: e.target.value }))} placeholder="replies@example.com" className={inputCls} />
             </div>
@@ -856,9 +856,9 @@ function EmailTab() {
               <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">Verify with a Test Email</p>
               <p className="text-xs text-slate-500 mt-1 leading-relaxed">After saving your settings, send a test email to confirm everything is working. Enter your own email address below and click <strong>Send Test</strong>. If it arrives in your inbox your setup is complete. Check your <strong>Spam folder</strong> if you don't see it within a minute. If it fails, the error message will tell you exactly what to fix.</p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-col xs:flex-row gap-2">
               <input type="email" value={testEmail} onChange={e => setTestEmail(e.target.value)} placeholder="your@email.com" className={`${inputCls} flex-1`} />
-              <button onClick={sendTestEmail} disabled={testStatus === 'sending'} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white font-semibold rounded-lg text-sm transition-colors disabled:opacity-60">
+              <button onClick={sendTestEmail} disabled={testStatus === 'sending'} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white font-semibold rounded-lg text-sm transition-colors disabled:opacity-60 whitespace-nowrap">
                 {testStatus === 'sending' ? 'Sending…' : 'Send Test'}
               </button>
             </div>
@@ -1096,58 +1096,86 @@ function EmailTab() {
           ) : logs.length === 0 ? (
             <div className="text-center py-12 text-slate-400">No email logs found.</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 dark:bg-slate-700">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Date</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Patient</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Subject</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">To</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                  {logs.map(log => (
-                    <React.Fragment key={log._id}>
-                      <tr
-                        onClick={() => setExpandedLog(expandedLog === log._id ? null : log._id)}
-                        className="hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer"
-                      >
-                        <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
-                          {new Date(log.sentAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}
-                        </td>
-                        <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
-                          {log.patientId ? `${log.patientId.first_name} ${log.patientId.last_name || ''}` : '—'}
-                        </td>
-                        <td className="px-4 py-3 text-slate-700 dark:text-slate-300 max-w-xs truncate" title={log.subject}>{log.subject || '—'}</td>
-                        <td className="px-4 py-3 text-slate-500 max-w-[12rem] truncate">{log.to}</td>
-                        <td className="px-4 py-3">
-                          {log.status === 'sent'
-                            ? <span className="flex items-center gap-1 text-green-600 font-semibold text-xs"><CheckCircle size={13} /> Sent</span>
-                            : <span className="flex items-center gap-1 text-red-500 font-semibold text-xs" title={log.errorMessage}><XCircle size={13} /> Failed</span>}
-                        </td>
-                      </tr>
-                      {expandedLog === log._id && (
-                        <tr className="bg-slate-50 dark:bg-slate-900">
-                          <td colSpan={5} className="px-6 py-4">
-                            <div className="text-xs space-y-1 text-slate-600 dark:text-slate-400">
-                              <p><span className="font-semibold">Event:</span> {EVENT_LABELS[log.event] || log.event || 'Manual'}</p>
-                              <p><span className="font-semibold">Subject:</span> {log.subject}</p>
-                              <p><span className="font-semibold">To:</span> {log.to}</p>
-                              {log.messageId && <p><span className="font-semibold">Message ID:</span> {log.messageId}</p>}
-                              {log.attachments?.length > 0 && <p><span className="font-semibold">Attachments:</span> {log.attachments.map(a => a.filename).join(', ')}</p>}
-                              {log.errorMessage && <p className="text-red-500"><span className="font-semibold">Error:</span> {log.errorMessage}</p>}
-                              <p><span className="font-semibold">Sent at:</span> {new Date(log.sentAt).toLocaleString()}</p>
-                            </div>
+            <>
+              {/* Mobile cards */}
+              <div className="sm:hidden space-y-2">
+                {logs.map(log => (
+                  <div
+                    key={log._id}
+                    onClick={() => setExpandedLog(expandedLog === log._id ? null : log._id)}
+                    className="border border-slate-200 dark:border-slate-700 rounded-xl p-3 cursor-pointer"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-800 dark:text-white truncate">{log.subject || '—'}</p>
+                        <p className="text-xs text-slate-500 truncate mt-0.5">{log.patientId ? `${log.patientId.first_name} ${log.patientId.last_name || ''}` : '—'} · {log.to}</p>
+                      </div>
+                      <div className="flex-shrink-0 flex flex-col items-end gap-1">
+                        {log.status === 'sent'
+                          ? <span className="flex items-center gap-1 text-green-600 font-semibold text-xs"><CheckCircle size={12} /> Sent</span>
+                          : <span className="flex items-center gap-1 text-red-500 font-semibold text-xs"><XCircle size={12} /> Failed</span>}
+                        <span className="text-xs text-slate-400">{new Date(log.sentAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}</span>
+                      </div>
+                    </div>
+                    {expandedLog === log._id && (
+                      <div className="mt-3 pt-3 border-t border-slate-100 text-xs space-y-1 text-slate-600 dark:text-slate-400">
+                        <p><span className="font-semibold">Event:</span> {EVENT_LABELS[log.event] || log.event || 'Manual'}</p>
+                        {log.messageId && <p><span className="font-semibold">Message ID:</span> {log.messageId}</p>}
+                        {log.attachments?.length > 0 && <p><span className="font-semibold">Attachments:</span> {log.attachments.map(a => a.filename).join(', ')}</p>}
+                        {log.errorMessage && <p className="text-red-500"><span className="font-semibold">Error:</span> {log.errorMessage}</p>}
+                        <p><span className="font-semibold">Sent at:</span> {new Date(log.sentAt).toLocaleString()}</p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {/* Desktop table */}
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 dark:bg-slate-700">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Date</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Patient</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Subject</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">To</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                    {logs.map(log => (
+                      <React.Fragment key={log._id}>
+                        <tr onClick={() => setExpandedLog(expandedLog === log._id ? null : log._id)} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer">
+                          <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{new Date(log.sentAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
+                          <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{log.patientId ? `${log.patientId.first_name} ${log.patientId.last_name || ''}` : '—'}</td>
+                          <td className="px-4 py-3 text-slate-700 dark:text-slate-300 max-w-xs truncate" title={log.subject}>{log.subject || '—'}</td>
+                          <td className="px-4 py-3 text-slate-500 max-w-[12rem] truncate">{log.to}</td>
+                          <td className="px-4 py-3">
+                            {log.status === 'sent'
+                              ? <span className="flex items-center gap-1 text-green-600 font-semibold text-xs"><CheckCircle size={13} /> Sent</span>
+                              : <span className="flex items-center gap-1 text-red-500 font-semibold text-xs" title={log.errorMessage}><XCircle size={13} /> Failed</span>}
                           </td>
                         </tr>
-                      )}
-                    </React.Fragment>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                        {expandedLog === log._id && (
+                          <tr className="bg-slate-50 dark:bg-slate-900">
+                            <td colSpan={5} className="px-6 py-4">
+                              <div className="text-xs space-y-1 text-slate-600 dark:text-slate-400">
+                                <p><span className="font-semibold">Event:</span> {EVENT_LABELS[log.event] || log.event || 'Manual'}</p>
+                                <p><span className="font-semibold">Subject:</span> {log.subject}</p>
+                                <p><span className="font-semibold">To:</span> {log.to}</p>
+                                {log.messageId && <p><span className="font-semibold">Message ID:</span> {log.messageId}</p>}
+                                {log.attachments?.length > 0 && <p><span className="font-semibold">Attachments:</span> {log.attachments.map(a => a.filename).join(', ')}</p>}
+                                {log.errorMessage && <p className="text-red-500"><span className="font-semibold">Error:</span> {log.errorMessage}</p>}
+                                <p><span className="font-semibold">Sent at:</span> {new Date(log.sentAt).toLocaleString()}</p>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
       )}
@@ -1203,26 +1231,12 @@ const SettingsPage = () => {
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkItems, setBulkItems] = useState([]);
 
-  // Service states
-  const [services, setServices] = useState([]);
-  const [showServiceModal, setShowServiceModal] = useState(false);
-  const [editingService, setEditingService] = useState(null);
-  const [serviceFormData, setServiceFormData] = useState({
-    name: '',
-    category: 'General',
-    cost: 0,
-    description: '',
-    isActive: true
-  });
-
   // Fetch data based on active tab
   useEffect(() => {
     if (activeTab === 'doctors') {
       fetchDoctors();
     } else if (activeTab === 'treatment') {
       fetchTreatmentData();
-    } else if (activeTab === 'services') {
-      fetchServices();
     }
   }, [activeTab, treatmentTab]);
 
@@ -1251,18 +1265,6 @@ const SettingsPage = () => {
       setSuggestedTreatments(treatmentsRes.data);
     } catch (err) {
       console.error('Failed to load treatment data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchServices = async () => {
-    setLoading(true);
-    try {
-      const res = await API.get('/services');
-      setServices(Array.isArray(res.data) ? res.data : []);
-    } catch (err) {
-      console.error('Failed to load services:', err);
     } finally {
       setLoading(false);
     }
@@ -1442,147 +1444,57 @@ const SettingsPage = () => {
     }
   };
 
-  // Service Management
-  const handleAddService = () => {
-    setEditingService(null);
-    setServiceFormData({
-      name: '',
-      category: 'General',
-      cost: 0,
-      description: '',
-      isActive: true
-    });
-    setShowServiceModal(true);
-  };
-
-  const handleEditService = (service) => {
-    setEditingService(service);
-    setServiceFormData(service);
-    setShowServiceModal(true);
-  };
-
-  const handleDeleteService = async (id) => {
-    if (window.confirm('Are you sure you want to delete this service?')) {
-      try {
-        await API.delete(`/services/${id}`);
-        setServices(services.filter(s => s._id !== id));
-      } catch (err) {
-        console.error('Failed to delete service:', err);
-        alert('Failed to delete service');
-      }
-    }
-  };
-
-  const handleSubmitService = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      if (editingService) {
-        const res = await API.put(`/services/${editingService._id}`, serviceFormData);
-        setServices(services.map(s => s._id === editingService._id ? res.data : s));
-      } else {
-        const res = await API.post('/services', serviceFormData);
-        setServices([...services, res.data]);
-      }
-      setShowServiceModal(false);
-    } catch (err) {
-      console.error('Failed to save service:', err);
-      alert('Failed to save service: ' + (err.response?.data?.error || err.message));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleServiceChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setServiceFormData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : (name === 'cost' ? parseFloat(value) || 0 : value)
-    }));
-  };
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 p-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 p-3 sm:p-6">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-slate-800 dark:text-white mb-2">Settings</h1>
-          <p className="text-slate-600 dark:text-slate-400">Manage clinic configuration and clinical data</p>
+        <div className="mb-5 sm:mb-8">
+          <h1 className="text-2xl sm:text-4xl font-bold text-slate-800 dark:text-white mb-1 sm:mb-2">Settings</h1>
+          <p className="text-sm text-slate-600 dark:text-slate-400">Manage clinic configuration and clinical data</p>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-2 mb-6 border-b border-slate-200 dark:border-slate-700">
-          <button
-            onClick={() => setActiveTab('doctors')}
-            className={`px-6 py-3 font-semibold transition-all ${
-              activeTab === 'doctors'
-                ? 'text-[#137fec] border-b-2 border-[#137fec]'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-300'
-            }`}
-          >
-            Doctors
-          </button>
-          <button
-            onClick={() => setActiveTab('services')}
-            className={`px-6 py-3 font-semibold transition-all ${
-              activeTab === 'services'
-                ? 'text-[#137fec] border-b-2 border-[#137fec]'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-300'
-            }`}
-          >
-            Services
-          </button>
-          <button
-            onClick={() => setActiveTab('treatment')}
-            className={`px-6 py-3 font-semibold transition-all ${
-              activeTab === 'treatment'
-                ? 'text-[#137fec] border-b-2 border-[#137fec]'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-300'
-            }`}
-          >
-            Clinical Data
-          </button>
-          <button
-            onClick={() => setActiveTab('inventory')}
-            className={`px-6 py-3 font-semibold transition-all ${
-              activeTab === 'inventory'
-                ? 'text-[#137fec] border-b-2 border-[#137fec]'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-300'
-            }`}
-          >
-            Inventory
-          </button>
-          <button
-            onClick={() => setActiveTab('email')}
-            className={`px-6 py-3 font-semibold transition-all ${
-              activeTab === 'email'
-                ? 'text-[#137fec] border-b-2 border-[#137fec]'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-300'
-            }`}
-          >
-            Email
-          </button>
+        {/* Tabs — horizontally scrollable on mobile */}
+        <div className="flex gap-0 mb-6 border-b border-slate-200 dark:border-slate-700 overflow-x-auto scrollbar-none -mx-3 px-3 sm:mx-0 sm:px-0">
+          {[
+            { key: 'doctors',   label: 'Doctors' },
+            { key: 'services',  label: 'Services' },
+            { key: 'treatment', label: 'Clinical Data' },
+            { key: 'inventory', label: 'Inventory' },
+            { key: 'email',     label: 'Email' },
+          ].map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key)}
+              className={`flex-shrink-0 px-4 sm:px-6 py-3 text-sm sm:text-base font-semibold transition-all whitespace-nowrap ${
+                activeTab === key
+                  ? 'text-[#137fec] border-b-2 border-[#137fec]'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-300'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         {/* Doctors Tab */}
         {activeTab === 'doctors' && (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-6">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-4 sm:p-6">
             <div className="flex justify-between items-center mb-6">
-              <div className="flex items-center gap-3">
-                <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Doctor Management</h2>
-                <span className="text-sm font-medium text-slate-600 dark:text-slate-400">({doctors.length}/10)</span>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg sm:text-2xl font-bold text-slate-800 dark:text-white">Doctor Management</h2>
+                <span className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400">({doctors.length}/10)</span>
               </div>
               <button
                 onClick={handleAddDoctor}
                 disabled={doctors.length >= 10}
-                className={`flex items-center gap-2 px-4 py-2.5 font-semibold rounded-xl transition-colors ${
+                className={`flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 text-sm font-semibold rounded-xl transition-colors ${
                   doctors.length >= 10
                     ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
                     : 'bg-[#137fec] hover:bg-blue-600 text-white'
                 }`}
                 title={doctors.length >= 10 ? 'Maximum of 10 doctors reached' : 'Add a new doctor'}
               >
-                <Plus size={20} /> Add Doctor
+                <Plus size={18} /> <span className="hidden xs:inline">Add Doctor</span><span className="xs:hidden">Add</span>
               </button>
             </div>
 
@@ -1593,71 +1505,76 @@ const SettingsPage = () => {
                 <p>No doctors added yet. Click "Add Doctor" to get started.</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-slate-50 dark:bg-slate-700">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Name</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Specialization</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Email</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Phone</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Experience</th>
-                      <th className="px-6 py-3 text-center text-sm font-semibold text-slate-700 dark:text-slate-300">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                    {doctors.map(doctor => (
-                      <tr key={doctor._id} className="hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
-                        <td className="px-6 py-4">
-                          <p className="font-semibold text-slate-800 dark:text-white">{doctor.name}</p>
-                        </td>
-                        <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
-                          {doctor.specialization || '-'}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
-                          {doctor.email || '-'}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
-                          {doctor.phone || '-'}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
-                          {doctor.experience_years} years
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex justify-center gap-2">
-                            <button
-                              onClick={() => handleEditDoctor(doctor)}
-                              className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-600 rounded-lg transition-colors"
-                            >
-                              <Edit2 size={18} />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteDoctor(doctor._id)}
-                              className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-slate-600 rounded-lg transition-colors"
-                            >
-                              <Trash2 size={18} />
-                            </button>
-                          </div>
-                        </td>
+              <>
+                {/* Mobile cards */}
+                <div className="sm:hidden space-y-3">
+                  {doctors.map(doctor => (
+                    <div key={doctor._id} className="border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-slate-800 dark:text-white truncate">{doctor.name}</p>
+                          {doctor.specialization && <p className="text-xs text-slate-500 mt-0.5">{doctor.specialization}</p>}
+                        </div>
+                        <div className="flex gap-1 flex-shrink-0">
+                          <button onClick={() => handleEditDoctor(doctor)} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Edit2 size={16} /></button>
+                          <button onClick={() => handleDeleteDoctor(doctor._id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16} /></button>
+                        </div>
+                      </div>
+                      <div className="mt-2 space-y-1 text-xs text-slate-500">
+                        {doctor.email && <p>{doctor.email}</p>}
+                        {doctor.phone && <p>{doctor.phone}</p>}
+                        <p>{doctor.experience_years} yrs experience</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {/* Desktop table */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-slate-50 dark:bg-slate-700">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Name</th>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Specialization</th>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Email</th>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Phone</th>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Experience</th>
+                        <th className="px-6 py-3 text-center text-sm font-semibold text-slate-700 dark:text-slate-300">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                      {doctors.map(doctor => (
+                        <tr key={doctor._id} className="hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                          <td className="px-6 py-4"><p className="font-semibold text-slate-800 dark:text-white">{doctor.name}</p></td>
+                          <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{doctor.specialization || '-'}</td>
+                          <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{doctor.email || '-'}</td>
+                          <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{doctor.phone || '-'}</td>
+                          <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{doctor.experience_years} years</td>
+                          <td className="px-6 py-4">
+                            <div className="flex justify-center gap-2">
+                              <button onClick={() => handleEditDoctor(doctor)} className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-600 rounded-lg transition-colors"><Edit2 size={18} /></button>
+                              <button onClick={() => handleDeleteDoctor(doctor._id)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-slate-600 rounded-lg transition-colors"><Trash2 size={18} /></button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         )}
 
         {/* Services Tab */}
         {activeTab === 'services' && (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-6">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-4 sm:p-6">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Service Management</h2>
+              <h2 className="text-lg sm:text-2xl font-bold text-slate-800 dark:text-white">Service Management</h2>
               <button
                 onClick={handleAddService}
-                className="flex items-center gap-2 px-4 py-2.5 bg-[#137fec] hover:bg-blue-600 text-white font-semibold rounded-xl transition-colors"
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 text-sm bg-[#137fec] hover:bg-blue-600 text-white font-semibold rounded-xl transition-colors"
               >
-                <Plus size={20} /> Add Service
+                <Plus size={18} /> <span className="hidden xs:inline">Add Service</span><span className="xs:hidden">Add</span>
               </button>
             </div>
 
@@ -1668,75 +1585,81 @@ const SettingsPage = () => {
                 <p>No services added yet. Click "Add Service" to get started.</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-slate-50 dark:bg-slate-700">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Name</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Category</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Cost</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Status</th>
-                      <th className="px-6 py-3 text-center text-sm font-semibold text-slate-700 dark:text-slate-300">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                    {services.map(service => (
-                      <tr key={service._id} className="hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
-                        <td className="px-6 py-4">
-                          <p className="font-semibold text-slate-800 dark:text-white">{service.name}</p>
-                        </td>
-                        <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
-                          <span className="text-xs bg-slate-100 dark:bg-slate-600 px-2 py-1 rounded">
-                            {service.category || 'General'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-slate-800 dark:text-white font-semibold">
-                          ₹{service.cost?.toLocaleString('en-IN') || '0'}
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={`text-xs px-2 py-1 rounded-full font-semibold ${
-                            service.isActive
-                              ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                              : 'bg-slate-100 text-slate-700 dark:bg-slate-600 dark:text-slate-300'
-                          }`}>
-                            {service.isActive ? 'Active' : 'Inactive'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex justify-center gap-2">
-                            <button
-                              onClick={() => handleEditService(service)}
-                              className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-600 rounded-lg transition-colors"
-                            >
-                              <Edit2 size={18} />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteService(service._id)}
-                              className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-slate-600 rounded-lg transition-colors"
-                            >
-                              <Trash2 size={18} />
-                            </button>
+              <>
+                {/* Mobile cards */}
+                <div className="sm:hidden space-y-3">
+                  {services.map(service => (
+                    <div key={service._id} className="border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-slate-800 dark:text-white truncate">{service.name}</p>
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            <span className="text-xs bg-slate-100 dark:bg-slate-600 px-2 py-0.5 rounded">{service.category || 'General'}</span>
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${service.isActive ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'}`}>
+                              {service.isActive ? 'Active' : 'Inactive'}
+                            </span>
                           </div>
-                        </td>
+                        </div>
+                        <div className="flex gap-1 flex-shrink-0">
+                          <button onClick={() => handleEditService(service)} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Edit2 size={16} /></button>
+                          <button onClick={() => handleDeleteService(service._id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16} /></button>
+                        </div>
+                      </div>
+                      <p className="mt-2 text-sm font-semibold text-slate-800 dark:text-white">₹{service.cost?.toLocaleString('en-IN') || '0'}</p>
+                    </div>
+                  ))}
+                </div>
+                {/* Desktop table */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-slate-50 dark:bg-slate-700">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Name</th>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Category</th>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Cost</th>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Status</th>
+                        <th className="px-6 py-3 text-center text-sm font-semibold text-slate-700 dark:text-slate-300">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                      {services.map(service => (
+                        <tr key={service._id} className="hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                          <td className="px-6 py-4"><p className="font-semibold text-slate-800 dark:text-white">{service.name}</p></td>
+                          <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
+                            <span className="text-xs bg-slate-100 dark:bg-slate-600 px-2 py-1 rounded">{service.category || 'General'}</span>
+                          </td>
+                          <td className="px-6 py-4 text-slate-800 dark:text-white font-semibold">₹{service.cost?.toLocaleString('en-IN') || '0'}</td>
+                          <td className="px-6 py-4">
+                            <span className={`text-xs px-2 py-1 rounded-full font-semibold ${service.isActive ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-slate-100 text-slate-700 dark:bg-slate-600 dark:text-slate-300'}`}>
+                              {service.isActive ? 'Active' : 'Inactive'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex justify-center gap-2">
+                              <button onClick={() => handleEditService(service)} className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-600 rounded-lg transition-colors"><Edit2 size={18} /></button>
+                              <button onClick={() => handleDeleteService(service._id)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-slate-600 rounded-lg transition-colors"><Trash2 size={18} /></button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         )}
 
         {/* Treatment Tab */}
         {activeTab === 'treatment' && (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-6">
-            {/* Treatment Sub-tabs */}
-            <div className="flex gap-2 mb-6 border-b border-slate-200 dark:border-slate-700">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-4 sm:p-6">
+            {/* Treatment Sub-tabs — scrollable on mobile */}
+            <div className="flex gap-0 mb-6 border-b border-slate-200 dark:border-slate-700 overflow-x-auto scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-0">
               {['findings', 'diagnoses', 'treatments'].map(tab => (
                 <button
                   key={tab}
                   onClick={() => setTreatmentTab(tab)}
-                  className={`px-4 py-2 font-semibold transition-all capitalize ${
+                  className={`flex-shrink-0 px-3 sm:px-4 py-2 text-sm font-semibold transition-all whitespace-nowrap ${
                     treatmentTab === tab
                       ? 'text-[#137fec] border-b-2 border-[#137fec]'
                       : 'text-slate-600 dark:text-slate-400'
@@ -1749,18 +1672,18 @@ const SettingsPage = () => {
 
             {/* Bulk Mode Toggle */}
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-slate-800 dark:text-white">
+              <h3 className="text-base sm:text-xl font-bold text-slate-800 dark:text-white">
                 {treatmentTab === 'findings' ? 'Clinical Findings' : treatmentTab === 'diagnoses' ? 'Diagnoses' : 'Suggested Treatments'}
               </h3>
               <button
                 onClick={() => setBulkMode(!bulkMode)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold transition-colors ${
+                className={`flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 text-sm rounded-xl font-semibold transition-colors ${
                   bulkMode
                     ? 'bg-orange-500 text-white hover:bg-orange-600'
                     : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
                 }`}
               >
-                <Upload size={18} /> {bulkMode ? 'Cancel Bulk' : 'Bulk Add'}
+                <Upload size={16} /> {bulkMode ? 'Cancel' : 'Bulk Add'}
               </button>
             </div>
 
@@ -1890,62 +1813,57 @@ const SettingsPage = () => {
               </div>
             )}
 
-            {/* Items Table */}
+            {/* Items list */}
             {loading ? (
               <div className="text-center py-8 text-slate-500">Loading...</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-slate-50 dark:bg-slate-700">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Name</th>
-                      {treatmentTab === 'diagnoses' && (
-                        <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Code</th>
-                      )}
-                      {treatmentTab === 'treatments' && (
-                        <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Cost</th>
-                      )}
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Category</th>
-                      <th className="px-6 py-3 text-center text-sm font-semibold text-slate-700 dark:text-slate-300">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                    {(treatmentTab === 'findings' ? clinicalFindings :
-                      treatmentTab === 'diagnoses' ? diagnoses :
-                      suggestedTreatments).map(item => (
-                      <tr key={item._id} className="hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
-                        <td className="px-6 py-4">
-                          <p className="font-semibold text-slate-800 dark:text-white">{item.name}</p>
-                        </td>
-                        {treatmentTab === 'diagnoses' && (
-                          <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
-                            {item.code || '-'}
-                          </td>
-                        )}
-                        {treatmentTab === 'treatments' && (
-                          <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
-                            ₹{item.cost?.toLocaleString('en-IN') || '0'}
-                          </td>
-                        )}
-                        <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
-                          <span className="text-xs bg-slate-100 dark:bg-slate-600 px-2 py-1 rounded">
-                            {item.category || '-'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <button
-                            onClick={() => handleDeleteTreatmentItem(item._id, treatmentTab)}
-                            className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-slate-600 rounded-lg transition-colors"
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        </td>
-                      </tr>
+            ) : (() => {
+              const items = treatmentTab === 'findings' ? clinicalFindings : treatmentTab === 'diagnoses' ? diagnoses : suggestedTreatments;
+              return (
+                <>
+                  {/* Mobile cards */}
+                  <div className="sm:hidden space-y-2">
+                    {items.map(item => (
+                      <div key={item._id} className="flex items-center justify-between border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 gap-2">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-slate-800 dark:text-white text-sm truncate">{item.name}</p>
+                          <div className="flex gap-2 mt-0.5 flex-wrap">
+                            {treatmentTab === 'diagnoses' && item.code && <span className="text-xs text-slate-500">{item.code}</span>}
+                            {treatmentTab === 'treatments' && <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">₹{item.cost?.toLocaleString('en-IN') || '0'}</span>}
+                            {item.category && <span className="text-xs bg-slate-100 dark:bg-slate-600 px-1.5 py-0.5 rounded">{item.category}</span>}
+                          </div>
+                        </div>
+                        <button onClick={() => handleDeleteTreatmentItem(item._id, treatmentTab)} className="flex-shrink-0 p-2 text-red-500 hover:bg-red-50 dark:hover:bg-slate-600 rounded-lg transition-colors"><Trash2 size={15} /></button>
+                      </div>
                     ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                  </div>
+                  {/* Desktop table */}
+                  <div className="hidden sm:block overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-slate-50 dark:bg-slate-700">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Name</th>
+                          {treatmentTab === 'diagnoses' && <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Code</th>}
+                          {treatmentTab === 'treatments' && <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Cost</th>}
+                          <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Category</th>
+                          <th className="px-6 py-3 text-center text-sm font-semibold text-slate-700 dark:text-slate-300">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                        {items.map(item => (
+                          <tr key={item._id} className="hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                            <td className="px-6 py-4"><p className="font-semibold text-slate-800 dark:text-white">{item.name}</p></td>
+                            {treatmentTab === 'diagnoses' && <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{item.code || '-'}</td>}
+                            {treatmentTab === 'treatments' && <td className="px-6 py-4 text-slate-600 dark:text-slate-400">₹{item.cost?.toLocaleString('en-IN') || '0'}</td>}
+                            <td className="px-6 py-4 text-slate-600 dark:text-slate-400"><span className="text-xs bg-slate-100 dark:bg-slate-600 px-2 py-1 rounded">{item.category || '-'}</span></td>
+                            <td className="px-6 py-4 text-center"><button onClick={() => handleDeleteTreatmentItem(item._id, treatmentTab)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-slate-600 rounded-lg transition-colors"><Trash2 size={18} /></button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         )}
         {/* Inventory Tab */}
@@ -1956,114 +1874,6 @@ const SettingsPage = () => {
       </div>
 
       {/* Service Modal */}
-      {showServiceModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
-            {/* Header */}
-            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
-              <h3 className="font-bold text-lg text-slate-800 dark:text-white">
-                {editingService ? 'Edit Service' : 'Add Service'}
-              </h3>
-              <button
-                onClick={() => setShowServiceModal(false)}
-                className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            {/* Form */}
-            <form onSubmit={handleSubmitService} className="p-6 space-y-4">
-              <div>
-                <label className="text-xs font-bold text-slate-500 uppercase">Service Name <span className="text-red-500">*</span></label>
-                <input
-                  type="text"
-                  name="name"
-                  placeholder="e.g., Root Canal Treatment"
-                  value={serviceFormData.name}
-                  onChange={handleServiceChange}
-                  required
-                  className="w-full mt-1 px-3 py-2.5 border border-slate-300 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-[#137fec] outline-none bg-white dark:bg-slate-800"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase">Category</label>
-                  <input
-                    type="text"
-                    name="category"
-                    placeholder="e.g., Endodontics"
-                    value={serviceFormData.category}
-                    onChange={handleServiceChange}
-                    className="w-full mt-1 px-3 py-2.5 border border-slate-300 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-[#137fec] outline-none bg-white dark:bg-slate-800"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase">Cost (₹) <span className="text-red-500">*</span></label>
-                  <input
-                    type="number"
-                    name="cost"
-                    placeholder="0"
-                    value={serviceFormData.cost}
-                    onChange={handleServiceChange}
-                    required
-                    min="0"
-                    step="100"
-                    className="w-full mt-1 px-3 py-2.5 border border-slate-300 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-[#137fec] outline-none bg-white dark:bg-slate-800"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-500 uppercase">Description</label>
-                <textarea
-                  name="description"
-                  placeholder="Optional description"
-                  value={serviceFormData.description}
-                  onChange={handleServiceChange}
-                  rows="3"
-                  className="w-full mt-1 px-3 py-2.5 border border-slate-300 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-[#137fec] outline-none bg-white dark:bg-slate-800 resize-none"
-                />
-              </div>
-
-              <div className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-700 rounded-xl">
-                <input
-                  type="checkbox"
-                  name="isActive"
-                  checked={serviceFormData.isActive}
-                  onChange={handleServiceChange}
-                  className="w-5 h-5 rounded cursor-pointer"
-                />
-                <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
-                  Mark as Active
-                </label>
-              </div>
-
-              {/* Actions */}
-              <div className="flex justify-end gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowServiceModal(false)}
-                  className="px-5 py-2.5 rounded-xl border border-slate-300 text-slate-600 font-semibold text-sm hover:bg-slate-100 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className={`px-6 py-2.5 rounded-xl bg-[#137fec] hover:bg-blue-600 text-white font-semibold text-sm transition-colors ${
-                    loading ? 'opacity-70 cursor-not-allowed' : ''
-                  }`}
-                >
-                  {loading ? 'Saving...' : 'Save Service'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* Doctor Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 backdrop-blur-sm p-4">
@@ -2163,25 +1973,27 @@ const SettingsPage = () => {
                 <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Weekly Availability</h4>
                 <div className="space-y-2">
                   {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => (
-                    <div key={day} className="flex items-center gap-3">
-                      <label className="w-24 text-sm font-medium text-slate-700 dark:text-slate-300 capitalize">
+                    <div key={day} className="flex flex-col xs:flex-row xs:items-center gap-1.5 xs:gap-3">
+                      <label className="xs:w-24 text-xs font-semibold text-slate-500 uppercase xs:normal-case xs:text-sm xs:font-medium xs:text-slate-700 dark:text-slate-300 capitalize">
                         {day}
                       </label>
-                      <input
-                        type="time"
-                        name={`availability_${day}_start`}
-                        value={doctorFormData.availability[day]?.start || ''}
-                        onChange={handleDoctorChange}
-                        className="flex-1 px-2 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-[#137fec] outline-none bg-white dark:bg-slate-800"
-                      />
-                      <span className="text-slate-500">to</span>
-                      <input
-                        type="time"
-                        name={`availability_${day}_end`}
-                        value={doctorFormData.availability[day]?.end || ''}
-                        onChange={handleDoctorChange}
-                        className="flex-1 px-2 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-[#137fec] outline-none bg-white dark:bg-slate-800"
-                      />
+                      <div className="flex items-center gap-2 flex-1">
+                        <input
+                          type="time"
+                          name={`availability_${day}_start`}
+                          value={doctorFormData.availability[day]?.start || ''}
+                          onChange={handleDoctorChange}
+                          className="flex-1 min-w-0 px-2 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-[#137fec] outline-none bg-white dark:bg-slate-800"
+                        />
+                        <span className="text-slate-400 text-xs flex-shrink-0">to</span>
+                        <input
+                          type="time"
+                          name={`availability_${day}_end`}
+                          value={doctorFormData.availability[day]?.end || ''}
+                          onChange={handleDoctorChange}
+                          className="flex-1 min-w-0 px-2 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-[#137fec] outline-none bg-white dark:bg-slate-800"
+                        />
+                      </div>
                     </div>
                   ))}
                 </div>

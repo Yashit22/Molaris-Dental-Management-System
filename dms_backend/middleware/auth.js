@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 
 export function authenticate(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -16,4 +17,26 @@ export function authenticate(req, res, next) {
   } catch (err) {
     return res.status(401).json({ message: 'Invalid or expired token' });
   }
+}
+
+export function requireAdminSecret(req, res, next) {
+  const provided = req.header('X-Admin-Secret');
+  const expected = process.env.ADMIN_API_SECRET;
+
+  if (!provided || !expected) {
+    console.warn('[adminSecret] denied — header missing or secret not configured');
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+
+  // Constant-time comparison to prevent timing attacks
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  const safe = a.length === b.length && crypto.timingSafeEqual(a, b);
+
+  if (!safe) {
+    console.warn('[adminSecret] denied');
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+
+  next();
 }

@@ -101,6 +101,16 @@ export default function LoginPage() {
                 </div>
               )}
 
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => navigate('/forgot-password')}
+                  className="text-sm text-[#137fec] font-semibold hover:underline"
+                >
+                  Forgot password?
+                </button>
+              </div>
+
               <button
                 type="submit"
                 disabled={loading}

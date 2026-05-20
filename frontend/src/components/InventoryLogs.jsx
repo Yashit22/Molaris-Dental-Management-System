@@ -198,48 +198,73 @@ const InventoryLogs = ({ medicineEnabled = true, consumableEnabled = true }) => 
         {loading ? (
             <div className="h-full flex items-center justify-center"><Loader2 className="animate-spin text-slate-400"/></div>
         ) : (
-            <table className="w-full text-left border-collapse">
-            <thead className="bg-slate-50 sticky top-0 z-10 text-xs font-semibold text-slate-500 uppercase">
+          <>
+            {/* Mobile cards */}
+            <div className="sm:hidden divide-y divide-slate-100">
+              {visibleLogs.map((log, index) => (
+                <div key={log._id} className="p-3 flex items-center justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="font-medium text-slate-800 text-sm">{log.item_id?.name || 'Unknown Item'}</span>
+                      <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold border flex-shrink-0 ${log.type === 'Stock In' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                        {log.type === 'Stock In' ? <ArrowDownLeft size={10}/> : <ArrowUpRight size={10}/>}
+                        {log.type}
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-500">{log.reason}{log.notes ? ` · ${log.notes}` : ''}</div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">{log.item_id?.type} · {new Date(log.date).toLocaleDateString()}</div>
+                  </div>
+                  <div className={`font-bold text-base flex-shrink-0 ${log.type === 'Stock In' ? 'text-green-600' : 'text-red-600'}`}>
+                    {log.type === 'Stock In' ? '+' : '-'}{log.quantity}
+                  </div>
+                </div>
+              ))}
+              {visibleLogs.length === 0 && <div className="p-6 text-center text-slate-400 text-sm">No transactions found.</div>}
+            </div>
+            {/* Desktop table */}
+            <table className="hidden sm:table w-full text-left border-collapse">
+              <thead className="bg-slate-50 sticky top-0 z-10 text-xs font-semibold text-slate-500 uppercase">
                 <tr>
-                <th className="p-4 w-16">S.No</th>
-                <th className="p-4">Reason / Notes</th>
-                <th className="p-4">Item Details</th>
-                <th className="p-4 text-center">Type</th>
-                <th className="p-4 text-right">Qty</th>
-                <th className="p-4 text-right">Date</th>
+                  <th className="p-4 w-16">S.No</th>
+                  <th className="p-4">Reason / Notes</th>
+                  <th className="p-4">Item Details</th>
+                  <th className="p-4 text-center">Type</th>
+                  <th className="p-4 text-right">Qty</th>
+                  <th className="p-4 text-right">Date</th>
                 </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
+              </thead>
+              <tbody className="divide-y divide-slate-100">
                 {visibleLogs.map((log, index) => (
-                <tr key={log._id} className="hover:bg-slate-50 text-sm">
+                  <tr key={log._id} className="hover:bg-slate-50 text-sm">
                     <td className="p-4 text-slate-400">{index + 1}</td>
                     <td className="p-4">
-                    <div className="font-medium text-slate-800">{log.reason}</div>
-                    <div className="text-xs text-slate-500 italic">{log.notes || '-'}</div>
+                      <div className="font-medium text-slate-800">{log.reason}</div>
+                      <div className="text-xs text-slate-500 italic">{log.notes || '-'}</div>
                     </td>
                     <td className="p-4">
-                    <div className="text-slate-700 font-medium">{log.item_id?.name || 'Unknown Item'}</div>
-                    <div className="text-xs text-slate-400 font-mono">Category: {log.item_id?.type}</div>
+                      <div className="text-slate-700 font-medium">{log.item_id?.name || 'Unknown Item'}</div>
+                      <div className="text-xs text-slate-400 font-mono">Category: {log.item_id?.type}</div>
                     </td>
                     <td className="p-4 text-center">
-                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-bold border ${log.type === 'Stock In' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-bold border ${log.type === 'Stock In' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
                         {log.type === 'Stock In' ? <ArrowDownLeft size={12}/> : <ArrowUpRight size={12}/>}
                         {log.type}
-                    </span>
+                      </span>
                     </td>
                     <td className={`p-4 text-right font-bold ${log.type === 'Stock In' ? 'text-green-600' : 'text-red-600'}`}>
-                    {log.type === 'Stock In' ? '+' : '-'}{log.quantity}
+                      {log.type === 'Stock In' ? '+' : '-'}{log.quantity}
                     </td>
                     <td className="p-4 text-right font-mono text-slate-600">
-                        {new Date(log.date).toLocaleDateString()}
+                      {new Date(log.date).toLocaleDateString()}
                     </td>
-                </tr>
+                  </tr>
                 ))}
                 {logs.length === 0 && (
-                    <tr><td colSpan="6" className="p-6 text-center text-slate-400">No transactions found.</td></tr>
+                  <tr><td colSpan="6" className="p-6 text-center text-slate-400">No transactions found.</td></tr>
                 )}
-            </tbody>
+              </tbody>
             </table>
+          </>
         )}
       </div>
     </div>

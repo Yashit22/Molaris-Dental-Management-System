@@ -22,7 +22,6 @@ import clinicalFindingRoutes from './routes/clinicalFinding.routes.js';
 import diagnosisRoutes from './routes/diagnosis.routes.js';
 import suggestedTreatmentRoutes from './routes/suggestedTreatment.routes.js';
 import vendorRoutes from './routes/vendor.routes.js';
-import serviceRoutes from './routes/services.routes.js';
 import fileRoutes from './routes/files.js';
 import transcribeRoutes from './routes/transcribe.routes.js';
 import reportRoutes from './routes/report.routes.js';
@@ -35,6 +34,10 @@ import { startAppointmentStatusJob } from './services/appointmentStatusJob.js';
 dotenv.config();
 
 const app = express();
+
+// Trust the first proxy hop so req.ip reflects the real client IP
+// (required for accurate rate limiting and audit logs behind a load balancer)
+app.set('trust proxy', 1);
 
 // Basic Middleware
 app.use(cors());
@@ -69,7 +72,6 @@ app.use('/api/clinical-findings',    tenantStack, clinicalFindingRoutes);
 app.use('/api/diagnoses',            tenantStack, diagnosisRoutes);
 app.use('/api/suggested-treatments', tenantStack, suggestedTreatmentRoutes);
 app.use('/api/vendors',              tenantStack, vendorRoutes);
-app.use('/api/services',             tenantStack, serviceRoutes);
 app.use('/api/files',                tenantStack, fileRoutes);
 app.use('/api/transcribe',           tenantStack, transcribeRoutes);
 app.use('/api/report',               tenantStack, reportRoutes);

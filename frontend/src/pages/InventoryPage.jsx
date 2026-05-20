@@ -108,65 +108,67 @@ const InventoryPage = () => {
   }
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 p-6 gap-6 relative">
-      
+    <div className="flex flex-col h-full bg-slate-50 p-3 sm:p-6 gap-4 sm:gap-6 relative overflow-y-auto sm:overflow-hidden">
+
       {/* HEADER & NAVIGATION */}
-      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
+      <div className="flex flex-col gap-3">
         <div>
-           <h1 className="text-2xl font-bold text-slate-800">Inventory Manager</h1>
+           <h1 className="text-xl sm:text-2xl font-bold text-slate-800">Inventory Manager</h1>
            <p className="text-slate-500 text-sm">Pharmacy & Clinic Consumables</p>
         </div>
-        
-        <div className="bg-white p-1 rounded-xl border border-slate-200 shadow-sm overflow-x-auto max-w-full flex">
-          {TABS.map(tab => (
-            <button 
-              key={tab.id} 
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all whitespace-nowrap ${
-                activeTab === tab.id 
-                ? 'bg-[#137fec] text-white shadow-md' 
-                : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+
+        <div className="overflow-x-auto scrollbar-none -mx-3 px-3 sm:mx-0 sm:px-0">
+          <div className="bg-white p-1 rounded-xl border border-slate-200 shadow-sm flex w-max sm:w-full min-w-full">
+            {TABS.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex-shrink-0 sm:flex-1 px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold rounded-lg transition-all whitespace-nowrap ${
+                  activeTab === tab.id
+                  ? 'bg-[#137fec] text-white shadow-md'
+                  : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
       {/* --- TOOLBAR --- */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
-        
+      <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col xs:flex-row justify-between items-stretch xs:items-center gap-3">
+
         {/* Search Input */}
-        <div className="relative w-full md:w-80">
+        <div className="relative w-full xs:w-64 sm:w-80">
           <Search size={18} className="absolute left-3 top-2.5 text-slate-400" />
-          <input 
-            type="text" 
-            placeholder={`Search ${activeTab}...`} 
+          <input
+            type="text"
+            placeholder={`Search ${activeTab}...`}
             className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-xl text-sm outline-none focus:border-[#137fec] focus:ring-1 focus:ring-[#137fec]"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
-        
-        <div className="flex gap-3 w-full md:w-auto">
+
+        <div className="flex gap-2 xs:gap-3">
           {/* Filter Button (Only for Stock) */}
           {activeTab === 'Stock' && (
-            <button className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">
-              <Filter size={16} /> Filter Low Stock
+            <button className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-50 whitespace-nowrap">
+              <Filter size={15} /> <span className="hidden xs:inline">Filter</span> Low Stock
             </button>
           )}
 
           {/* Dynamic Add Button */}
           {activeTab !== 'Stock' && (
-            <button 
+            <button
               onClick={handleAddNew}
-              className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-[#137fec] text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 shadow-md transition-all"
+              className="flex-1 xs:flex-none flex items-center justify-center gap-2 bg-[#137fec] text-white px-4 sm:px-5 py-2 rounded-lg text-xs sm:text-sm font-medium hover:bg-blue-700 shadow-md transition-all whitespace-nowrap"
             >
-              <Plus size={18} />
-              {activeTab === 'Purchase Orders' ? 'Create PO' : 
-               activeTab === 'Vendors' ? 'Add Vendor' : 
-               activeTab === 'ItemList' ? 'Add Item' : 
+              <Plus size={16} />
+              {activeTab === 'Purchase Orders' ? 'Create PO' :
+               activeTab === 'Vendors' ? 'Add Vendor' :
+               activeTab === 'ItemList' ? 'Add Item' :
                activeTab === 'Logs' ? 'Create Log' : ''}
             </button>
           )}
@@ -174,15 +176,12 @@ const InventoryPage = () => {
       </div>
 
       {/* CONTENT AREA */}
-      <div className="flex-1 min-h-0">
-        {/* 3. PASS REFRESH KEY 
-           Changing the key forces the component to unmount/remount, 
-           triggering its internal useEffect to re-fetch data.
-        */}
-        <ActiveComponent 
-            key={activeTab + refreshKey} 
-            {...sharedProps} 
-            searchQuery={searchQuery} 
+      {/* On mobile: overflow-y-auto so stacked cards can scroll; on desktop: flex-1 min-h-0 for height-constrained grid */}
+      <div className="sm:flex-1 sm:min-h-0 overflow-y-auto sm:overflow-visible pb-4 sm:pb-0">
+        <ActiveComponent
+            key={activeTab + refreshKey}
+            {...sharedProps}
+            searchQuery={searchQuery}
         />
       </div>
 
