@@ -7,6 +7,7 @@ import {
   sendEmail,
 } from '../services/email.service.js';
 import { encrypt, decrypt } from '../utils/crypto.util.js';
+import * as Templates from '../services/emailTemplates.js';
 
 // ─── PDF helpers ───────────────────────────────────────────────────────────
 
@@ -596,7 +597,7 @@ export async function sendTreatmentSummary(req, res) {
 
 // ─── Automation trigger: Appointment Completed ────────────────────────────
 // Called internally from appointment controller — never throws to caller.
-export async function triggerAppointmentCompleted({ tenantModels, patientId, doctorName }) {
+export async function triggerAppointmentCompleted({ tenantModels, patientId, appointmentId, doctorName }) {
   try {
     const { EmailSettings, Patient, Visit, Invoice, ReportJob } = tenantModels;
 
@@ -632,7 +633,10 @@ export async function triggerAppointmentCompleted({ tenantModels, patientId, doc
     }
 
     if (include.aiReport && ReportJob) {
-      const job = await ReportJob.findOne({ patientId, status: 'done' }).sort({ createdAt: -1 }).lean();
+      let job = appointmentId
+        ? await ReportJob.findOne({ patientId, appointmentId, status: 'done' }).sort({ createdAt: -1 }).lean()
+        : null;
+      if (!job) job = await ReportJob.findOne({ patientId, status: 'done' }).sort({ createdAt: -1 }).lean();
       if (job?.reportText) {
         const pdf = await generateReportPdf(job.reportText, { patientName, doctorName: doctorName || 'Attending Doctor', date: today, templateName: job.templateId || 'Clinical Report' });
         attachments.push({ filename: `AIReport_${patientName}_${dateStr}.pdf`, content: pdf, contentType: 'application/pdf' });
@@ -685,6 +689,286 @@ async function _sendCompletionEmail({ tenantModels, settings, patient, patientId
     patientId,
     event: 'appointmentCompleted',
   });
+}
+
+// ─── Shared helpers ────────────────────────────────────────────────────────
+
+async function getSettingsOrNull(tenantModels) {
+  try {
+    return await tenantModels.EmailSettings.findOne({}).lean();
+  } catch {
+    return null;
+  }
+}
+
+async function getClinicVars(tenantModels) {
+  const profile = await (tenantModels.ClinicProfile
+    ? tenantModels.ClinicProfile.findOne({}).lean()
+    : Promise.resolve(null));
+  return {
+    clinic_name:    profile?.name    || 'Your Dental Clinic',
+    clinic_phone:   profile?.phone   || '',
+    clinic_address: [profile?.address, profile?.city].filter(Boolean).join(', '),
+    logo_url:       profile?.logoUrl || '',
+  };
+}
+
+function fmtDate(dt) {
+  return new Date(dt).toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: 'numeric', month: 'long', year: 'numeric',
+  });
+}
+
+function fmtTime(dt) {
+  return new Date(dt).toLocaleTimeString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit', minute: '2-digit', hour12: true,
+  });
+}
+
+async function getDoctorName(tenantModels, doctorId) {
+  if (!doctorId || !tenantModels.Doctor) return 'Doctor';
+  try {
+    const doc = await tenantModels.Doctor.findById(doctorId).select('name').lean();
+    return doc?.name || 'Doctor';
+  } catch { return 'Doctor'; }
+}
+
+// Internal sender — never throws
+async function _fireMail(tenantModels, settings, { to, event, patientId, ...tpl }) {
+  if (!to || !settings?.enabled || !settings?.smtp?.user) return;
+  try {
+    await sendEmail({
+      tenantModels,
+      settings,
+      to,
+      subject:   tpl.subject,
+      html:      tpl.html,
+      text:      tpl.text,
+      patientId,
+      event,
+    });
+  } catch (err) {
+    console.error(`[Email] _fireMail(${event}) silenced:`, err.message);
+  }
+}
+
+// ─── Booking trigger (called from booking.controller) ──────────────────────
+export async function triggerBookingEmails({ tenantModels, patient, appointment, serviceName, clinicName }) {
+  try {
+    const settings = await getSettingsOrNull(tenantModels);
+    if (!settings?.enabled) return;
+
+    const ev = settings.events?.bookingReceived;
+    if (!ev?.enabled) return;
+
+    const clinic = await getClinicVars(tenantModels);
+    const vars = {
+      ...clinic,
+      clinic_name:      clinic.clinic_name || clinicName || 'Your Dental Clinic',
+      first_name:       patient.first_name,
+      patient_name:     `${patient.first_name} ${patient.last_name || ''}`.trim(),
+      patient_phone:    patient.contact?.mobile || '',
+      service_name:     serviceName || appointment.type || 'Consultation',
+      appointment_date: fmtDate(appointment.start_time),
+      appointment_time: fmtTime(appointment.start_time),
+      doctor_name:      await getDoctorName(tenantModels, appointment.doctor_id),
+      notes:            appointment.notes || '',
+    };
+
+    const patientEmail = patient.contact?.email;
+
+    // Patient confirmation
+    if (patientEmail) {
+      const tpl = Templates.bookingRequestReceived(vars);
+      await _fireMail(tenantModels, settings, { to: patientEmail, event: 'bookingReceived', patientId: patient._id?.toString(), ...tpl });
+    }
+
+    // Clinic alert
+    if (ev.notifyClinic) {
+      const clinicEmail = ev.clinicEmail || settings.fromEmail || settings.smtp?.user;
+      if (clinicEmail) {
+        const tpl = Templates.newBookingNotification(vars);
+        await _fireMail(tenantModels, settings, { to: clinicEmail, event: 'bookingReceived', ...tpl });
+      }
+    }
+  } catch (err) {
+    console.error('[Email] triggerBookingEmails silenced:', err.message);
+  }
+}
+
+// ─── Booking confirmed by staff ─────────────────────────────────────────────
+export async function triggerBookingConfirmed({ tenantModels, patient, appointment, serviceName }) {
+  try {
+    const settings = await getSettingsOrNull(tenantModels);
+    if (!settings?.enabled || !settings?.events?.bookingConfirmed?.enabled) return;
+
+    const patientEmail = patient?.contact?.email;
+    if (!patientEmail) return;
+
+    const clinic = await getClinicVars(tenantModels);
+    const vars = {
+      ...clinic,
+      first_name:       patient.first_name,
+      service_name:     serviceName || appointment.type || 'Consultation',
+      appointment_date: fmtDate(appointment.start_time),
+      appointment_time: fmtTime(appointment.start_time),
+      doctor_name:      await getDoctorName(tenantModels, appointment.doctor_id),
+    };
+
+    const tpl = Templates.appointmentConfirmed(vars);
+    await _fireMail(tenantModels, settings, { to: patientEmail, event: 'bookingConfirmed', patientId: patient._id?.toString(), ...tpl });
+  } catch (err) {
+    console.error('[Email] triggerBookingConfirmed silenced:', err.message);
+  }
+}
+
+// ─── Appointment rescheduled ────────────────────────────────────────────────
+export async function triggerAppointmentRescheduled({ tenantModels, patient, appointment }) {
+  try {
+    const settings = await getSettingsOrNull(tenantModels);
+    if (!settings?.enabled || !settings?.events?.appointmentRescheduled?.enabled) return;
+
+    const patientEmail = patient?.contact?.email;
+    if (!patientEmail) return;
+
+    const clinic = await getClinicVars(tenantModels);
+    const vars = {
+      ...clinic,
+      first_name:       patient.first_name,
+      appointment_date: fmtDate(appointment.start_time),
+      appointment_time: fmtTime(appointment.start_time),
+      doctor_name:      await getDoctorName(tenantModels, appointment.doctor_id),
+    };
+
+    const tpl = Templates.appointmentRescheduled(vars);
+    await _fireMail(tenantModels, settings, { to: patientEmail, event: 'appointmentRescheduled', patientId: patient._id?.toString(), ...tpl });
+  } catch (err) {
+    console.error('[Email] triggerAppointmentRescheduled silenced:', err.message);
+  }
+}
+
+// ─── Appointment cancelled ──────────────────────────────────────────────────
+export async function triggerAppointmentCancelled({ tenantModels, patient, appointment }) {
+  try {
+    const settings = await getSettingsOrNull(tenantModels);
+    if (!settings?.enabled || !settings?.events?.appointmentCancelled?.enabled) return;
+
+    const patientEmail = patient?.contact?.email;
+    if (!patientEmail) return;
+
+    const clinic = await getClinicVars(tenantModels);
+    const vars = {
+      ...clinic,
+      first_name:       patient.first_name,
+      appointment_date: fmtDate(appointment.start_time),
+      appointment_time: fmtTime(appointment.start_time),
+    };
+
+    const tpl = Templates.appointmentCancelled(vars);
+    await _fireMail(tenantModels, settings, { to: patientEmail, event: 'appointmentCancelled', patientId: patient._id?.toString(), ...tpl });
+  } catch (err) {
+    console.error('[Email] triggerAppointmentCancelled silenced:', err.message);
+  }
+}
+
+// ─── Invoice paid receipt ───────────────────────────────────────────────────
+export async function triggerInvoicePaid({ tenantModels, patient, invoice }) {
+  try {
+    const settings = await getSettingsOrNull(tenantModels);
+    if (!settings?.enabled || !settings?.events?.invoicePaid?.enabled) return;
+
+    const patientEmail = patient?.contact?.email;
+    if (!patientEmail) return;
+
+    const clinic = await getClinicVars(tenantModels);
+    const vars = {
+      ...clinic,
+      first_name:   patient.first_name,
+      invoice_id:   invoice.invoice_id,
+      amount:       invoice.paid_amount || invoice.total_amount,
+      outstanding:  invoice.pending_amount > 0 ? invoice.pending_amount : '',
+      invoice_date: fmtDate(invoice.updatedAt || invoice.createdAt),
+    };
+
+    const tpl = Templates.invoiceReceipt(vars);
+
+    // Optionally attach invoice PDF
+    let attachments = [];
+    if (settings.events.invoicePaid.attachInvoice) {
+      try {
+        const patientName = `${patient.first_name} ${patient.last_name || ''}`.trim();
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const pdf = await generateInvoicePdf(invoice, patientName);
+        attachments = [{ filename: `Invoice_${invoice.invoice_id}_${dateStr}.pdf`, content: pdf, contentType: 'application/pdf' }];
+      } catch (pdfErr) {
+        console.error('[Email] Invoice PDF generation failed:', pdfErr.message);
+      }
+    }
+
+    await sendEmail({
+      tenantModels, settings,
+      to: patientEmail, subject: tpl.subject, html: tpl.html, text: tpl.text,
+      attachments,
+      patientId: patient._id?.toString(),
+      event: 'invoicePaid',
+    });
+  } catch (err) {
+    console.error('[Email] triggerInvoicePaid silenced:', err.message);
+  }
+}
+
+// ─── Low stock alert ────────────────────────────────────────────────────────
+export async function triggerLowStockAlert({ tenantModels, item }) {
+  try {
+    const settings = await getSettingsOrNull(tenantModels);
+    if (!settings?.enabled) return;
+
+    const alertEmail = settings.events?.bookingReceived?.clinicEmail || settings.fromEmail || settings.smtp?.user;
+    if (!alertEmail) return;
+
+    const clinic = await getClinicVars(tenantModels);
+    const vars = {
+      ...clinic,
+      item_name:    item.name,
+      current_stock: String(item.stock_on_hand),
+      min_stock:    String(item.min_stock_level),
+      stock_status: item.status || 'Low',
+    };
+
+    const tpl = Templates.lowStockAlert(vars);
+    await _fireMail(tenantModels, settings, { to: alertEmail, event: 'lowStockAlert', ...tpl });
+  } catch (err) {
+    console.error('[Email] triggerLowStockAlert silenced:', err.message);
+  }
+}
+
+// ─── Lab order ready ────────────────────────────────────────────────────────
+export async function triggerLabOrderReady({ tenantModels, patient, labOrder, doctorEmail, doctorName }) {
+  try {
+    const settings = await getSettingsOrNull(tenantModels);
+    if (!settings?.enabled) return;
+
+    const to = doctorEmail;
+    if (!to) return;
+
+    const clinic = await getClinicVars(tenantModels);
+    const itemNames = (labOrder.items || []).map(i => i.item_name).join(', ');
+    const vars = {
+      ...clinic,
+      doctor_name:   doctorName || 'Doctor',
+      patient_name:  patient ? `${patient.first_name} ${patient.last_name || ''}`.trim() : 'Patient',
+      lab_name:      labOrder.vendor || '',
+      items:         itemNames,
+      received_date: fmtDate(new Date()),
+    };
+
+    const tpl = Templates.labOrderReady(vars);
+    await _fireMail(tenantModels, settings, { to, event: 'labOrderReady', ...tpl });
+  } catch (err) {
+    console.error('[Email] triggerLabOrderReady silenced:', err.message);
+  }
 }
 
 // ─── Logs ──────────────────────────────────────────────────────────────────

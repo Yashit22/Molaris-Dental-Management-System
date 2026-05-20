@@ -1,6 +1,11 @@
 import { logEvent } from '../services/analyticsLogger.js';
 import { triggerWhatsApp, triggerJourney } from '../services/whatsapp.service.js';
-import { triggerAppointmentCompleted } from './email.controller.js';
+import {
+  triggerAppointmentCompleted,
+  triggerBookingConfirmed,
+  triggerAppointmentRescheduled,
+  triggerAppointmentCancelled,
+} from './email.controller.js';
 
 // GET /api/appointments?date=2025-12-25
 export async function getAppointments(req, res) {
@@ -237,6 +242,26 @@ export async function updateStatus(req, res) {
       });
     }
 
+    // Email: booking confirmed (Requested → Confirmed/Scheduled)
+    if ((status === 'Confirmed' || status === 'Scheduled') && currentAppt?.status === 'Requested' && appt?.patient_id) {
+      req.tenantModels.Patient.findById(appt.patient_id).lean()
+        .then(patient => {
+          if (!patient) return;
+          triggerBookingConfirmed({ tenantModels: req.tenantModels, patient, appointment: appt, serviceName: appt.type });
+        })
+        .catch(() => {});
+    }
+
+    // Email: appointment cancelled
+    if (status === 'Cancelled' && appt?.patient_id) {
+      req.tenantModels.Patient.findById(appt.patient_id).lean()
+        .then(patient => {
+          if (!patient) return;
+          triggerAppointmentCancelled({ tenantModels: req.tenantModels, patient, appointment: appt });
+        })
+        .catch(() => {});
+    }
+
     res.json(appt);
   } catch (err) { res.status(400).json({ error: err.message }); }
 }
@@ -308,6 +333,9 @@ export async function updateAppointment(req, res) {
             patient._id.toString(),
             appt.whatsapp_language || null
           );
+
+          // Email: rescheduled
+          triggerAppointmentRescheduled({ tenantModels: req.tenantModels, patient, appointment: appt });
         })
         .catch(() => {});
     }

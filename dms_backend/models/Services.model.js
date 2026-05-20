@@ -3,8 +3,9 @@ import mongoose from 'mongoose';
 const ServiceSchema = new mongoose.Schema({
   name: { type: String, required: true },
   cost: { type: Number, required: true },
-  category: { type: String, default: 'General' }, // e.g. "Consultation", "Root Canal"
+  category: { type: String, default: 'General' },
   description: String,
+  duration_minutes: { type: Number, default: null }, // null = use clinic default slot duration
   isActive: { type: Boolean, default: true }
 }, { timestamps: true });
 

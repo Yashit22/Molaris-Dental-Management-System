@@ -299,7 +299,7 @@ export async function transcribeAudio(req, res) {
   const credentials = req.tenantConfig;
 
   try {
-    const { patient_id, template_id, detail_level, save_report, autofill } = req.body;
+    const { patient_id, template_id, detail_level, save_report, autofill, appointment_id } = req.body;
     if (!patient_id)  return res.status(400).json({ error: 'patient_id is required' });
     if (!template_id) return res.status(400).json({ error: 'template_id is required' });
 
@@ -325,6 +325,7 @@ export async function transcribeAudio(req, res) {
 
     const job = await ReportJob.create({
       patientId:     patient._id,
+      appointmentId: appointment_id || null,
       status:        directText || cachedTranscript ? 'transcribed' : 'pending',
       transcript:    directText || cachedTranscript || '',
       templateId:    template_id,

@@ -27,6 +27,7 @@ import { InventorySettingsSchema }  from '../models/InventorySettings.model.js';
 import { EmailTemplateSchema }      from '../models/EmailTemplate.model.js';
 import { EmailLogSchema }           from '../models/EmailLog.model.js';
 import { ReportJobSchema }          from '../models/ReportJob.model.js';
+import { ClinicProfileSchema }      from '../models/ClinicProfile.model.js';
 
 /**
  * Returns all clinic Mongoose models bound to the given tenant connection.
@@ -68,6 +69,7 @@ export function getTenantModels(conn) {
     EmailTemplate:      getOrCreate('EmailTemplate',      EmailTemplateSchema),
     EmailLog:           getOrCreate('EmailLog',           EmailLogSchema),
     ReportJob:          getOrCreate('ReportJob',          ReportJobSchema),
+    ClinicProfile:      getOrCreate('ClinicProfile',      ClinicProfileSchema),
   };
 
   return conn._dmsModels;
