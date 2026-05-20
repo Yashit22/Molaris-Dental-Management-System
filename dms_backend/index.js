@@ -36,6 +36,10 @@ dotenv.config();
 
 const app = express();
 
+// Trust the first proxy hop so req.ip reflects the real client IP
+// (required for accurate rate limiting and audit logs behind a load balancer)
+app.set('trust proxy', 1);
+
 // Basic Middleware
 app.use(cors());
 app.use(express.json());
