@@ -1,3 +1,5 @@
+import { runBulkInsert } from '../utils/csvBulkUpload.js';
+
 // GET /api/suggested-treatments
 export async function getSuggestedTreatments(req, res) {
   const { SuggestedTreatment } = req.tenantModels;
@@ -53,5 +55,42 @@ export async function deleteSuggestedTreatment(req, res) {
     res.json({ msg: 'Treatment deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+}
+
+// POST /api/suggested-treatments/bulk-upload
+// Accepts { sheetUrl } OR { rows: [{ name, category, cost, description }] }
+export async function bulkUploadSuggestedTreatments(req, res) {
+  const { SuggestedTreatment } = req.tenantModels;
+  try {
+    const existing = await SuggestedTreatment.find({}, 'name').lean();
+    const existingKeys = new Set(existing.map(i => String(i.name).trim().toLowerCase()));
+
+    const result = await runBulkInsert({
+      body: req.body,
+      requiredHeaders: ['name'],
+      existingKeys,
+      validateRow: (row) => {
+        if (!row.name) return { column: 'name', value: '', message: 'Name is required' };
+        if (row.name.length > 200) return { column: 'name', value: row.name, message: 'Name is too long (max 200 chars)' };
+        if (row.cost && isNaN(Number(String(row.cost).replace(/[^0-9.]/g, '')))) {
+          return { column: 'cost', value: row.cost, message: 'Cost must be a number' };
+        }
+        return null;
+      },
+      dedupeKey: (row) => row.name,
+      transformRow: (row) => ({
+        name: row.name,
+        cost: Number(String(row.cost || '0').replace(/[^0-9.]/g, '')) || 0,
+        category: row.category || '',
+        description: row.description || '',
+        is_active: true,
+      }),
+      Model: SuggestedTreatment,
+    });
+    res.json(result);
+  } catch (err) {
+    console.error('bulkUploadSuggestedTreatments error:', err);
+    res.status(err.status || 500).json({ error: err.userMessage || err.message });
   }
 }

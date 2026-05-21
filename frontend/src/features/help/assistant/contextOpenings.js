@@ -6,5 +6,6 @@ export function getContextNode(pathname) {
   if (pathname.startsWith('/lab')) return 'ctx-lab';
   if (pathname.startsWith('/whatsapp')) return 'ctx-whatsapp';
   if (pathname.startsWith('/insights')) return 'ctx-reports';
+  if (pathname.startsWith('/settings')) return 'ctx-settings';
   return 'root';
 }

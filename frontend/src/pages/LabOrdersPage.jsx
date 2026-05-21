@@ -384,14 +384,33 @@ function UploadResult({ result }) {
           </div>
         ))}
       </div>
-      {result.skippedDetails?.length > 0 && (
-        <details className="text-xs text-slate-500 mt-1">
-          <summary className="cursor-pointer font-medium text-slate-600">View skipped ({result.skippedDetails.length})</summary>
-          <ul className="mt-1 pl-3 list-disc">
-            {result.skippedDetails.slice(0, 20).map((s, i) => (
-              <li key={i}><span className="font-medium">{s.name || '(empty)'}</span> — {s.reason}</li>
-            ))}
-          </ul>
+      {result.errors?.length > 0 && (
+        <details className="text-xs text-slate-500 mt-1" open>
+          <summary className="cursor-pointer font-medium text-slate-600">
+            View skipped rows ({result.errors.length}) — row numbers match your sheet (header = row 1)
+          </summary>
+          <div className="mt-2 border border-amber-200 rounded-lg overflow-hidden max-h-44 overflow-y-auto">
+            <table className="w-full text-[11px]">
+              <thead className="bg-amber-50 sticky top-0">
+                <tr>
+                  <th className="px-2 py-1 text-left font-semibold text-slate-600">Row</th>
+                  <th className="px-2 py-1 text-left font-semibold text-slate-600">Column</th>
+                  <th className="px-2 py-1 text-left font-semibold text-slate-600">Value</th>
+                  <th className="px-2 py-1 text-left font-semibold text-slate-600">Reason</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-amber-100">
+                {result.errors.slice(0, 50).map((e, i) => (
+                  <tr key={i}>
+                    <td className="px-2 py-1 font-mono text-slate-700">{e.row}</td>
+                    <td className="px-2 py-1 text-slate-600">{e.column || '—'}</td>
+                    <td className="px-2 py-1 text-slate-500 max-w-[120px] truncate" title={e.value}>{e.value || <span className="italic text-slate-400">(empty)</span>}</td>
+                    <td className="px-2 py-1 text-red-600">{e.error}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </details>
       )}
     </div>

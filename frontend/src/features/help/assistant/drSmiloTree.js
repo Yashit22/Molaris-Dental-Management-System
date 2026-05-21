@@ -11,6 +11,7 @@ export const NODES = {
       { id: 'go-lab',       label: 'Lab orders',                      emoji: '🧪', next: 'lab' },
       { id: 'go-whatsapp',  label: 'WhatsApp & messages',             emoji: '💬', next: 'whatsapp' },
       { id: 'go-reports',   label: 'Reports & analytics',             emoji: '📊', next: 'reports' },
+      { id: 'go-settings',  label: 'Settings & clinical data',        emoji: '⚙️', next: 'settings' },
       { id: 'go-broken',    label: "Something's not working",         emoji: '🔧', next: 'broken' },
       { id: 'free',         label: 'Something else...',               emoji: '🔍', freeText: true },
     ],
@@ -113,6 +114,22 @@ export const NODES = {
     ],
   },
 
+  settings: {
+    smilo: "Settings — what would you like to set up?",
+    avatarState: 'thinking',
+    options: [
+      { id: 's-findings',    label: 'Add Clinical Findings',           slug: '09-clinical-data-setup', hint: 'Settings → Clinical Data → Findings → click "Add Findings". Pick one of four options: Add One, Quick Entry, Bulk Upload, or Import from Library.' },
+      { id: 's-diagnoses',   label: 'Add Diagnoses',                   slug: '09-clinical-data-setup', hint: 'Settings → Clinical Data → Diagnoses → click "Add Diagnoses". You can add one at a time, paste rows quickly, upload a CSV, or import from our library.' },
+      { id: 's-treatments',  label: 'Add Suggested Treatments',        slug: '09-clinical-data-setup', hint: 'Settings → Clinical Data → Treatments → click "Add Treatments". Include the default cost — you can override per-patient later.' },
+      { id: 's-bulk',        label: 'Bulk upload via CSV / Google Sheet', slug: '09-clinical-data-setup', hint: 'In any "Add" modal, pick Bulk Upload. Download the sample CSV first — it has the exact column names we expect.' },
+      { id: 's-library',     label: 'Import from the starter library', slug: '09-clinical-data-setup', hint: 'Settings → Clinical Data → Add → Import from Library. Pick the items you want, edit before importing, click Import.' },
+      { id: 's-errors',      label: 'Fix bulk upload errors',          slug: '09-clinical-data-setup', hint: 'The result modal shows every failed row with its row number, the column that failed, the value you typed, and the reason. Open your sheet at those rows, fix, then re-upload — duplicates from the first pass are skipped.' },
+      { id: 's-doctor',      label: 'Add or edit a doctor',            slug: '09-clinical-data-setup', hint: 'Settings → Doctors → Add Doctor. You can save up to 10 doctors per clinic.' },
+      { id: 's-medicines',   label: 'Add medicines / consumables',     slug: '05-inventory', hint: 'Settings → Inventory tab. The same Bulk Upload pattern works there too — sample CSV, upload, see row-level errors.' },
+      { id: 'back',          label: '← Back',                          back: true },
+    ],
+  },
+
   broken: {
     smilo: "Sorry to hear that — let's fix it. What's the issue?",
     avatarState: 'concerned',
@@ -202,6 +219,20 @@ export const NODES = {
       { id: 'cr-outstanding', label: 'Outstanding payments',   slug: '04-invoicing-billing' },
       { id: 'cr-export',      label: 'Export to CSV',          slug: '08-analytics-reports' },
       { id: 'other',          label: 'Something else',         next: 'root' },
+    ],
+  },
+
+  'ctx-settings': {
+    smilo: "I see you're on Settings — what are you setting up?",
+    avatarState: 'idle',
+    options: [
+      { id: 'cs-findings',   label: 'Add clinical findings',        slug: '09-clinical-data-setup', hint: 'Open the Clinical Data tab → Findings → click Add Findings. Pick Add One, Quick Entry, Bulk Upload, or Import from Library.' },
+      { id: 'cs-diagnoses',  label: 'Add diagnoses',                slug: '09-clinical-data-setup', hint: 'Clinical Data tab → Diagnoses → Add Diagnoses. Same four options.' },
+      { id: 'cs-treatments', label: 'Add suggested treatments',     slug: '09-clinical-data-setup', hint: 'Clinical Data tab → Treatments → Add Treatments. Default cost can be overridden per patient.' },
+      { id: 'cs-bulk',       label: 'Upload a CSV / Google Sheet',  slug: '09-clinical-data-setup', hint: 'Click Add → Bulk Upload → download the sample CSV first so the headers match exactly.' },
+      { id: 'cs-errors',     label: 'Bulk upload showed errors',    slug: '09-clinical-data-setup', hint: 'The error table shows the row number, column, value and reason for each skipped row. Header is row 1, first data row is row 2.' },
+      { id: 'cs-doctor',     label: 'Add or edit a doctor',         slug: '09-clinical-data-setup' },
+      { id: 'other',         label: 'Something else',               next: 'root' },
     ],
   },
 };

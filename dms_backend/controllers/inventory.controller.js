@@ -1,3 +1,5 @@
+import { runBulkInsert } from '../utils/csvBulkUpload.js';
+
 // ============================================================================
 //                       INVENTORY SETTINGS (per-tenant)
 // ============================================================================
@@ -39,158 +41,94 @@ export async function updateInventorySettings(req, res) {
 }
 
 // ============================================================================
-//                BULK UPLOAD MEDICINES (via Google Sheets URL)
+//                BULK UPLOAD MEDICINES (via Google Sheets URL or CSV rows)
 // ============================================================================
 
-/**
- * Extract the spreadsheet ID from a Google Sheets URL or accept a bare ID.
- * Examples:
- *   https://docs.google.com/spreadsheets/d/<ID>/edit#gid=0
- *   https://docs.google.com/spreadsheets/d/<ID>
- *   <ID>
- */
-function extractSheetId(input) {
-  if (!input) return null;
-  const trimmed = String(input).trim();
-  const match = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-  if (match) return match[1];
-  // Bare ID — only allow safe chars
-  if (/^[a-zA-Z0-9-_]+$/.test(trimmed)) return trimmed;
-  return null;
+// Helpers to parse loose numeric fields like "₹500", "1,200", "abc"
+function parseMoney(v) {
+  if (v == null || v === '') return 0;
+  const cleaned = String(v).replace(/[^0-9.]/g, '');
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : 0;
 }
-
-/**
- * Parse a CSV string into an array of objects keyed by header.
- * Handles quoted fields (including embedded commas and escaped quotes "").
- */
-function parseCsv(text) {
-  const rows = [];
-  let row = [];
-  let field = '';
-  let inQuotes = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (inQuotes) {
-      if (ch === '"') {
-        if (text[i + 1] === '"') { field += '"'; i++; }
-        else inQuotes = false;
-      } else {
-        field += ch;
-      }
-    } else {
-      if (ch === '"') inQuotes = true;
-      else if (ch === ',') { row.push(field); field = ''; }
-      else if (ch === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
-      else if (ch === '\r') { /* skip */ }
-      else field += ch;
-    }
-  }
-  if (field !== '' || row.length > 0) { row.push(field); rows.push(row); }
-
-  if (rows.length === 0) return [];
-  const headers = rows[0].map(h => h.trim().toLowerCase());
-  return rows.slice(1)
-    .filter(r => r.some(c => String(c).trim() !== ''))
-    .map(r => {
-      const obj = {};
-      headers.forEach((h, idx) => { obj[h] = (r[idx] ?? '').trim(); });
-      return obj;
-    });
+function isUnparsableNumber(v) {
+  if (v == null || v === '') return false; // empty is OK — treat as 0
+  return !/[0-9]/.test(String(v));
 }
 
 // POST /api/inventory/bulk-upload-medicines
+// Accepts { sheetUrl } OR { rows: [{ name, composition, manufacturer, category, cost_price, selling_price }] }
 export async function bulkUploadMedicines(req, res) {
   const { InventoryItem } = req.tenantModels;
   try {
-    const sheetId = extractSheetId(req.body?.sheetUrl);
-    if (!sheetId) return res.status(400).json({ error: 'Invalid Google Sheets URL or ID.' });
-
-    const exportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
-    const response = await fetch(exportUrl, { redirect: 'follow' });
-    if (!response.ok)
-      return res.status(400).json({ error: `Could not read sheet. Make sure it's shared as "Anyone with the link can view". (HTTP ${response.status})` });
-
-    const rows = parseCsv(await response.text());
-    if (rows.length === 0) return res.status(400).json({ error: 'Sheet is empty.' });
-    if (!('name' in rows[0]))
-      return res.status(400).json({ error: 'Sheet must include a "name" column.' });
-
     const existing = await InventoryItem.find({ type: 'Pharmacy' }, 'name').lean();
-    const existingNames = new Set(existing.map(i => String(i.name).trim().toLowerCase()));
+    const existingKeys = new Set(existing.map(i => String(i.name).trim().toLowerCase()));
 
-    const toInsert = [], skipped = [], seenInBatch = new Set();
-    for (const row of rows) {
-      const name = (row.name || '').trim();
-      if (!name) { skipped.push({ name: '', reason: 'Missing name' }); continue; }
-      const key = name.toLowerCase();
-      if (existingNames.has(key) || seenInBatch.has(key)) { skipped.push({ name, reason: 'Duplicate (already exists)' }); continue; }
-      seenInBatch.add(key);
-      toInsert.push({
-        name,
+    const result = await runBulkInsert({
+      body: req.body,
+      requiredHeaders: ['name'],
+      existingKeys,
+      validateRow: (row) => {
+        if (!row.name) return { column: 'name', value: '', message: 'Name is required' };
+        if (row.name.length > 200) return { column: 'name', value: row.name, message: 'Name is too long (max 200 chars)' };
+        const costCell = row['cost price'] ?? row.costprice ?? row.cost;
+        if (isUnparsableNumber(costCell)) return { column: 'cost price', value: costCell, message: 'Cost price must be a number' };
+        const sellCell = row['selling price'] ?? row.sellingprice ?? row.selling;
+        if (isUnparsableNumber(sellCell)) return { column: 'selling price', value: sellCell, message: 'Selling price must be a number' };
+        return null;
+      },
+      dedupeKey: (row) => row.name,
+      transformRow: (row) => ({
+        name: row.name,
         type: 'Pharmacy',
-        composition:   (row.composition    || '').trim(),
-        manufacturer:  (row.manufacturer   || '').trim(),
-        category:      (row.category       || '').trim(),
-        cost_price:    Number((row['cost price']    || row.costprice    || row.cost    || '0').replace(/[^0-9.]/g, '')) || 0,
-        selling_price: Number((row['selling price'] || row.sellingprice || row.selling || '0').replace(/[^0-9.]/g, '')) || 0,
-      });
-    }
-
-    let inserted = 0;
-    if (toInsert.length > 0) { const docs = await InventoryItem.insertMany(toInsert, { ordered: false }); inserted = docs.length; }
-    res.json({ inserted, skipped: skipped.length, skippedDetails: skipped, total: rows.length });
+        composition:   row.composition  || '',
+        manufacturer:  row.manufacturer || '',
+        category:      row.category     || '',
+        cost_price:    parseMoney(row['cost price']    ?? row.costprice    ?? row.cost),
+        selling_price: parseMoney(row['selling price'] ?? row.sellingprice ?? row.selling),
+      }),
+      Model: InventoryItem,
+    });
+    res.json(result);
   } catch (err) {
     console.error('bulkUploadMedicines error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.userMessage || err.message });
   }
 }
 
 // POST /api/inventory/bulk-upload-consumables
-// Body: { sheetUrl: string }
-// Sheet columns: Name, Category, Cost Price, Min Consumption
+// Accepts { sheetUrl } OR { rows: [...] }
 export async function bulkUploadConsumables(req, res) {
   const { InventoryItem } = req.tenantModels;
   try {
-    const sheetId = extractSheetId(req.body?.sheetUrl);
-    if (!sheetId) return res.status(400).json({ error: 'Invalid Google Sheets URL or ID.' });
-
-    const exportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
-    const response = await fetch(exportUrl, { redirect: 'follow' });
-    if (!response.ok)
-      return res.status(400).json({ error: `Could not read sheet. Make sure it's shared as "Anyone with the link can view". (HTTP ${response.status})` });
-
-    const rows = parseCsv(await response.text());
-    if (rows.length === 0) return res.status(400).json({ error: 'Sheet is empty.' });
-    if (!('name' in rows[0]))
-      return res.status(400).json({ error: 'Sheet must include a "name" column.' });
-
     const existing = await InventoryItem.find({ type: 'Consumable' }, 'name').lean();
-    const existingNames = new Set(existing.map(i => String(i.name).trim().toLowerCase()));
+    const existingKeys = new Set(existing.map(i => String(i.name).trim().toLowerCase()));
 
-    const toInsert = [], skipped = [], seenInBatch = new Set();
-    for (const row of rows) {
-      const name = (row.name || '').trim();
-      if (!name) { skipped.push({ name: '', reason: 'Missing name' }); continue; }
-      const key = name.toLowerCase();
-      if (existingNames.has(key) || seenInBatch.has(key)) { skipped.push({ name, reason: 'Duplicate (already exists)' }); continue; }
-      seenInBatch.add(key);
-      toInsert.push({
-        name,
+    const result = await runBulkInsert({
+      body: req.body,
+      requiredHeaders: ['name'],
+      existingKeys,
+      validateRow: (row) => {
+        if (!row.name) return { column: 'name', value: '', message: 'Name is required' };
+        const costCell = row['cost price'] ?? row.costprice ?? row.cost;
+        if (isUnparsableNumber(costCell)) return { column: 'cost price', value: costCell, message: 'Cost price must be a number' };
+        return null;
+      },
+      dedupeKey: (row) => row.name,
+      transformRow: (row) => ({
+        name: row.name,
         type: 'Consumable',
-        category:          (row.category || '').trim(),
-        cost_price:        Number((row['cost price']       || row.costprice || row.cost || '0').replace(/[^0-9.]/g, '')) || 0,
-        consumption_unit:  Number((row['min consumption'] || row['consumption unit'] || row.consumption || row.unit || '0').replace(/[^0-9.]/g, '')) || 0,
+        category:         row.category || '',
+        cost_price:       parseMoney(row['cost price'] ?? row.costprice ?? row.cost),
+        consumption_unit: parseMoney(row['min consumption'] ?? row['consumption unit'] ?? row.consumption ?? row.unit),
         selling_price: 0,
-      });
-    }
-
-    let inserted = 0;
-    if (toInsert.length > 0) { const docs = await InventoryItem.insertMany(toInsert, { ordered: false }); inserted = docs.length; }
-    res.json({ inserted, skipped: skipped.length, skippedDetails: skipped, total: rows.length });
+      }),
+      Model: InventoryItem,
+    });
+    res.json(result);
   } catch (err) {
     console.error('bulkUploadConsumables error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.userMessage || err.message });
   }
 }
 

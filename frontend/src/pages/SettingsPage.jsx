@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, X, Download, Upload, Mail, CheckCircle, XCircle, RefreshCw, Pill, FileSpreadsheet, ExternalLink, Loader2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, Edit2, Trash2, X, Download, Upload, Mail, CheckCircle, XCircle, RefreshCw, Pill, FileSpreadsheet, ExternalLink, Loader2, Calendar, Clock, Globe, Copy, Link2, BookOpen } from 'lucide-react';
 import API from '../services/api';
 import EmailTemplateEditorModal from '../modals/EmailTemplateEditorModal';
+import AddClinicalDataModal from '../modals/AddClinicalDataModal';
+import SingleClinicalItemModal from '../modals/SingleClinicalItemModal';
+import BulkUploadClinicalModal from '../modals/BulkUploadClinicalModal';
 import { useInventorySettings } from '../Context/SettingsContext';
 
 // ─── Inventory Tab ────────────────────────────────────────────────────────────
@@ -205,28 +209,43 @@ function BulkUploadModal({ onClose, onSuccess }) {
                   <p className="text-2xl font-bold text-green-700">{result.inserted}</p>
                   <p className="text-xs text-slate-500 uppercase">Imported</p>
                 </div>
-                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-yellow-700">{result.skipped}</p>
-                  <p className="text-xs text-slate-500 uppercase">Skipped</p>
+                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-amber-700">{result.skipped}</p>
+                  <p className="text-xs text-slate-500 uppercase">Errors</p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 rounded-lg p-3 text-center">
                   <p className="text-2xl font-bold text-slate-700 dark:text-slate-300">{result.total}</p>
                   <p className="text-xs text-slate-500 uppercase">Total Rows</p>
                 </div>
               </div>
-              {result.skippedDetails?.length > 0 && (
-                <details className="bg-slate-50 dark:bg-slate-800 rounded-lg p-3 text-sm">
-                  <summary className="font-semibold cursor-pointer text-slate-700 dark:text-slate-300">
-                    View skipped rows ({result.skippedDetails.length})
-                  </summary>
-                  <ul className="mt-2 space-y-1 max-h-40 overflow-y-auto pl-2">
-                    {result.skippedDetails.map((s, i) => (
-                      <li key={i} className="text-xs text-slate-500">
-                        <b>{s.name || '(no name)'}</b> — {s.reason}
-                      </li>
-                    ))}
-                  </ul>
-                </details>
+              {result.errors?.length > 0 && (
+                <div>
+                  <p className="text-xs text-slate-500 mb-1.5">
+                    {result.errors.length} row{result.errors.length !== 1 ? 's' : ''} skipped — row numbers match your sheet (header is row 1):
+                  </p>
+                  <div className="border border-amber-200 rounded-lg overflow-hidden max-h-56 overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead className="bg-amber-50 sticky top-0">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Row</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Column</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Value</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Why it failed</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-amber-100">
+                        {result.errors.map((e, i) => (
+                          <tr key={i}>
+                            <td className="px-3 py-1.5 font-mono text-slate-700">{e.row}</td>
+                            <td className="px-3 py-1.5 text-slate-600">{e.column || '—'}</td>
+                            <td className="px-3 py-1.5 text-slate-500 max-w-[160px] truncate" title={e.value}>{e.value || <span className="italic text-slate-400">(empty)</span>}</td>
+                            <td className="px-3 py-1.5 text-red-600">{e.error}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               )}
               <div className="flex justify-end pt-2">
                 <button onClick={onClose} className="px-5 py-2 rounded-lg bg-[#137fec] text-white text-sm font-bold hover:bg-blue-600">
@@ -1195,6 +1214,7 @@ function EmailTab() {
 // ─── Main Settings Page ───────────────────────────────────────────────────────
 
 const SettingsPage = () => {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('doctors');
 
   // Doctor states
@@ -1230,6 +1250,11 @@ const SettingsPage = () => {
   const [treatmentTab, setTreatmentTab] = useState('findings');
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkItems, setBulkItems] = useState([]);
+
+  // Unified Add modal state
+  const [showAddChooser, setShowAddChooser] = useState(false);
+  const [showSingleAdd, setShowSingleAdd] = useState(false);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
 
   // Fetch data based on active tab
   useEffect(() => {
@@ -1457,7 +1482,6 @@ const SettingsPage = () => {
         <div className="flex gap-0 mb-6 border-b border-slate-200 dark:border-slate-700 overflow-x-auto scrollbar-none -mx-3 px-3 sm:mx-0 sm:px-0">
           {[
             { key: 'doctors',   label: 'Doctors' },
-            { key: 'services',  label: 'Services' },
             { key: 'treatment', label: 'Clinical Data' },
             { key: 'inventory', label: 'Inventory' },
             { key: 'email',     label: 'Email' },
@@ -1565,90 +1589,6 @@ const SettingsPage = () => {
           </div>
         )}
 
-        {/* Services Tab */}
-        {activeTab === 'services' && (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-4 sm:p-6">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-lg sm:text-2xl font-bold text-slate-800 dark:text-white">Service Management</h2>
-              <button
-                onClick={handleAddService}
-                className="flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 text-sm bg-[#137fec] hover:bg-blue-600 text-white font-semibold rounded-xl transition-colors"
-              >
-                <Plus size={18} /> <span className="hidden xs:inline">Add Service</span><span className="xs:hidden">Add</span>
-              </button>
-            </div>
-
-            {loading ? (
-              <div className="text-center py-8 text-slate-500">Loading...</div>
-            ) : services.length === 0 ? (
-              <div className="text-center py-8 text-slate-500">
-                <p>No services added yet. Click "Add Service" to get started.</p>
-              </div>
-            ) : (
-              <>
-                {/* Mobile cards */}
-                <div className="sm:hidden space-y-3">
-                  {services.map(service => (
-                    <div key={service._id} className="border border-slate-200 dark:border-slate-700 rounded-xl p-4">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="font-semibold text-slate-800 dark:text-white truncate">{service.name}</p>
-                          <div className="flex items-center gap-2 mt-1 flex-wrap">
-                            <span className="text-xs bg-slate-100 dark:bg-slate-600 px-2 py-0.5 rounded">{service.category || 'General'}</span>
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${service.isActive ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'}`}>
-                              {service.isActive ? 'Active' : 'Inactive'}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex gap-1 flex-shrink-0">
-                          <button onClick={() => handleEditService(service)} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Edit2 size={16} /></button>
-                          <button onClick={() => handleDeleteService(service._id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16} /></button>
-                        </div>
-                      </div>
-                      <p className="mt-2 text-sm font-semibold text-slate-800 dark:text-white">₹{service.cost?.toLocaleString('en-IN') || '0'}</p>
-                    </div>
-                  ))}
-                </div>
-                {/* Desktop table */}
-                <div className="hidden sm:block overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-slate-50 dark:bg-slate-700">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Name</th>
-                        <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Category</th>
-                        <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Cost</th>
-                        <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Status</th>
-                        <th className="px-6 py-3 text-center text-sm font-semibold text-slate-700 dark:text-slate-300">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                      {services.map(service => (
-                        <tr key={service._id} className="hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
-                          <td className="px-6 py-4"><p className="font-semibold text-slate-800 dark:text-white">{service.name}</p></td>
-                          <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
-                            <span className="text-xs bg-slate-100 dark:bg-slate-600 px-2 py-1 rounded">{service.category || 'General'}</span>
-                          </td>
-                          <td className="px-6 py-4 text-slate-800 dark:text-white font-semibold">₹{service.cost?.toLocaleString('en-IN') || '0'}</td>
-                          <td className="px-6 py-4">
-                            <span className={`text-xs px-2 py-1 rounded-full font-semibold ${service.isActive ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-slate-100 text-slate-700 dark:bg-slate-600 dark:text-slate-300'}`}>
-                              {service.isActive ? 'Active' : 'Inactive'}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex justify-center gap-2">
-                              <button onClick={() => handleEditService(service)} className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-600 rounded-lg transition-colors"><Edit2 size={18} /></button>
-                              <button onClick={() => handleDeleteService(service._id)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-slate-600 rounded-lg transition-colors"><Trash2 size={18} /></button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-          </div>
-        )}
 
         {/* Treatment Tab */}
         {activeTab === 'treatment' && (
@@ -1670,21 +1610,27 @@ const SettingsPage = () => {
               ))}
             </div>
 
-            {/* Bulk Mode Toggle */}
-            <div className="flex justify-between items-center mb-6">
+            {/* Header — Unified Add button */}
+            <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
               <h3 className="text-base sm:text-xl font-bold text-slate-800 dark:text-white">
                 {treatmentTab === 'findings' ? 'Clinical Findings' : treatmentTab === 'diagnoses' ? 'Diagnoses' : 'Suggested Treatments'}
               </h3>
-              <button
-                onClick={() => setBulkMode(!bulkMode)}
-                className={`flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 text-sm rounded-xl font-semibold transition-colors ${
-                  bulkMode
-                    ? 'bg-orange-500 text-white hover:bg-orange-600'
-                    : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
-                }`}
-              >
-                <Upload size={16} /> {bulkMode ? 'Cancel' : 'Bulk Add'}
-              </button>
+              {bulkMode ? (
+                <button
+                  onClick={() => { setBulkMode(false); setBulkItems([]); }}
+                  className="flex items-center gap-2 px-4 py-2.5 text-sm rounded-xl font-semibold transition-colors bg-orange-500 text-white hover:bg-orange-600"
+                >
+                  <X size={16} /> Cancel Quick Entry
+                </button>
+              ) : (
+                <button
+                  onClick={() => setShowAddChooser(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 text-sm rounded-xl font-semibold transition-colors bg-[#137fec] text-white hover:bg-blue-600 shadow-md"
+                >
+                  <Plus size={16} />
+                  Add {treatmentTab === 'findings' ? 'Findings' : treatmentTab === 'diagnoses' ? 'Diagnoses' : 'Treatments'}
+                </button>
+              )}
             </div>
 
             {/* Bulk Mode Input */}
@@ -1820,6 +1766,25 @@ const SettingsPage = () => {
               const items = treatmentTab === 'findings' ? clinicalFindings : treatmentTab === 'diagnoses' ? diagnoses : suggestedTreatments;
               return (
                 <>
+                  {items.length === 0 && !bulkMode && (
+                    <div className="mb-5 flex flex-col sm:flex-row sm:items-center gap-4 p-4 rounded-xl bg-[#137fec]/5 border border-[#137fec]/20">
+                      <div className="p-2.5 bg-[#137fec]/10 rounded-xl flex-shrink-0 self-start">
+                        <BookOpen size={22} className="text-[#137fec]" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-semibold text-slate-800 dark:text-white text-sm">No {treatmentTab === 'findings' ? 'findings' : treatmentTab} yet</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                          Add them one at a time, type a batch quickly, upload a CSV / Google Sheet, or pick from our curated starter library.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setShowAddChooser(true)}
+                        className="flex-shrink-0 px-4 py-2 bg-[#137fec] hover:bg-blue-600 text-white text-sm font-semibold rounded-lg transition-colors"
+                      >
+                        Add {treatmentTab === 'findings' ? 'Findings' : treatmentTab === 'diagnoses' ? 'Diagnoses' : 'Treatments'}
+                      </button>
+                    </div>
+                  )}
                   {/* Mobile cards */}
                   <div className="sm:hidden space-y-2">
                     {items.map(item => (
@@ -1872,6 +1837,42 @@ const SettingsPage = () => {
         {/* Email Tab */}
         {activeTab === 'email' && <EmailTab />}
       </div>
+
+      {/* Unified Add chooser */}
+      {showAddChooser && (
+        <AddClinicalDataModal
+          tab={treatmentTab}
+          onClose={() => setShowAddChooser(false)}
+          onPickSingle={() => { setShowAddChooser(false); setShowSingleAdd(true); }}
+          onPickQuickEntry={() => {
+            setShowAddChooser(false);
+            setBulkMode(true);
+            if (bulkItems.length === 0) {
+              if (treatmentTab === 'treatments') setBulkItems([{ name: '', category: '', cost: 0, description: '' }]);
+              else if (treatmentTab === 'diagnoses') setBulkItems([{ name: '', code: '', category: '', description: '' }]);
+              else setBulkItems([{ name: '', category: '', description: '' }]);
+            }
+          }}
+          onPickBulkUpload={() => { setShowAddChooser(false); setShowBulkUpload(true); }}
+          onPickLibrary={() => { setShowAddChooser(false); navigate(`/settings/import-catalog?type=${treatmentTab}`); }}
+        />
+      )}
+
+      {showSingleAdd && (
+        <SingleClinicalItemModal
+          tab={treatmentTab}
+          onClose={() => setShowSingleAdd(false)}
+          onSaved={fetchTreatmentData}
+        />
+      )}
+
+      {showBulkUpload && (
+        <BulkUploadClinicalModal
+          tab={treatmentTab}
+          onClose={() => setShowBulkUpload(false)}
+          onComplete={fetchTreatmentData}
+        />
+      )}
 
       {/* Service Modal */}
       {/* Doctor Modal */}

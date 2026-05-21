@@ -1,3 +1,5 @@
+import { runBulkInsert } from '../utils/csvBulkUpload.js';
+
 // GET /api/clinical-findings
 export async function getClinicalFindings(req, res) {
   const { ClinicalFinding } = req.tenantModels;
@@ -53,5 +55,38 @@ export async function deleteClinicalFinding(req, res) {
     res.json({ msg: 'Finding deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+}
+
+// POST /api/clinical-findings/bulk-upload
+// Accepts { sheetUrl } OR { rows: [{ name, category, description }] }
+export async function bulkUploadClinicalFindings(req, res) {
+  const { ClinicalFinding } = req.tenantModels;
+  try {
+    const existing = await ClinicalFinding.find({}, 'name').lean();
+    const existingKeys = new Set(existing.map(i => String(i.name).trim().toLowerCase()));
+
+    const result = await runBulkInsert({
+      body: req.body,
+      requiredHeaders: ['name'],
+      existingKeys,
+      validateRow: (row) => {
+        if (!row.name) return { column: 'name', value: '', message: 'Name is required' };
+        if (row.name.length > 200) return { column: 'name', value: row.name, message: 'Name is too long (max 200 chars)' };
+        return null;
+      },
+      dedupeKey: (row) => row.name,
+      transformRow: (row) => ({
+        name: row.name,
+        category: row.category || '',
+        description: row.description || '',
+        is_active: true,
+      }),
+      Model: ClinicalFinding,
+    });
+    res.json(result);
+  } catch (err) {
+    console.error('bulkUploadClinicalFindings error:', err);
+    res.status(err.status || 500).json({ error: err.userMessage || err.message });
   }
 }
