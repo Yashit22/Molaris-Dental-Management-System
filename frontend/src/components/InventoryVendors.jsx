@@ -237,14 +237,30 @@ export const BulkUploadVendorsModal = ({ isOpen, onClose, onUpload }) => {
                   </div>
                 </div>
 
-                {result.skippedDetails && result.skippedDetails.length > 0 && (
-                  <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg max-h-[200px] overflow-y-auto">
-                    <p className="text-sm font-bold text-orange-700 mb-2">Skipped Rows</p>
-                    <div className="space-y-1">
-                      {result.skippedDetails.map((skip, i) => (
-                        <p key={i} className="text-xs text-orange-700"><strong>{skip.name || '(empty)'}</strong> — {skip.reason}</p>
-                      ))}
-                    </div>
+                {result.errors && result.errors.length > 0 && (
+                  <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg max-h-[260px] overflow-y-auto">
+                    <p className="text-sm font-bold text-orange-700 mb-1">Skipped rows — fix these and re-upload</p>
+                    <p className="text-[11px] text-orange-700/80 mb-2">Row numbers match your sheet (header is row 1).</p>
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-left text-orange-800">
+                          <th className="py-1 pr-2 font-semibold">Row</th>
+                          <th className="py-1 pr-2 font-semibold">Column</th>
+                          <th className="py-1 pr-2 font-semibold">Value</th>
+                          <th className="py-1 pr-2 font-semibold">Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-orange-200">
+                        {result.errors.map((e, i) => (
+                          <tr key={i}>
+                            <td className="py-1 pr-2 font-mono text-orange-900">{e.row}</td>
+                            <td className="py-1 pr-2 text-orange-800">{e.column || '—'}</td>
+                            <td className="py-1 pr-2 text-orange-700 max-w-[130px] truncate" title={e.value}>{e.value || <em className="text-orange-400">(empty)</em>}</td>
+                            <td className="py-1 pr-2 text-red-600">{e.error}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </div>

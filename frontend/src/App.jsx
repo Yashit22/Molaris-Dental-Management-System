@@ -24,6 +24,7 @@ import ResetPasswordPage from './pages/ResetPasswordPage.jsx';
 import BookingPage from './pages/BookingPage.jsx';
 import BookingConfirmPage from './pages/BookingConfirmPage.jsx';
 import HelpPage from './features/help/components/HelpPage.jsx';
+import ImportCatalogPage from './pages/ImportCatalogPage/index.jsx';
 
 // Context
 import { TreatmentProvider } from './Context/TreatmentContext.jsx';
@@ -95,6 +96,7 @@ const router = createBrowserRouter([
       { path: 'insights',       element: <RoleRoute allow={['Owner']}><ReportsPage /></RoleRoute> },
       { path: 'whatsapp',       element: <RoleRoute allow={['Owner']}><WhatsAppPage /></RoleRoute> },
       { path: 'settings',       element: <RoleRoute allow={['Owner']}><SettingsPage /></RoleRoute> },
+      { path: 'settings/import-catalog', element: <RoleRoute allow={['Owner']}><ImportCatalogPage /></RoleRoute> },
       { path: 'promotions',     element: <div>Promotions Page</div> },
     ],
   },
