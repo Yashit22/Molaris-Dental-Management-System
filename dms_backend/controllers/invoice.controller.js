@@ -151,7 +151,9 @@ export async function createInvoice(req, res) {
               dosage: rx?.dosage || '',
               duration: rx?.duration || '',
             },
-            patientIdStr
+            patientIdStr,
+            null, null, null,
+            `invoice:${newInvoice.invoice_id}`
           );
         })
         .catch(() => {});
