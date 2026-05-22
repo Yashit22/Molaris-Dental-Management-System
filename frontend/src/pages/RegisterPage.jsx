@@ -2,12 +2,32 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { API_BASE_URL } from '../config/env.js';
 
+function checkStrength(pwd) {
+  return {
+    length: pwd.length >= 8 && pwd.length <= 128,
+    lower:  /[a-z]/.test(pwd),
+    upper:  /[A-Z]/.test(pwd),
+    digit:  /[0-9]/.test(pwd),
+    symbol: /[^a-zA-Z0-9]/.test(pwd),
+  };
+}
+
+function StrengthRule({ met, label }) {
+  return (
+    <li className={`flex items-center gap-1.5 text-xs ${met ? 'text-green-600' : 'text-gray-400'}`}>
+      <span>{met ? '✓' : '○'}</span>
+      {label}
+    </li>
+  );
+}
+
 const RegisterPage = () => {
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
     email: '',
     password: '',
+    confirmPassword: '',
     phone: '',
     role: 'Owner'
   });
@@ -16,20 +36,34 @@ const RegisterPage = () => {
   const [success, setSuccess] = useState(false);
   const navigate = useNavigate();
 
+  const rules = checkStrength(formData.password);
+  const allRulesMet = Object.values(rules).every(Boolean);
+  const passwordsMatch = formData.password === formData.confirmPassword;
+
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
     setError('');
 
+    if (!allRulesMet) {
+      setError('Please satisfy all password requirements before submitting.');
+      return;
+    }
+    if (!passwordsMatch) {
+      setError('Passwords do not match.');
+      return;
+    }
+
+    setLoading(true);
     try {
+      const { confirmPassword: _, ...payload } = formData;
       const res = await fetch(`${API_BASE_URL}/users/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
 
@@ -137,6 +171,40 @@ const RegisterPage = () => {
                 placeholder="••••••••"
                 required
               />
+              {formData.password.length > 0 && (
+                <ul className="mt-1.5 pl-1 space-y-0.5">
+                  <StrengthRule met={rules.length} label="8–128 characters" />
+                  <StrengthRule met={rules.lower}  label="Lowercase letter" />
+                  <StrengthRule met={rules.upper}  label="Uppercase letter" />
+                  <StrengthRule met={rules.digit}  label="Number" />
+                  <StrengthRule met={rules.symbol} label="Symbol (e.g. !@#$)" />
+                </ul>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-gray-700 px-1">Confirm Password</label>
+              <input
+                type="password"
+                name="confirmPassword"
+                value={formData.confirmPassword}
+                onChange={handleChange}
+                className={`w-full px-4 py-3 rounded-xl border transition-all outline-none ${
+                  formData.confirmPassword.length > 0
+                    ? passwordsMatch
+                      ? 'border-green-400 focus:ring-4 focus:ring-green-100'
+                      : 'border-red-300 focus:ring-4 focus:ring-red-100'
+                    : 'border-gray-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100'
+                }`}
+                placeholder="••••••••"
+                required
+              />
+              {formData.confirmPassword.length > 0 && !passwordsMatch && (
+                <p className="text-xs text-red-500 pl-1">Passwords do not match.</p>
+              )}
+              {formData.confirmPassword.length > 0 && passwordsMatch && (
+                <p className="text-xs text-green-600 pl-1">✓ Passwords match.</p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">

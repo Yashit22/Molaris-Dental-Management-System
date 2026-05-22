@@ -18,7 +18,21 @@ const DoctorSchema = new mongoose.Schema({
     saturday: { start: String, end: String },
     sunday: { start: String, end: String }
   },
-  notes: { type: String }
+  notes: { type: String },
+
+  // Online booking
+  isBookable: { type: Boolean, default: false },
+  bookingWorkingHours: {
+    monday:    { isOpen: Boolean, start: String, end: String, breaks: [{ start: String, end: String }] },
+    tuesday:   { isOpen: Boolean, start: String, end: String, breaks: [{ start: String, end: String }] },
+    wednesday: { isOpen: Boolean, start: String, end: String, breaks: [{ start: String, end: String }] },
+    thursday:  { isOpen: Boolean, start: String, end: String, breaks: [{ start: String, end: String }] },
+    friday:    { isOpen: Boolean, start: String, end: String, breaks: [{ start: String, end: String }] },
+    saturday:  { isOpen: Boolean, start: String, end: String, breaks: [{ start: String, end: String }] },
+    sunday:    { isOpen: Boolean, start: String, end: String, breaks: [{ start: String, end: String }] },
+  },
+  holidays:     [{ date: { type: String }, reason: { type: String, default: '' } }],
+  blockedSlots: [{ date: { type: String }, startTime: { type: String } }],
 }, { timestamps: true });
 
 export default mongoose.model('Doctor', DoctorSchema);

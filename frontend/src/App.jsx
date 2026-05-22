@@ -70,7 +70,7 @@ const router = createBrowserRouter([
     element: <ResetPasswordPage />,
   },
   {
-    path: '/book/:clinicName/:tenantId',
+    path: '/connect-dentalclinic/:clinicSlug/:tenantId',
     element: <BookingPage />,
   },
   {
