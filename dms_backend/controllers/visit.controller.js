@@ -234,6 +234,7 @@ export async function addPrescription(req, res) {
           console.error('[Prescription PDF] Generation failed:', pdfErr.message);
         }
 
+        const visitId = visit._id.toString();
         triggerWhatsApp(
           req.tenantModels, req.user.tenantId, process.env.WAAPI_BASE_URL,
           'prescriptionIssued',
@@ -249,7 +250,9 @@ export async function addPrescription(req, res) {
             instructions: instructions || '',
             prescriptionUrl: prescriptionUrl || '',
           },
-          patientId
+          patientId,
+          null, null, null,
+          `prescription:${visitId}:${drug_name}`
         );
       })
       .catch(() => {});
@@ -410,7 +413,8 @@ export async function updateTreatmentStatus(req, res) {
           // 1. Immediate treatment-completed message
           triggerWhatsApp(
             req.tenantModels, req.user.tenantId, process.env.WAAPI_BASE_URL,
-            'treatmentScheduled', phone, data, patientId
+            'treatmentScheduled', phone, data, patientId,
+            null, null, null, `treatmentCompleted:${visitId}:${treatmentId}`
           );
 
           // 2. Post-care journey — only if not already started for this treatment

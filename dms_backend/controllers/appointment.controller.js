@@ -119,14 +119,17 @@ export async function createAppointment(req, res) {
           };
 
           console.log('[Appointment WhatsApp] Queuing messages for patient', patientId, 'phone', phone);
+          const apptId = saved._id.toString();
 
           // 1. Appointment booked — immediate
           triggerWhatsApp(req.tenantModels, req.user.tenantId, process.env.WAAPI_BASE_URL,
-            'appointmentBooked', phone, data, patientId, lang);
+            'appointmentBooked', phone, data, patientId, lang,
+            null, null, `apptBooked:${apptId}`);
 
           // 2. Appointment reminder — scheduled X hours before start_time
           triggerWhatsApp(req.tenantModels, req.user.tenantId, process.env.WAAPI_BASE_URL,
-            'appointmentReminder', phone, data, patientId, lang, saved.start_time);
+            'appointmentReminder', phone, data, patientId, lang,
+            saved.start_time, null, `apptReminder:${apptId}`);
         })
         .catch(err => {
           console.error('[Appointment WhatsApp] Error queuing messages:', err.message);
@@ -151,8 +154,8 @@ export async function updateStatus(req, res) {
       { new: true }
     );
 
-    // Fire-and-forget WhatsApp notifications on completion
-    if (status === 'Completed' && appt?.patient_id) {
+    // Fire-and-forget WhatsApp notifications on completion — only when transitioning into Completed
+    if (status === 'Completed' && currentAppt?.status !== 'Completed' && appt?.patient_id) {
       Promise.all([
         req.tenantModels.Patient.findById(appt.patient_id).select('first_name last_name contact patientId').lean(),
         req.tenantModels.Doctor ? req.tenantModels.Doctor.findById(appt.doctor_id).select('name').lean() : Promise.resolve(null),
@@ -191,7 +194,10 @@ export async function updateStatus(req, res) {
             phone,
             baseData,
             patientMongoId,
-            appt.whatsapp_language || null
+            appt.whatsapp_language || null,
+            null,
+            null,
+            `feedback:${appointmentId}`
           );
 
           // 1b. Send feedback poll if enabled (uses selected PollTemplate)
@@ -205,13 +211,22 @@ export async function updateStatus(req, res) {
             patientMongoId,
             appt.whatsapp_language || null,
             null,
-            appointmentId
+            appointmentId,
+            `feedbackPoll:${appointmentId}`
           );
 
           // 2. Trigger post-care journeys for each treatment in the visit
+          // journey_started flag prevents duplicate sends if the same visit treatment
+          // is updated to Completed more than once
           if (visit?.treatments && Array.isArray(visit.treatments)) {
             for (const treatment of visit.treatments) {
-              if (treatment.treatment_name) {
+              if (treatment.treatment_name && !treatment.journey_started) {
+                // Mark before firing to prevent concurrent duplicates
+                req.tenantModels.Visit.updateOne(
+                  { _id: visit._id, 'treatments._id': treatment._id },
+                  { $set: { 'treatments.$.journey_started': true } }
+                ).catch(() => {});
+
                 triggerJourney(
                   req.tenantModels,
                   req.user.tenantId,
@@ -331,7 +346,10 @@ export async function updateAppointment(req, res) {
               appointmentType: appt.type || 'Consultation',
             },
             patient._id.toString(),
-            appt.whatsapp_language || null
+            appt.whatsapp_language || null,
+            null,
+            null,
+            `apptRescheduled:${appt._id.toString()}:${new Date(appt.start_time).getTime()}`
           );
 
           // Email: rescheduled
