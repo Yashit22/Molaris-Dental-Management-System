@@ -252,15 +252,16 @@ export async function buildMessage(tenantModels, tenantId, eventType, data, expl
 
 export async function sendToWAAPI(payload, waapiBaseUrl) {
   const waapiPayload = {
-    tenantId:      payload.tenantId,
-    to:            payload.to,
-    messageType:   payload.messageType || 'general',
-    contentType:   payload.contentType,
-    content:       payload.content,
-    message:       payload.message, // for legacy calls that pass message directly
-    scheduledAt:   payload.scheduledAt || null,
-    patientId:     payload.patientId     || undefined,
-    appointmentId: payload.appointmentId || undefined,
+    tenantId:        payload.tenantId,
+    to:              payload.to,
+    messageType:     payload.messageType || 'general',
+    contentType:     payload.contentType,
+    content:         payload.content,
+    message:         payload.message, // for legacy calls that pass message directly
+    scheduledAt:     payload.scheduledAt || null,
+    patientId:       payload.patientId       || undefined,
+    appointmentId:   payload.appointmentId   || undefined,
+    idempotencyKey:  payload.idempotencyKey  || undefined,
   };
 
   // Ensure content exists for structured messages
@@ -405,7 +406,7 @@ export async function triggerJourney(tenantModels, tenantId, waapiBaseUrl, patie
  * @param {string} [explicitLang]
  * @param {Date|string} [appointmentStartTime] appointment start for reminder scheduling
  */
-export async function triggerWhatsApp(tenantModels, tenantId, waapiBaseUrl, eventType, patientPhone, data, patientId, explicitLang, appointmentStartTime, appointmentId) {
+export async function triggerWhatsApp(tenantModels, tenantId, waapiBaseUrl, eventType, patientPhone, data, patientId, explicitLang, appointmentStartTime, appointmentId, idempotencyKey) {
   const { WhatsAppLog } = tenantModels;
   let payload = null;
   try {
@@ -424,8 +425,9 @@ export async function triggerWhatsApp(tenantModels, tenantId, waapiBaseUrl, even
     console.log(`[WhatsApp] Built payload for ${eventType}, scheduledAt=${payload.scheduledAt}`);
 
     payload.to = patientPhone;
-    if (patientId)     payload.patientId     = patientId;
-    if (appointmentId) payload.appointmentId = appointmentId;
+    if (patientId)       payload.patientId       = patientId;
+    if (appointmentId)   payload.appointmentId   = appointmentId;
+    if (idempotencyKey)  payload.idempotencyKey  = idempotencyKey;
 
     console.log(`[WhatsApp] Sending to WAAPI: ${waapiBaseUrl}/messages/send`);
     const waapiResponse = await sendToWAAPI(payload, waapiBaseUrl);
