@@ -30,6 +30,7 @@ import whatsappRoutes from '../routes/whatsapp.routes.js';
 import feedbackRoutes from '../routes/feedback.routes.js';
 import emailRoutes from '../routes/email.routes.js';
 import bookingRoutes from '../routes/booking.routes.js';
+import settingsRoutes from '../routes/settings.routes.js';
 
 dotenv.config();
 
@@ -76,6 +77,7 @@ app.use('/api/analytics',            tenantStack, analyticsRoutes);
 app.use('/api/whatsapp',             tenantStack, whatsappRoutes);
 app.use('/api/feedback',             tenantStack, feedbackRoutes);
 app.use('/api/email',                tenantStack, emailRoutes);
+app.use('/api/settings',             tenantStack, settingsRoutes);
 
 // Global error handler
 app.use((err, req, res, next) => {

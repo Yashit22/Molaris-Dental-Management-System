@@ -256,10 +256,10 @@ function StepTime({ form, setForm, onNext, onBack, tenantId, loadingSlots, setLo
       ) : (
         <div className="grid grid-cols-3 gap-2 max-h-64 overflow-y-auto mb-4">
           {slots.map(slot => (
-            <button key={slot.datetime}
+            <button key={slot.time}
               onClick={() => setForm(f => ({...f, slot}))}
               className={`py-3 px-2 rounded-xl text-center text-sm font-semibold border transition-all
-                ${form.slot?.datetime === slot.datetime
+                ${form.slot?.time === slot.time
                   ? 'bg-[#137fec] text-white border-[#137fec] ring-2 ring-blue-200'
                   : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50 text-gray-700'}`}>
               {slot.display_time}
@@ -340,7 +340,7 @@ function Row({ label, value }) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function BookingPage() {
-  const { clinicName, tenantId } = useParams();
+  const { clinicSlug, tenantId } = useParams();
   const navigate = useNavigate();
 
   const [step, setStep] = useState(0);
@@ -386,7 +386,8 @@ export default function BookingPage() {
         service_id:   form.service_id,
         service_name: form.service_name,
         notes:        form.notes.trim(),
-        datetime:     form.slot.datetime,
+        date:         form.date,
+        time:         form.slot.time,
         doctor_id:    form.slot.doctor_ids?.[0] || null,
       };
       const res = await axios.post(`${API}/booking/${tenantId}/request`, payload);
@@ -410,6 +411,18 @@ export default function BookingPage() {
         <div className="text-center">
           <div className="animate-spin w-10 h-10 border-4 border-[#137fec] border-t-transparent rounded-full mx-auto mb-3" />
           <p className="text-gray-500">Loading clinic info…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!clinicLoading && !clinicError && clinic?.bookingEnabled === false) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white flex items-center justify-center p-4">
+        <div className="text-center max-w-sm">
+          <div className="text-5xl mb-3">🔒</div>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">Online booking is currently disabled</h2>
+          <p className="text-gray-500 text-sm">Please call the clinic to book an appointment.</p>
         </div>
       </div>
     );
@@ -439,7 +452,7 @@ export default function BookingPage() {
               </div>
           }
           <div>
-            <h1 className="font-bold text-lg leading-tight">{clinic?.name || clinicName}</h1>
+            <h1 className="font-bold text-lg leading-tight">{clinic?.name || clinicSlug}</h1>
             {clinic?.tagline && <p className="text-blue-100 text-xs">{clinic.tagline}</p>}
           </div>
         </div>

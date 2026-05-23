@@ -7,6 +7,544 @@ import AddClinicalDataModal from '../modals/AddClinicalDataModal';
 import SingleClinicalItemModal from '../modals/SingleClinicalItemModal';
 import BulkUploadClinicalModal from '../modals/BulkUploadClinicalModal';
 import { useInventorySettings } from '../Context/SettingsContext';
+import { useAuth } from '../Context/AuthContext';
+
+// ─── Booking helpers ──────────────────────────────────────────────────────────
+
+const BOOKING_DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+
+const DEFAULT_BOOKING_SETTINGS = {
+  isBookingEnabled: false,
+  slotDurationMinutes: 30,
+  clinicDisplayName: '',
+  clinicTagline: '',
+  clinicLogoUrl: '',
+  workingHours: Object.fromEntries(
+    BOOKING_DAYS.map(d => [d, { isOpen: d !== 'sunday', start: '09:00', end: '17:00', breaks: [] }])
+  ),
+  blockedDates: [],
+};
+
+const DEFAULT_DOCTOR_WH = {
+  monday:    { isOpen: true,  start: '09:00', end: '17:00', breaks: [] },
+  tuesday:   { isOpen: true,  start: '09:00', end: '17:00', breaks: [] },
+  wednesday: { isOpen: true,  start: '09:00', end: '17:00', breaks: [] },
+  thursday:  { isOpen: true,  start: '09:00', end: '17:00', breaks: [] },
+  friday:    { isOpen: true,  start: '09:00', end: '17:00', breaks: [] },
+  saturday:  { isOpen: true,  start: '10:00', end: '14:00', breaks: [] },
+  sunday:    { isOpen: false, start: '09:00', end: '17:00', breaks: [] },
+};
+
+function toSlug(str) {
+  return (str || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+}
+
+// ─── Shared DayRow component ──────────────────────────────────────────────────
+
+function DayRow({ day, schedule, onChange }) {
+  const label = day.charAt(0).toUpperCase() + day.slice(1);
+  const s = schedule || { isOpen: false, start: '09:00', end: '17:00', breaks: [] };
+
+  const set = patch => onChange(day, { ...s, ...patch });
+
+  const addBreak = () => set({ breaks: [...(s.breaks || []), { start: '13:00', end: '14:00' }] });
+  const removeBreak = i => set({ breaks: s.breaks.filter((_, idx) => idx !== i) });
+  const updateBreak = (i, field, val) => {
+    const breaks = [...(s.breaks || [])];
+    breaks[i] = { ...breaks[i], [field]: val };
+    set({ breaks });
+  };
+
+  return (
+    <div className="border border-slate-200 dark:border-slate-700 rounded-xl p-3 mb-2">
+      <div className="flex items-center gap-3 flex-wrap">
+        <label className="flex items-center gap-2 cursor-pointer min-w-[110px]">
+          <input type="checkbox" checked={!!s.isOpen} onChange={e => set({ isOpen: e.target.checked })}
+            className="w-4 h-4 accent-[#137fec]" />
+          <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">{label}</span>
+        </label>
+        {s.isOpen && (
+          <>
+            <input type="time" value={s.start || ''} onChange={e => set({ start: e.target.value })}
+              className="px-2 py-1 border border-slate-300 dark:border-slate-600 rounded-lg text-sm dark:bg-slate-800 dark:text-white" />
+            <span className="text-slate-400 text-sm">to</span>
+            <input type="time" value={s.end || ''} onChange={e => set({ end: e.target.value })}
+              className="px-2 py-1 border border-slate-300 dark:border-slate-600 rounded-lg text-sm dark:bg-slate-800 dark:text-white" />
+            <button onClick={addBreak}
+              className="text-xs text-[#137fec] hover:underline font-medium ml-auto">+ Add Break</button>
+          </>
+        )}
+      </div>
+      {s.isOpen && (s.breaks || []).length > 0 && (
+        <div className="mt-2 ml-6 space-y-1">
+          {s.breaks.map((b, i) => (
+            <div key={i} className="flex items-center gap-2 text-xs text-slate-500">
+              <span>Break:</span>
+              <input type="time" value={b.start || ''} onChange={e => updateBreak(i, 'start', e.target.value)}
+                className="px-2 py-1 border border-slate-200 dark:border-slate-600 rounded text-xs dark:bg-slate-800 dark:text-white" />
+              <span>–</span>
+              <input type="time" value={b.end || ''} onChange={e => updateBreak(i, 'end', e.target.value)}
+                className="px-2 py-1 border border-slate-200 dark:border-slate-600 rounded text-xs dark:bg-slate-800 dark:text-white" />
+              <button onClick={() => removeBreak(i)} className="text-red-400 hover:text-red-600 ml-1">
+                <X size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Doctor Schedule Modal ────────────────────────────────────────────────────
+
+function DoctorScheduleModal({ doctor, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    isBookable: false,
+    bookingWorkingHours: { ...DEFAULT_DOCTOR_WH },
+    holidays: [],
+    blockedSlots: [],
+  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [newHoliday, setNewHoliday] = useState({ date: '', reason: '' });
+
+  useEffect(() => {
+    API.get(`/settings/doctors/${doctor._id}/schedule`)
+      .then(res => {
+        const data = res.data;
+        setForm({
+          isBookable: data.isBookable || false,
+          bookingWorkingHours: Object.fromEntries(
+            BOOKING_DAYS.map(d => [d, { ...DEFAULT_DOCTOR_WH[d], ...(data.bookingWorkingHours?.[d] || {}) }])
+          ),
+          holidays:     data.holidays     || [],
+          blockedSlots: data.blockedSlots || [],
+        });
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [doctor._id]);
+
+  const setDayWH = (day, patch) =>
+    setForm(f => ({ ...f, bookingWorkingHours: { ...f.bookingWorkingHours, [day]: patch } }));
+
+  const addHoliday = () => {
+    if (!newHoliday.date) return;
+    setForm(f => ({ ...f, holidays: [...f.holidays, { ...newHoliday }] }));
+    setNewHoliday({ date: '', reason: '' });
+  };
+
+  const removeHoliday = i =>
+    setForm(f => ({ ...f, holidays: f.holidays.filter((_, idx) => idx !== i) }));
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await API.put(`/settings/doctors/${doctor._id}/schedule`, form);
+      onSaved(doctor._id, form.isBookable);
+      onClose();
+    } catch (err) {
+      alert('Failed to save: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-xl shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center sticky top-0 bg-white dark:bg-slate-900 z-10">
+          <h3 className="font-bold text-lg text-slate-800 dark:text-white">
+            Schedule — {doctor.name}
+          </h3>
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700">
+            <X size={20} />
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-12 text-slate-400">
+            <Loader2 size={24} className="animate-spin mr-2" /> Loading…
+          </div>
+        ) : (
+          <div className="p-6 space-y-6">
+            {/* Bookable toggle */}
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-semibold text-slate-800 dark:text-white">Bookable Online</p>
+                <p className="text-xs text-slate-500 mt-0.5">Patients can book appointments with this doctor</p>
+              </div>
+              <button
+                onClick={() => setForm(f => ({ ...f, isBookable: !f.isBookable }))}
+                className={`relative inline-flex h-6 w-11 rounded-full transition-colors ${form.isBookable ? 'bg-[#137fec]' : 'bg-slate-300 dark:bg-slate-600'}`}
+              >
+                <span className={`inline-block h-4 w-4 mt-1 rounded-full bg-white shadow transition-transform ${form.isBookable ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+
+            {form.isBookable && (
+              <>
+                {/* Working Hours */}
+                <div>
+                  <p className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-3">Working Hours</p>
+                  {BOOKING_DAYS.map(day => (
+                    <DayRow key={day} day={day}
+                      schedule={form.bookingWorkingHours[day]}
+                      onChange={setDayWH} />
+                  ))}
+                </div>
+
+                {/* Holidays */}
+                <div>
+                  <p className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-3">Holidays / Days Off</p>
+                  <div className="space-y-2 mb-3">
+                    {form.holidays.map((h, i) => (
+                      <div key={i} className="flex items-center gap-2 text-sm bg-slate-50 dark:bg-slate-800 rounded-lg px-3 py-2">
+                        <Calendar size={14} className="text-slate-400 flex-shrink-0" />
+                        <span className="font-medium text-slate-700 dark:text-slate-200">{h.date}</span>
+                        {h.reason && <span className="text-slate-400">— {h.reason}</span>}
+                        <button onClick={() => removeHoliday(i)} className="ml-auto text-red-400 hover:text-red-600">
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <input type="date" value={newHoliday.date}
+                      onChange={e => setNewHoliday(h => ({ ...h, date: e.target.value }))}
+                      className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm flex-shrink-0 dark:bg-slate-800 dark:text-white" />
+                    <input type="text" placeholder="Reason (optional)" value={newHoliday.reason}
+                      onChange={e => setNewHoliday(h => ({ ...h, reason: e.target.value }))}
+                      className="flex-1 px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm dark:bg-slate-800 dark:text-white" />
+                    <button onClick={addHoliday}
+                      className="px-3 py-2 bg-slate-100 dark:bg-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-200 dark:hover:bg-slate-600 flex-shrink-0">
+                      Add
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3">
+          <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg">
+            Cancel
+          </button>
+          <button onClick={save} disabled={saving || loading}
+            className="px-5 py-2 bg-[#137fec] text-white text-sm font-bold rounded-lg hover:bg-blue-600 disabled:opacity-60 flex items-center gap-2">
+            {saving ? <><Loader2 size={14} className="animate-spin" /> Saving…</> : 'Save Schedule'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Invoice Settings Tab ─────────────────────────────────────────────────────
+
+function InvoiceSettingsTab() {
+  const inputCls = 'w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 focus:ring-2 focus:ring-[#137fec] outline-none';
+
+  const [form, setForm] = React.useState({
+    clinic: { name: '', addressLines: ['', ''], phone: '', email: '', gstNumber: '', logoUrl: '' },
+    currencySymbol: '₹',
+    tax: { label: 'Tax', defaultRatePct: 0, show: true },
+    invoiceNumber: { prefix: 'INV' },
+    showPaidPending: true,
+    footerText: '',
+    termsText: '',
+  });
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+  const [banner, setBanner] = React.useState(null);
+
+  React.useEffect(() => {
+    API.get('/settings/invoice')
+      .then(r => {
+        if (r.data && Object.keys(r.data).length > 0) {
+          const { _id, __v, createdAt, updatedAt, ...data } = r.data;
+          setForm(prev => ({
+            ...prev,
+            ...data,
+            clinic:        { ...prev.clinic,        ...(data.clinic        || {}) },
+            tax:           { ...prev.tax,           ...(data.tax           || {}) },
+            invoiceNumber: { ...prev.invoiceNumber, ...(data.invoiceNumber || {}) },
+          }));
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    setBanner(null);
+    try {
+      const { _id, __v, createdAt, updatedAt, ...payload } = form;
+      await API.put('/settings/invoice', payload);
+      setBanner({ ok: true, msg: 'Invoice settings saved.' });
+    } catch (err) {
+      setBanner({ ok: false, msg: err.response?.data?.message || err.message });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function setClinic(field, val) {
+    setForm(f => ({ ...f, clinic: { ...f.clinic, [field]: val } }));
+  }
+  function setAddressLine(idx, val) {
+    const lines = [...(form.clinic.addressLines || ['', ''])];
+    lines[idx] = val;
+    setForm(f => ({ ...f, clinic: { ...f.clinic, addressLines: lines } }));
+  }
+
+  if (loading) return <div className="text-center py-12 text-slate-500">Loading…</div>;
+
+  return (
+    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-6 max-w-2xl space-y-8">
+      <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Invoice Settings</h2>
+
+      {/* Clinic / Branding */}
+      <section className="space-y-4">
+        <h3 className="text-sm font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wide border-b border-slate-100 dark:border-slate-700 pb-1">
+          Clinic / Branding
+        </h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="col-span-2">
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Clinic Name</label>
+            <input type="text" value={form.clinic.name} onChange={e => setClinic('name', e.target.value)} placeholder="City Dental Clinic" className={inputCls} />
+          </div>
+          <div className="col-span-2">
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Address Line 1</label>
+            <input type="text" value={(form.clinic.addressLines || [])[0] || ''} onChange={e => setAddressLine(0, e.target.value)} placeholder="123, Main Street" className={inputCls} />
+          </div>
+          <div className="col-span-2">
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Address Line 2</label>
+            <input type="text" value={(form.clinic.addressLines || [])[1] || ''} onChange={e => setAddressLine(1, e.target.value)} placeholder="Mumbai, Maharashtra 400001" className={inputCls} />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Phone</label>
+            <input type="text" value={form.clinic.phone} onChange={e => setClinic('phone', e.target.value)} placeholder="+91 98765 43210" className={inputCls} />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Email</label>
+            <input type="email" value={form.clinic.email} onChange={e => setClinic('email', e.target.value)} placeholder="clinic@example.com" className={inputCls} />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">GST Number</label>
+            <input type="text" value={form.clinic.gstNumber} onChange={e => setClinic('gstNumber', e.target.value)} placeholder="27AAAAA0000A1Z5" className={inputCls} />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Logo URL (optional)</label>
+            <input type="url" value={form.clinic.logoUrl} onChange={e => setClinic('logoUrl', e.target.value)} placeholder="https://…/logo.png" className={inputCls} />
+          </div>
+        </div>
+      </section>
+
+      {/* Currency & Numbering */}
+      <section className="space-y-4">
+        <h3 className="text-sm font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wide border-b border-slate-100 dark:border-slate-700 pb-1">
+          Currency &amp; Numbering
+        </h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Currency Symbol</label>
+            <input type="text" value={form.currencySymbol} onChange={e => setForm(f => ({ ...f, currencySymbol: e.target.value }))} placeholder="₹" className={inputCls} />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Invoice Prefix</label>
+            <input type="text" value={form.invoiceNumber?.prefix || 'INV'} onChange={e => setForm(f => ({ ...f, invoiceNumber: { ...f.invoiceNumber, prefix: e.target.value } }))} placeholder="INV" className={inputCls} />
+          </div>
+        </div>
+      </section>
+
+      {/* Tax */}
+      <section className="space-y-4">
+        <h3 className="text-sm font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wide border-b border-slate-100 dark:border-slate-700 pb-1">
+          Tax
+        </h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Tax Label</label>
+            <input type="text" value={form.tax?.label || 'Tax'} onChange={e => setForm(f => ({ ...f, tax: { ...f.tax, label: e.target.value } }))} placeholder="GST / Tax" className={inputCls} />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Default Rate (%)</label>
+            <input type="number" min="0" max="100" step="0.01" value={form.tax?.defaultRatePct ?? 0} onChange={e => setForm(f => ({ ...f, tax: { ...f.tax, defaultRatePct: Number(e.target.value) } }))} className={inputCls} />
+          </div>
+          <div className="col-span-2">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" checked={!!form.tax?.show} onChange={e => setForm(f => ({ ...f, tax: { ...f.tax, show: e.target.checked } }))} className="w-4 h-4 accent-[#137fec]" />
+              <span className="text-sm text-slate-700 dark:text-slate-300">Show tax line on invoices</span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      {/* Display Options */}
+      <section className="space-y-4">
+        <h3 className="text-sm font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wide border-b border-slate-100 dark:border-slate-700 pb-1">
+          Display Options
+        </h3>
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input type="checkbox" checked={!!form.showPaidPending} onChange={e => setForm(f => ({ ...f, showPaidPending: e.target.checked }))} className="w-4 h-4 accent-[#137fec]" />
+          <span className="text-sm text-slate-700 dark:text-slate-300">Show Paid / Pending amounts on invoice</span>
+        </label>
+      </section>
+
+      {/* Footer & Terms */}
+      <section className="space-y-4">
+        <h3 className="text-sm font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wide border-b border-slate-100 dark:border-slate-700 pb-1">
+          Footer &amp; Terms
+        </h3>
+        <div>
+          <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Footer Text</label>
+          <textarea rows={2} value={form.footerText} onChange={e => setForm(f => ({ ...f, footerText: e.target.value }))} placeholder="Thank you for choosing us!" className={`${inputCls} resize-none`} />
+        </div>
+        <div>
+          <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Terms &amp; Conditions</label>
+          <textarea rows={3} value={form.termsText} onChange={e => setForm(f => ({ ...f, termsText: e.target.value }))} placeholder="All treatments are subject to…" className={`${inputCls} resize-none`} />
+        </div>
+      </section>
+
+      <div className="flex items-center gap-4 pt-2">
+        <button onClick={save} disabled={saving} className="px-6 py-2.5 bg-[#137fec] hover:bg-blue-600 text-white font-semibold rounded-xl text-sm transition-colors disabled:opacity-60">
+          {saving ? 'Saving…' : 'Save Invoice Settings'}
+        </button>
+        {banner && (
+          <p className={`text-sm font-medium flex items-center gap-1.5 ${banner.ok ? 'text-green-600' : 'text-red-600'}`}>
+            {banner.ok ? <CheckCircle size={15} /> : <XCircle size={15} />}
+            {banner.msg}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Prescription Settings Tab ────────────────────────────────────────────────
+
+function PrescriptionSettingsTab() {
+  const inputCls = 'w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 focus:ring-2 focus:ring-[#137fec] outline-none';
+
+  const [form, setForm] = React.useState({
+    clinic: { name: '', tagline: '', addressLines: ['', ''], phone: '', email: '', logoUrl: '' },
+    footerText: '',
+  });
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+  const [banner, setBanner] = React.useState(null);
+
+  React.useEffect(() => {
+    API.get('/settings/prescription')
+      .then(r => {
+        if (r.data && Object.keys(r.data).length > 0) {
+          const { _id, __v, createdAt, updatedAt, ...data } = r.data;
+          setForm(prev => ({
+            ...prev,
+            ...data,
+            clinic: { ...prev.clinic, ...(data.clinic || {}) },
+          }));
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    setBanner(null);
+    try {
+      const { _id, __v, createdAt, updatedAt, ...payload } = form;
+      await API.put('/settings/prescription', payload);
+      setBanner({ ok: true, msg: 'Prescription settings saved.' });
+    } catch (err) {
+      setBanner({ ok: false, msg: err.response?.data?.message || err.message });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function setClinic(field, val) {
+    setForm(f => ({ ...f, clinic: { ...f.clinic, [field]: val } }));
+  }
+  function setAddressLine(idx, val) {
+    const lines = [...(form.clinic.addressLines || ['', ''])];
+    lines[idx] = val;
+    setForm(f => ({ ...f, clinic: { ...f.clinic, addressLines: lines } }));
+  }
+
+  if (loading) return <div className="text-center py-12 text-slate-500">Loading…</div>;
+
+  return (
+    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-6 max-w-2xl space-y-8">
+      <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Prescription Settings</h2>
+
+      {/* Clinic / Branding */}
+      <section className="space-y-4">
+        <h3 className="text-sm font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wide border-b border-slate-100 dark:border-slate-700 pb-1">
+          Clinic / Branding
+        </h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="col-span-2">
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Clinic Name</label>
+            <input type="text" value={form.clinic.name} onChange={e => setClinic('name', e.target.value)} placeholder="City Dental Clinic" className={inputCls} />
+          </div>
+          <div className="col-span-2">
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Tagline (optional)</label>
+            <input type="text" value={form.clinic.tagline} onChange={e => setClinic('tagline', e.target.value)} placeholder="Your smile is our priority" className={inputCls} />
+          </div>
+          <div className="col-span-2">
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Address Line 1</label>
+            <input type="text" value={(form.clinic.addressLines || [])[0] || ''} onChange={e => setAddressLine(0, e.target.value)} placeholder="123, Main Street" className={inputCls} />
+          </div>
+          <div className="col-span-2">
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Address Line 2</label>
+            <input type="text" value={(form.clinic.addressLines || [])[1] || ''} onChange={e => setAddressLine(1, e.target.value)} placeholder="Mumbai, Maharashtra 400001" className={inputCls} />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Phone</label>
+            <input type="text" value={form.clinic.phone} onChange={e => setClinic('phone', e.target.value)} placeholder="+91 98765 43210" className={inputCls} />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Email</label>
+            <input type="email" value={form.clinic.email} onChange={e => setClinic('email', e.target.value)} placeholder="clinic@example.com" className={inputCls} />
+          </div>
+          <div className="col-span-2">
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Logo URL (optional)</label>
+            <input type="url" value={form.clinic.logoUrl} onChange={e => setClinic('logoUrl', e.target.value)} placeholder="https://…/logo.png" className={inputCls} />
+          </div>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <section className="space-y-4">
+        <h3 className="text-sm font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wide border-b border-slate-100 dark:border-slate-700 pb-1">
+          Footer
+        </h3>
+        <div>
+          <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Footer Text</label>
+          <textarea rows={2} value={form.footerText} onChange={e => setForm(f => ({ ...f, footerText: e.target.value }))} placeholder="This prescription is valid for 7 days." className={`${inputCls} resize-none`} />
+        </div>
+      </section>
+
+      <div className="flex items-center gap-4 pt-2">
+        <button onClick={save} disabled={saving} className="px-6 py-2.5 bg-[#137fec] hover:bg-blue-600 text-white font-semibold rounded-xl text-sm transition-colors disabled:opacity-60">
+          {saving ? 'Saving…' : 'Save Prescription Settings'}
+        </button>
+        {banner && (
+          <p className={`text-sm font-medium flex items-center gap-1.5 ${banner.ok ? 'text-green-600' : 'text-red-600'}`}>
+            {banner.ok ? <CheckCircle size={15} /> : <XCircle size={15} />}
+            {banner.msg}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // ─── Inventory Tab ────────────────────────────────────────────────────────────
 
@@ -1215,6 +1753,7 @@ function EmailTab() {
 
 const SettingsPage = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('doctors');
 
   // Doctor states
@@ -1243,6 +1782,16 @@ const SettingsPage = () => {
     }
   });
 
+  // Booking settings state
+  const [bookingSettings, setBookingSettings] = useState(DEFAULT_BOOKING_SETTINGS);
+  const [bookingSaving, setBookingSaving] = useState(false);
+  const [newBlockedDate, setNewBlockedDate] = useState({ date: '', reason: '' });
+
+  // Doctor schedules tab state
+  const [bookingDoctors, setBookingDoctors] = useState([]);
+  const [bookingDoctorsLoading, setBookingDoctorsLoading] = useState(false);
+  const [scheduleModal, setScheduleModal] = useState(null); // doctor object
+
   // Treatment states
   const [clinicalFindings, setClinicalFindings] = useState([]);
   const [diagnoses, setDiagnoses] = useState([]);
@@ -1262,6 +1811,10 @@ const SettingsPage = () => {
       fetchDoctors();
     } else if (activeTab === 'treatment') {
       fetchTreatmentData();
+    } else if (activeTab === 'booking') {
+      fetchBookingSettings();
+    } else if (activeTab === 'doctorSchedules') {
+      fetchBookingDoctors();
     }
   }, [activeTab, treatmentTab]);
 
@@ -1294,6 +1847,80 @@ const SettingsPage = () => {
       setLoading(false);
     }
   };
+
+  // ── Booking settings handlers ──────────────────────────────────────────────
+
+  const fetchBookingSettings = async () => {
+    try {
+      const res = await API.get('/settings/booking');
+      setBookingSettings(prev => ({ ...DEFAULT_BOOKING_SETTINGS, ...res.data }));
+    } catch (err) {
+      console.error('Failed to load booking settings:', err);
+    }
+  };
+
+  const handleSaveBookingSettings = async () => {
+    setBookingSaving(true);
+    try {
+      const { blockedDates, ...toSave } = bookingSettings;
+      await API.put('/settings/booking', toSave);
+      alert('Booking settings saved!');
+    } catch (err) {
+      alert('Failed to save: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setBookingSaving(false);
+    }
+  };
+
+  const addBlockedDate = async () => {
+    if (!newBlockedDate.date) return;
+    const updated = [...bookingSettings.blockedDates, { ...newBlockedDate }];
+    setBookingSettings(s => ({ ...s, blockedDates: updated }));
+    setNewBlockedDate({ date: '', reason: '' });
+    try {
+      await API.put('/settings/booking', { blockedDates: updated });
+    } catch (err) {
+      console.error('Failed to save blocked date:', err);
+    }
+  };
+
+  const removeBlockedDate = async (i) => {
+    const updated = bookingSettings.blockedDates.filter((_, idx) => idx !== i);
+    setBookingSettings(s => ({ ...s, blockedDates: updated }));
+    try {
+      await API.put('/settings/booking', { blockedDates: updated });
+    } catch (err) {
+      console.error('Failed to remove blocked date:', err);
+    }
+  };
+
+  const setDayWH = (day, patch) =>
+    setBookingSettings(s => ({
+      ...s,
+      workingHours: { ...s.workingHours, [day]: patch },
+    }));
+
+  // ── Doctor schedules tab ────────────────────────────────────────────────────
+
+  const fetchBookingDoctors = async () => {
+    setBookingDoctorsLoading(true);
+    try {
+      const res = await API.get('/doctors');
+      setBookingDoctors(res.data);
+    } catch (err) {
+      console.error('Failed to load doctors for booking:', err);
+    } finally {
+      setBookingDoctorsLoading(false);
+    }
+  };
+
+  const handleDoctorScheduleSaved = (doctorId, isBookable) => {
+    setBookingDoctors(prev => prev.map(d =>
+      d._id === doctorId ? { ...d, isBookable } : d
+    ));
+  };
+
+  // ── Doctor management handlers ──────────────────────────────────────────────
 
   const handleAddDoctor = () => {
     if (doctors.length >= 10) {
@@ -1481,10 +2108,14 @@ const SettingsPage = () => {
         {/* Tabs — horizontally scrollable on mobile */}
         <div className="flex gap-0 mb-6 border-b border-slate-200 dark:border-slate-700 overflow-x-auto scrollbar-none -mx-3 px-3 sm:mx-0 sm:px-0">
           {[
-            { key: 'doctors',   label: 'Doctors' },
-            { key: 'treatment', label: 'Clinical Data' },
-            { key: 'inventory', label: 'Inventory' },
-            { key: 'email',     label: 'Email' },
+            { key: 'doctors',        label: 'Doctors' },
+            { key: 'treatment',      label: 'Clinical Data' },
+            { key: 'inventory',      label: 'Inventory' },
+            { key: 'email',          label: 'Email' },
+            { key: 'booking',        label: 'Online Booking' },
+            { key: 'doctorSchedules',label: 'Doctor Schedules' },
+            { key: 'invoice',        label: 'Invoice' },
+            { key: 'prescription',   label: 'Prescription' },
           ].map(({ key, label }) => (
             <button
               key={key}
@@ -1836,6 +2467,204 @@ const SettingsPage = () => {
 
         {/* Email Tab */}
         {activeTab === 'email' && <EmailTab />}
+
+        {/* ── Online Booking Tab ────────────────────────────────────────────── */}
+        {activeTab === 'booking' && (() => {
+          const tenantId = user?.tenantId;
+          const slug = toSlug(bookingSettings.clinicDisplayName);
+          const bookingUrl = tenantId
+            ? `${window.location.origin}/connect-dentalclinic/${slug || 'my-clinic'}/${tenantId}`
+            : null;
+
+          return (
+            <div className="space-y-6">
+              {/* Booking Link */}
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <Link2 size={18} className="text-[#137fec]" />
+                  <h3 className="font-bold text-slate-800 dark:text-white text-base">Your Booking Link</h3>
+                </div>
+                {!tenantId ? (
+                  <p className="text-sm text-amber-600 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-4 py-3">
+                    Your account is not yet provisioned to a clinic. Contact your administrator.
+                  </p>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-700 rounded-xl px-4 py-3 mb-3">
+                      <Globe size={14} className="text-slate-400 flex-shrink-0" />
+                      <span className="text-sm text-slate-600 dark:text-slate-300 font-mono truncate flex-1">{bookingUrl}</span>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(bookingUrl); }}
+                        className="flex-shrink-0 p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-500" title="Copy link">
+                        <Copy size={14} />
+                      </button>
+                      <a href={bookingUrl} target="_blank" rel="noreferrer"
+                        className="flex-shrink-0 p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-500" title="Open link">
+                        <ExternalLink size={14} />
+                      </a>
+                    </div>
+                    {!bookingSettings.isBookingEnabled && (
+                      <p className="text-xs text-amber-600 flex items-center gap-1">
+                        <XCircle size={12} /> Booking is currently disabled — enable it in General settings below.
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* General Settings */}
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
+                <h3 className="font-bold text-slate-800 dark:text-white text-base mb-4">General</h3>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Enable Online Booking</p>
+                      <p className="text-xs text-slate-400 mt-0.5">Patients can discover and book slots via the link above</p>
+                    </div>
+                    <button
+                      onClick={() => setBookingSettings(s => ({ ...s, isBookingEnabled: !s.isBookingEnabled }))}
+                      className={`relative inline-flex h-6 w-11 rounded-full transition-colors ${bookingSettings.isBookingEnabled ? 'bg-[#137fec]' : 'bg-slate-300 dark:bg-slate-600'}`}>
+                      <span className={`inline-block h-4 w-4 mt-1 rounded-full bg-white shadow transition-transform ${bookingSettings.isBookingEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase">Clinic Display Name</label>
+                    <input type="text" value={bookingSettings.clinicDisplayName}
+                      onChange={e => setBookingSettings(s => ({ ...s, clinicDisplayName: e.target.value }))}
+                      placeholder="e.g. Smile Care Dental"
+                      className="w-full mt-1 px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-[#137fec] outline-none dark:bg-slate-700 dark:text-white" />
+                    {bookingSettings.clinicDisplayName && (
+                      <p className="text-xs text-slate-400 mt-1">URL slug: <span className="font-mono text-slate-600 dark:text-slate-300">{slug}</span></p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase">Tagline</label>
+                    <input type="text" value={bookingSettings.clinicTagline}
+                      onChange={e => setBookingSettings(s => ({ ...s, clinicTagline: e.target.value }))}
+                      placeholder="e.g. Your smile, our mission"
+                      className="w-full mt-1 px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-[#137fec] outline-none dark:bg-slate-700 dark:text-white" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase">Slot Duration</label>
+                    <select value={bookingSettings.slotDurationMinutes}
+                      onChange={e => setBookingSettings(s => ({ ...s, slotDurationMinutes: Number(e.target.value) }))}
+                      className="w-full mt-1 px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-[#137fec] outline-none dark:bg-slate-700 dark:text-white">
+                      {[15, 20, 30, 45, 60].map(v => <option key={v} value={v}>{v} minutes</option>)}
+                    </select>
+                  </div>
+                </div>
+                <button onClick={handleSaveBookingSettings} disabled={bookingSaving}
+                  className="mt-5 px-5 py-2 bg-[#137fec] text-white text-sm font-bold rounded-xl hover:bg-blue-600 disabled:opacity-60 flex items-center gap-2">
+                  {bookingSaving ? <><Loader2 size={14} className="animate-spin" /> Saving…</> : 'Save Booking Settings'}
+                </button>
+              </div>
+
+              {/* Clinic Working Hours */}
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <h3 className="font-bold text-slate-800 dark:text-white text-base">Clinic Working Hours</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">Reference only — slot generation uses each doctor's own schedule</p>
+                  </div>
+                </div>
+                {BOOKING_DAYS.map(day => (
+                  <DayRow key={day} day={day}
+                    schedule={bookingSettings.workingHours[day]}
+                    onChange={setDayWH} />
+                ))}
+                <button onClick={handleSaveBookingSettings} disabled={bookingSaving}
+                  className="mt-4 px-5 py-2 bg-[#137fec] text-white text-sm font-bold rounded-xl hover:bg-blue-600 disabled:opacity-60 flex items-center gap-2">
+                  {bookingSaving ? <><Loader2 size={14} className="animate-spin" /> Saving…</> : 'Save Working Hours'}
+                </button>
+              </div>
+
+              {/* Blocked Dates */}
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
+                <h3 className="font-bold text-slate-800 dark:text-white text-base mb-1">Clinic Holidays / Blocked Dates</h3>
+                <p className="text-xs text-slate-400 mb-4">These dates block all slots across all doctors. Saved immediately on add/remove.</p>
+
+                <div className="space-y-2 mb-4">
+                  {bookingSettings.blockedDates.length === 0 && (
+                    <p className="text-sm text-slate-400 italic">No blocked dates added yet.</p>
+                  )}
+                  {bookingSettings.blockedDates.map((b, i) => (
+                    <div key={i} className="flex items-center gap-3 bg-slate-50 dark:bg-slate-700 rounded-xl px-4 py-2.5">
+                      <Calendar size={14} className="text-slate-400 flex-shrink-0" />
+                      <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">{b.date}</span>
+                      {b.reason && <span className="text-sm text-slate-400">— {b.reason}</span>}
+                      <button onClick={() => removeBlockedDate(i)} className="ml-auto text-red-400 hover:text-red-600">
+                        <X size={15} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <input type="date" value={newBlockedDate.date}
+                    onChange={e => setNewBlockedDate(d => ({ ...d, date: e.target.value }))}
+                    className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-xl text-sm flex-shrink-0 dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-[#137fec] outline-none" />
+                  <input type="text" placeholder="Reason (optional)" value={newBlockedDate.reason}
+                    onChange={e => setNewBlockedDate(d => ({ ...d, reason: e.target.value }))}
+                    className="flex-1 px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-xl text-sm dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-[#137fec] outline-none" />
+                  <button onClick={addBlockedDate} disabled={!newBlockedDate.date}
+                    className="px-4 py-2 bg-[#137fec] text-white text-sm font-bold rounded-xl hover:bg-blue-600 disabled:opacity-60 flex-shrink-0">
+                    Add Date
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ── Doctor Schedules Tab ──────────────────────────────────────────── */}
+        {activeTab === 'invoice' && <InvoiceSettingsTab />}
+
+        {activeTab === 'prescription' && <PrescriptionSettingsTab />}
+
+        {activeTab === 'doctorSchedules' && (
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="font-bold text-slate-800 dark:text-white text-lg">Doctor Schedules</h3>
+                <p className="text-xs text-slate-400 mt-0.5">Configure which doctors are bookable online and their available hours</p>
+              </div>
+            </div>
+
+            {bookingDoctorsLoading ? (
+              <div className="flex items-center justify-center py-10 text-slate-400">
+                <Loader2 size={22} className="animate-spin mr-2" /> Loading doctors…
+              </div>
+            ) : bookingDoctors.length === 0 ? (
+              <p className="text-center py-8 text-slate-400">No doctors found. Add doctors in the Doctors tab first.</p>
+            ) : (
+              <div className="space-y-3">
+                {bookingDoctors.map(doctor => (
+                  <div key={doctor._id}
+                    className="flex items-center gap-3 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-slate-800 dark:text-white truncate">{doctor.name}</p>
+                      {doctor.specialization && (
+                        <p className="text-xs text-slate-400">{doctor.specialization}</p>
+                      )}
+                    </div>
+                    <span className={`flex-shrink-0 px-2.5 py-1 text-xs font-semibold rounded-full ${
+                      doctor.isBookable
+                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                        : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400'
+                    }`}>
+                      {doctor.isBookable ? 'Bookable' : 'Not Bookable'}
+                    </span>
+                    <button
+                      onClick={() => setScheduleModal(doctor)}
+                      className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300">
+                      <Edit2 size={12} /> Configure
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
       </div>
 
       {/* Unified Add chooser */}
@@ -1871,6 +2700,15 @@ const SettingsPage = () => {
           tab={treatmentTab}
           onClose={() => setShowBulkUpload(false)}
           onComplete={fetchTreatmentData}
+        />
+      )}
+
+      {/* Doctor Schedule Modal */}
+      {scheduleModal && (
+        <DoctorScheduleModal
+          doctor={scheduleModal}
+          onClose={() => setScheduleModal(null)}
+          onSaved={handleDoctorScheduleSaved}
         />
       )}
 
