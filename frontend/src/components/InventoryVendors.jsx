@@ -19,7 +19,7 @@ export const AddVendorModal = ({ isOpen, onClose, editVendor, onSave }) => {
           name: editVendor.name || '',
           type: editVendor.type || 'General',
           contact_person: editVendor.contact_person || '',
-          phone: editVendor.phone || '',
+          phone: (editVendor.phone || '').replace(/^\+91/, ''),
           email: editVendor.email || '',
           address: editVendor.address || '',
           gst_number: editVendor.gst_number || ''
@@ -37,10 +37,11 @@ export const AddVendorModal = ({ isOpen, onClose, editVendor, onSave }) => {
     e.preventDefault();
     setLoading(true);
     try {
+        const payload = { ...formData, phone: formData.phone ? `+91${formData.phone}` : '' };
         if (editVendor) {
-            await API.put(`/vendors/${editVendor._id}`, formData);
+            await API.put(`/vendors/${editVendor._id}`, payload);
         } else {
-            await API.post('/vendors', formData);
+            await API.post('/vendors', payload);
         }
         
         if(onSave) onSave();
@@ -67,7 +68,7 @@ export const AddVendorModal = ({ isOpen, onClose, editVendor, onSave }) => {
         </div>
 
         <form className="p-6 space-y-4 max-h-[80vh] overflow-y-auto" onSubmit={handleSubmit}>
-          
+
           <div className="grid grid-cols-1 xs:grid-cols-2 gap-4">
              <div className="col-span-1 xs:col-span-2">
                 <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Vendor Name</label>
@@ -106,9 +107,9 @@ export const AddVendorModal = ({ isOpen, onClose, editVendor, onSave }) => {
             </div>
             <div>
               <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Phone Number</label>
-              <div className="relative">
-                <span className="absolute left-3 top-2.5 text-slate-400"><Phone size={16}/></span>
-                <input type="tel" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} placeholder="9876..." className="w-full pl-9 pr-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#137fec] outline-none" />
+              <div className="flex items-stretch border border-slate-300 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-[#137fec]">
+                <span className="px-3 flex items-center text-sm font-semibold text-slate-600 bg-slate-100 select-none border-r border-slate-300">🇮🇳 +91</span>
+                <input type="tel" inputMode="numeric" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value.replace(/\D/g, '').slice(0, 10)})} maxLength={10} placeholder="10-digit number" className="flex-1 px-4 py-2.5 text-sm focus:outline-none" />
               </div>
             </div>
           </div>
@@ -237,30 +238,14 @@ export const BulkUploadVendorsModal = ({ isOpen, onClose, onUpload }) => {
                   </div>
                 </div>
 
-                {result.errors && result.errors.length > 0 && (
-                  <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg max-h-[260px] overflow-y-auto">
-                    <p className="text-sm font-bold text-orange-700 mb-1">Skipped rows — fix these and re-upload</p>
-                    <p className="text-[11px] text-orange-700/80 mb-2">Row numbers match your sheet (header is row 1).</p>
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="text-left text-orange-800">
-                          <th className="py-1 pr-2 font-semibold">Row</th>
-                          <th className="py-1 pr-2 font-semibold">Column</th>
-                          <th className="py-1 pr-2 font-semibold">Value</th>
-                          <th className="py-1 pr-2 font-semibold">Reason</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-orange-200">
-                        {result.errors.map((e, i) => (
-                          <tr key={i}>
-                            <td className="py-1 pr-2 font-mono text-orange-900">{e.row}</td>
-                            <td className="py-1 pr-2 text-orange-800">{e.column || '—'}</td>
-                            <td className="py-1 pr-2 text-orange-700 max-w-[130px] truncate" title={e.value}>{e.value || <em className="text-orange-400">(empty)</em>}</td>
-                            <td className="py-1 pr-2 text-red-600">{e.error}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                {result.skippedDetails && result.skippedDetails.length > 0 && (
+                  <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg max-h-[200px] overflow-y-auto">
+                    <p className="text-sm font-bold text-orange-700 mb-2">Skipped Rows</p>
+                    <div className="space-y-1">
+                      {result.skippedDetails.map((skip, i) => (
+                        <p key={i} className="text-xs text-orange-700"><strong>{skip.name || '(empty)'}</strong> — {skip.reason}</p>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -282,7 +267,7 @@ export const BulkUploadVendorsModal = ({ isOpen, onClose, onUpload }) => {
 };
 
 // --- MAIN COMPONENT ---
-const InventoryVendors = () => {
+const InventoryVendors = ({ searchQuery = '', vendorTypeFilter = '' }) => {
   const [vendors, setVendors] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -311,6 +296,16 @@ const InventoryVendors = () => {
   useEffect(() => {
     fetchVendors();
   }, []);
+
+  // Filter vendors
+  const filteredVendors = vendors.filter(v => {
+    const matchesSearch = v.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          v.contact_person?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          v.phone?.includes(searchQuery) ||
+                          v.email?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesType = !vendorTypeFilter || v.type === vendorTypeFilter;
+    return matchesSearch && matchesType;
+  });
 
   // Context Menu Handlers
   useEffect(() => {
@@ -347,48 +342,46 @@ const InventoryVendors = () => {
 
   if (loading) return <div className="h-full flex items-center justify-center"><Loader2 className="animate-spin text-slate-400"/></div>;
 
+  const TypeBadge = ({ type }) => (
+    <span className={`px-2 py-0.5 rounded text-xs font-medium border ${
+      type === 'Pharmacy'   ? 'bg-blue-50 text-blue-700 border-blue-200' :
+      type === 'Consumable' ? 'bg-teal-50 text-teal-700 border-teal-200' :
+      'bg-slate-100 border-slate-200'
+    }`}>{type}</span>
+  );
+
+  const HeaderActions = () => (
+    <div className="flex gap-2">
+      <button onClick={() => { setEditingVendor(null); setIsModalOpen(true); }} className="flex items-center gap-1.5 text-sm text-white bg-[#137fec] hover:bg-blue-600 px-3 py-2 rounded-lg font-semibold transition-colors">
+        <Plus size={16} /><span className="hidden xs:inline">Add Vendor</span>
+      </button>
+      <button onClick={() => setIsBulkUploadOpen(true)} className="flex items-center gap-1.5 text-sm text-white bg-slate-600 hover:bg-slate-700 px-3 py-2 rounded-lg font-semibold transition-colors">
+        <Upload size={16} /><span className="hidden xs:inline">Bulk Upload</span>
+      </button>
+    </div>
+  );
+
   return (
     <>
-      <div className="h-full flex flex-col" onClick={() => setContextMenu(null)}>
-
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden flex-1 min-h-0 flex flex-col">
-          <div className="p-4 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center">
-            <h3 className="font-bold text-slate-700">Vendors</h3>
-            <div className="flex gap-2">
-              <button
-                onClick={() => { setEditingVendor(null); setIsModalOpen(true); }}
-                className="flex items-center gap-2 text-sm text-white bg-[#137fec] hover:bg-blue-600 px-3 py-2 rounded-lg font-semibold transition-colors"
-              >
-                <Plus size={16} />
-                Add Vendor
-              </button>
-              <button
-                onClick={() => setIsBulkUploadOpen(true)}
-                className="flex items-center gap-2 text-sm text-white bg-slate-600 hover:bg-slate-700 px-3 py-2 rounded-lg font-semibold transition-colors"
-              >
-                <Upload size={16} />
-                Bulk Upload
-              </button>
-            </div>
-          </div>
-          {/* Mobile cards */}
-          <div className="sm:hidden overflow-auto flex-1 divide-y divide-slate-100">
-            {vendors.map(v => (
-              <div key={v._id} className="p-3 flex items-center justify-between gap-2">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                    <span className="font-bold text-slate-800 text-sm">{v.name}</span>
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium border ${
-                      v.type === 'Pharmacy' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                      v.type === 'Consumable' ? 'bg-teal-50 text-teal-700 border-teal-200' :
-                      'bg-slate-100 border-slate-200'
-                    }`}>{v.type}</span>
+      {/* ── Mobile: cards ── */}
+      <div className="sm:hidden flex flex-col bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+        <div className="p-3 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center">
+          <h3 className="font-bold text-slate-700 text-sm">Vendors</h3>
+          <HeaderActions />
+        </div>
+        <div className="divide-y divide-slate-100">
+          {filteredVendors.length === 0
+            ? <p className="p-4 text-center text-xs text-slate-400">No vendors found. Add one to get started.</p>
+            : filteredVendors.map(v => (
+              <div key={v._id} className="p-3 flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <p className="font-semibold text-slate-700 truncate">{v.name}</p>
+                    <TypeBadge type={v.type} />
                   </div>
-                  <div className="text-xs text-slate-500 flex items-center gap-1">
-                    {v.contact_person && <><User size={11} className="text-slate-400" />{v.contact_person} · </>}
-                    <Phone size={11} className="text-slate-400" />{v.phone || '-'}
-                  </div>
-                  {v.email && <div className="text-xs text-slate-400 truncate">{v.email}</div>}
+                  {v.contact_person && <p className="text-xs text-slate-500 flex items-center gap-1"><User size={11}/> {v.contact_person}</p>}
+                  <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1"><Phone size={11}/> {v.phone || '-'}</p>
+                  {v.email && <p className="text-xs text-slate-400 truncate">{v.email}</p>}
                 </div>
                 <button
                   onClick={() => { setEditingVendor(v); setIsModalOpen(true); }}
@@ -397,11 +390,19 @@ const InventoryVendors = () => {
                   <Edit size={15} />
                 </button>
               </div>
-            ))}
-            {vendors.length === 0 && <div className="p-8 text-center text-slate-400 text-sm">No vendors found.</div>}
+            ))
+          }
+        </div>
+      </div>
+
+      {/* ── Desktop: context-menu table ── */}
+      <div className="hidden sm:flex h-full flex-col" onClick={() => setContextMenu(null)}>
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden flex-1 min-h-0 flex flex-col">
+          <div className="p-4 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center">
+            <h3 className="font-bold text-slate-700">Vendors</h3>
+            <HeaderActions />
           </div>
-          {/* Desktop table */}
-          <div className="hidden sm:block overflow-auto flex-1">
+          <div className="overflow-auto flex-1">
             <table className="w-full text-left border-collapse">
               <thead className="bg-[#F7F2F2] sticky top-0 z-10 text-xs font-semibold text-slate-500 uppercase">
                 <tr>
@@ -413,75 +414,42 @@ const InventoryVendors = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {vendors.map((v) => (
-                  <tr
-                    key={v._id}
-                    className="hover:bg-slate-50 text-sm cursor-context-menu select-none transition-colors"
-                    onContextMenu={(e) => handleContextMenu(e, v)}
-                  >
+                {filteredVendors.map(v => (
+                  <tr key={v._id} className="hover:bg-slate-50 text-sm cursor-context-menu select-none transition-colors" onContextMenu={(e) => handleContextMenu(e, v)}>
                     <td className="p-4 font-bold text-slate-800">{v.name}</td>
-                    <td className="p-4">
-                        <span className={`px-2 py-1 rounded text-xs font-medium border ${
-                            v.type === 'Pharmacy' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                            v.type === 'Consumable' ? 'bg-teal-50 text-teal-700 border-teal-200' :
-                            'bg-slate-100 border-slate-200'
-                        }`}>
-                            {v.type}
-                        </span>
-                    </td>
-                    <td className="p-4 text-slate-600 flex items-center gap-2">
-                        {v.contact_person ? <><User size={14} className="text-slate-400"/> {v.contact_person}</> : '-'}
+                    <td className="p-4"><TypeBadge type={v.type} /></td>
+                    <td className="p-4 text-slate-600">
+                      {v.contact_person ? <span className="flex items-center gap-2"><User size={14} className="text-slate-400"/> {v.contact_person}</span> : '-'}
                     </td>
                     <td className="p-4">
-                        <div className="flex flex-col gap-1">
-                            <div className="text-slate-800 font-mono text-xs flex items-center gap-2"><Phone size={12}/> {v.phone || '-'}</div>
-                            {v.email && <div className="text-slate-500 text-xs flex items-center gap-2"><Mail size={12}/> {v.email}</div>}
-                        </div>
+                      <div className="flex flex-col gap-1">
+                        <div className="text-slate-800 font-mono text-xs flex items-center gap-2"><Phone size={12}/> {v.phone || '-'}</div>
+                        {v.email && <div className="text-slate-500 text-xs flex items-center gap-2"><Mail size={12}/> {v.email}</div>}
+                      </div>
                     </td>
                     <td className="p-4 text-slate-500 text-xs max-w-[200px] truncate">
-                        {v.gst_number && <div className="font-bold mb-1">GST: {v.gst_number}</div>}
-                        {v.address}
+                      {v.gst_number && <div className="font-bold mb-1">GST: {v.gst_number}</div>}
+                      {v.address}
                     </td>
                   </tr>
                 ))}
-                {vendors.length === 0 && <tr><td colSpan="5" className="p-8 text-center text-slate-400">No vendors found. Add one to get started.</td></tr>}
+                {filteredVendors.length === 0 && <tr><td colSpan="5" className="p-8 text-center text-slate-400">No vendors found. Add one to get started.</td></tr>}
               </tbody>
             </table>
           </div>
         </div>
 
-        {/* Context Menu */}
         {contextMenu && (
-          <div 
-            ref={contextMenuRef}
-            className="fixed bg-white border border-slate-200 shadow-xl rounded-lg py-1 w-40 z-50 animate-in fade-in zoom-in-95 duration-100"
-            style={{ top: contextMenu.y, left: contextMenu.x }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button onClick={handleEdit} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2">
-              <Edit size={14} /> Edit Vendor
-            </button>
+          <div ref={contextMenuRef} className="fixed bg-white border border-slate-200 shadow-xl rounded-lg py-1 w-40 z-50 animate-in fade-in zoom-in-95 duration-100" style={{ top: contextMenu.y, left: contextMenu.x }} onClick={(e) => e.stopPropagation()}>
+            <button onClick={handleEdit} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"><Edit size={14} /> Edit Vendor</button>
             <div className="h-px bg-slate-100 my-1"></div>
-            <button onClick={handleDelete} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2">
-              <Trash2 size={14} /> Delete
-            </button>
+            <button onClick={handleDelete} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"><Trash2 size={14} /> Delete</button>
           </div>
         )}
-
       </div>
 
-      <AddVendorModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        editVendor={editingVendor}
-        onSave={fetchVendors}
-      />
-
-      <BulkUploadVendorsModal
-        isOpen={isBulkUploadOpen}
-        onClose={() => setIsBulkUploadOpen(false)}
-        onUpload={fetchVendors}
-      />
+      <AddVendorModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} editVendor={editingVendor} onSave={fetchVendors} />
+      <BulkUploadVendorsModal isOpen={isBulkUploadOpen} onClose={() => setIsBulkUploadOpen(false)} onUpload={fetchVendors} />
     </>
   );
 };

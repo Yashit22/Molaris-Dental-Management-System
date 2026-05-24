@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Search, Plus, Filter, PackageX, Settings as SettingsIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import API from '../services/api';
 
 // --- IMPORT SUB-COMPONENTS ---
 import InventoryStock from '../components/InventoryStocks.jsx';
@@ -9,7 +10,7 @@ import InventoryItemList, { AddItemModal } from '../components/InventoryItems.js
 import InventoryLogs, { AddLogModal } from '../components/InventoryLogs.jsx';
 import InventoryVendors, { AddVendorModal } from '../components/InventoryVendors.jsx';
 import { useInventorySettings } from '../Context/SettingsContext.jsx';
-
+  
 // --- SHARED COMPONENTS DEFINED HERE ---
 
 // 1. Status Badge
@@ -49,17 +50,54 @@ const InventoryPage = () => {
 
   const [activeTab, setActiveTab] = useState('Stock');
   const [searchQuery, setSearchQuery] = useState('');
-  
-  // 1. REFRESH TRIGGER STATE
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [isLowStock, setIsLowStock] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('');
+  const [brandFilter, setBrandFilter] = useState('');
+  const [categoryPharmacyFilter, setCategoryPharmacyFilter] = useState('');
+  const [categoryConsumableFilter, setCategoryConsumableFilter] = useState('');
+  const [orderStatusFilter, setOrderStatusFilter] = useState('');
+  const [orderVendorFilter, setOrderVendorFilter] = useState('');
+  const [dateFromFilter, setDateFromFilter] = useState('');
+  const [dateToFilter, setDateToFilter] = useState('');
+  const [logTypeFilter, setLogTypeFilter] = useState('');
+  const [logCategoryFilter, setLogCategoryFilter] = useState('');
+  const [vendorTypeFilter, setVendorTypeFilter] = useState('');
 
-  // Tracks which modal is currently active
+  const [refreshKey, setRefreshKey] = useState(0);
   const [activeModal, setActiveModal] = useState(null);
+  const [vendorList, setVendorList] = useState([]);
+  const [brandList, setBrandList] = useState([]);
+  const [categoryListPharmacy, setCategoryListPharmacy] = useState([]);
+  const [categoryListConsumable, setCategoryListConsumable] = useState([]);
 
   const closeModal = () => setActiveModal(null);
 
-  // 2. HANDLE SAVE & REFRESH
-  // Passed to Modals. When called, it closes modal AND increments key to reload lists
+  // Fetch vendors, brands, and categories on mount
+  useEffect(() => {
+    const fetchFiltersData = async () => {
+      try {
+        const [vendorsRes, inventoryRes] = await Promise.all([
+          API.get('/vendors'),
+          API.get('/inventory')
+        ]);
+        setVendorList(vendorsRes.data);
+
+        // Extract unique brands and categories
+        const inventory = inventoryRes.data;
+        const brands = [...new Set(inventory.map(i => i.manufacturer).filter(Boolean))].sort();
+        const pharmaCats = [...new Set(inventory.filter(i => i.type === 'Pharmacy').map(i => i.category).filter(Boolean))].sort();
+        const consumableCats = [...new Set(inventory.filter(i => i.type === 'Consumable' || i.type === 'Asset').map(i => i.category).filter(Boolean))].sort();
+
+        setBrandList(brands);
+        setCategoryListPharmacy(pharmaCats);
+        setCategoryListConsumable(consumableCats);
+      } catch (err) {
+        console.error('Failed to fetch filter data:', err);
+      }
+    };
+    fetchFiltersData();
+  }, []);
+
   const handleSave = () => {
     setRefreshKey(prev => prev + 1);
     closeModal();
@@ -72,14 +110,36 @@ const InventoryPage = () => {
     else if (activeTab === 'Vendors') setActiveModal('vendor');
   };
 
-  const sharedProps = { StockBadge, SectionHeader, medicineEnabled, consumableEnabled };
+  const sharedProps = {
+    StockBadge,
+    SectionHeader,
+    medicineEnabled,
+    consumableEnabled,
+    isLowStock,
+    searchQuery,
+    statusFilter,
+    brandFilter,
+    categoryPharmacyFilter,
+    categoryConsumableFilter,
+    orderStatusFilter,
+    orderVendorFilter,
+    dateFromFilter,
+    dateToFilter,
+    logTypeFilter,
+    logCategoryFilter,
+    vendorTypeFilter,
+    vendorList,
+    brandList,
+    categoryListPharmacy,
+    categoryListConsumable
+  };
 
   const TABS = [
-    { id: 'Stock', label: 'Stock Overview', component: InventoryStock },
-    { id: 'Purchase Orders', label: 'Purchase Orders', component: InventoryOrders },
-    { id: 'ItemList', label: 'Item List', component: InventoryItemList },
-    { id: 'Logs', label: 'Inventory Logs', component: InventoryLogs },
-    { id: 'Vendors', label: 'Vendors', component: InventoryVendors },
+    { id: 'Stock',           label: 'Stock',    component: InventoryStock    },
+    { id: 'Purchase Orders', label: 'Orders',   component: InventoryOrders   },
+    { id: 'ItemList',        label: 'Items',    component: InventoryItemList },
+    { id: 'Logs',            label: 'Logs',     component: InventoryLogs     },
+    { id: 'Vendors',         label: 'Vendors',  component: InventoryVendors  },
   ];
 
   const ActiveComponent = TABS.find(t => t.id === activeTab)?.component || InventoryStock;
@@ -108,25 +168,27 @@ const InventoryPage = () => {
   }
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 p-3 sm:p-6 gap-4 sm:gap-6 relative overflow-y-auto sm:overflow-hidden">
+    <div className="flex flex-col overflow-y-auto sm:overflow-hidden sm:h-full bg-slate-50 p-3 sm:p-6 gap-3 sm:gap-6 relative">
 
-      {/* HEADER & NAVIGATION */}
-      <div className="flex flex-col gap-3">
-        <div>
-           <h1 className="text-xl sm:text-2xl font-bold text-slate-800">Inventory Manager</h1>
-           <p className="text-slate-500 text-sm">Pharmacy & Clinic Consumables</p>
+      {/* ── HEADER + TABS (combined row on mobile) ── */}
+      <div className="flex items-center justify-between gap-2">
+        {/* Title — hidden on very small screens to save space */}
+        <div className="hidden xs:block flex-shrink-0">
+          <h1 className="text-lg sm:text-2xl font-bold text-slate-800 leading-tight">Inventory</h1>
+          <p className="text-slate-500 text-xs sm:text-sm hidden sm:block">Pharmacy & Clinic Consumables</p>
         </div>
 
-        <div className="overflow-x-auto scrollbar-none -mx-3 px-3 sm:mx-0 sm:px-0">
-          <div className="bg-white p-1 rounded-xl border border-slate-200 shadow-sm flex w-max sm:w-full min-w-full">
+        {/* Tab bar — scrollable, bleeds to page edges on mobile */}
+        <div className="flex-1 overflow-x-auto scrollbar-none -mx-3 px-3 xs:mx-0 xs:px-0">
+          <div className="bg-white p-1 rounded-xl border border-slate-200 shadow-sm inline-flex min-w-max">
             {TABS.map(tab => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex-shrink-0 sm:flex-1 px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold rounded-lg transition-all whitespace-nowrap ${
+                onClick={() => { setActiveTab(tab.id); setSearchQuery(''); }}
+                className={`flex-shrink-0 px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold rounded-lg transition-all whitespace-nowrap ${
                   activeTab === tab.id
-                  ? 'bg-[#137fec] text-white shadow-md'
-                  : 'text-slate-600 hover:bg-slate-50'
+                    ? 'bg-[#137fec] text-white shadow-md'
+                    : 'text-slate-600 hover:bg-slate-50'
                 }`}
               >
                 {tab.label}
@@ -136,52 +198,165 @@ const InventoryPage = () => {
         </div>
       </div>
 
-      {/* --- TOOLBAR --- */}
-      <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col xs:flex-row justify-between items-stretch xs:items-center gap-3">
+      {/* ── TOOLBAR ── */}
+      <div className="bg-white px-3 py-2.5 sm:p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Search */}
+          <div className="relative flex-1 min-w-[200px]">
+            <Search size={15} className="absolute left-2.5 top-2.5 text-slate-400" />
+            <input
+              type="text"
+              placeholder={`Search…`}
+              className="w-full pl-8 pr-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-[#137fec] focus:ring-1 focus:ring-[#137fec]"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
 
-        {/* Search Input */}
-        <div className="relative w-full xs:w-64 sm:w-80">
-          <Search size={18} className="absolute left-3 top-2.5 text-slate-400" />
-          <input
-            type="text"
-            placeholder={`Search ${activeTab}...`}
-            className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-xl text-sm outline-none focus:border-[#137fec] focus:ring-1 focus:ring-[#137fec]"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-
-        <div className="flex gap-2 xs:gap-3">
-          {/* Filter Button (Only for Stock) */}
+          {/* Stock Tab Filters */}
           {activeTab === 'Stock' && (
-            <button className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-50 whitespace-nowrap">
-              <Filter size={15} /> <span className="hidden xs:inline">Filter</span> Low Stock
-            </button>
+            <>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-[#137fec] focus:ring-1 focus:ring-[#137fec] bg-white"
+              >
+                <option value="">All Status</option>
+                <option value="Good">Good</option>
+                <option value="Low">Low</option>
+                <option value="Critical">Critical</option>
+                <option value="Out of Stock">Out of Stock</option>
+              </select>
+              <select
+                value={brandFilter}
+                onChange={(e) => setBrandFilter(e.target.value)}
+                className="px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-[#137fec] focus:ring-1 focus:ring-[#137fec] bg-white"
+              >
+                <option value="">All Brands</option>
+                {brandList.map(brand => (
+                  <option key={brand} value={brand}>{brand}</option>
+                ))}
+              </select>
+            </>
           )}
 
-          {/* Dynamic Add Button */}
+          {/* Items Tab Filters */}
+          {activeTab === 'ItemList' && (
+            <select
+              value={brandFilter}
+              onChange={(e) => setBrandFilter(e.target.value)}
+              className="px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-[#137fec] focus:ring-1 focus:ring-[#137fec] bg-white"
+            >
+              <option value="">All Brands</option>
+              {brandList.map(brand => (
+                <option key={brand} value={brand}>{brand}</option>
+              ))}
+            </select>
+          )}
+
+          {/* Orders Tab Filters */}
+          {activeTab === 'Purchase Orders' && (
+            <>
+              <select
+                value={orderVendorFilter}
+                onChange={(e) => setOrderVendorFilter(e.target.value)}
+                className="px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-[#137fec] focus:ring-1 focus:ring-[#137fec] bg-white"
+              >
+                <option value="">All Vendors</option>
+                {vendorList.map(vendor => (
+                  <option key={vendor._id} value={vendor.name}>{vendor.name}</option>
+                ))}
+              </select>
+              <select
+                value={orderStatusFilter}
+                onChange={(e) => setOrderStatusFilter(e.target.value)}
+                className="px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-[#137fec] focus:ring-1 focus:ring-[#137fec] bg-white"
+              >
+                <option value="">All Status</option>
+                <option value="Pending">Pending</option>
+                <option value="Confirmed">Confirmed</option>
+                <option value="Received">Received</option>
+                <option value="Cancelled">Cancelled</option>
+              </select>
+              <input
+                type="date"
+                value={dateFromFilter}
+                onChange={(e) => setDateFromFilter(e.target.value)}
+                className="px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-[#137fec] focus:ring-1 focus:ring-[#137fec]"
+              />
+              <input
+                type="date"
+                value={dateToFilter}
+                onChange={(e) => setDateToFilter(e.target.value)}
+                className="px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-[#137fec] focus:ring-1 focus:ring-[#137fec]"
+              />
+            </>
+          )}
+
+          {/* Logs Tab Filters */}
+          {activeTab === 'Logs' && (
+            <>
+              <select
+                value={logTypeFilter}
+                onChange={(e) => setLogTypeFilter(e.target.value)}
+                className="px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-[#137fec] focus:ring-1 focus:ring-[#137fec] bg-white"
+              >
+                <option value="">All Types</option>
+                <option value="Stock In">Stock In</option>
+                <option value="Stock Out">Stock Out</option>
+              </select>
+              <select
+                value={logCategoryFilter}
+                onChange={(e) => setLogCategoryFilter(e.target.value)}
+                className="px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-[#137fec] focus:ring-1 focus:ring-[#137fec] bg-white"
+              >
+                <option value="">All Categories</option>
+                <option value="Pharmacy">Pharmacy</option>
+                <option value="Consumable">Consumable</option>
+                <option value="Asset">Asset</option>
+              </select>
+            </>
+          )}
+
+          {/* Vendors Tab Filters */}
+          {activeTab === 'Vendors' && (
+            <select
+              value={vendorTypeFilter}
+              onChange={(e) => setVendorTypeFilter(e.target.value)}
+              className="px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-[#137fec] focus:ring-1 focus:ring-[#137fec] bg-white"
+            >
+              <option value="">All Types</option>
+              <option value="Pharmacy">Pharmacy</option>
+              <option value="Consumable">Consumable</option>
+              <option value="Lab">Lab</option>
+              <option value="General">General</option>
+            </select>
+          )}
+
+          {/* Add button — non-Stock tabs */}
           {activeTab !== 'Stock' && (
             <button
               onClick={handleAddNew}
-              className="flex-1 xs:flex-none flex items-center justify-center gap-2 bg-[#137fec] text-white px-4 sm:px-5 py-2 rounded-lg text-xs sm:text-sm font-medium hover:bg-blue-700 shadow-md transition-all whitespace-nowrap"
+              className="flex items-center gap-1.5 bg-[#137fec] text-white px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold hover:bg-blue-700 shadow-sm transition-all flex-shrink-0"
             >
               <Plus size={16} />
-              {activeTab === 'Purchase Orders' ? 'Create PO' :
-               activeTab === 'Vendors' ? 'Add Vendor' :
-               activeTab === 'ItemList' ? 'Add Item' :
-               activeTab === 'Logs' ? 'Create Log' : ''}
+              <span className="hidden xs:inline">
+                {activeTab === 'Purchase Orders' ? 'Create PO' :
+                 activeTab === 'Vendors'         ? 'Add Vendor' :
+                 activeTab === 'ItemList'        ? 'Add Item' :
+                 activeTab === 'Logs'            ? 'Create Log' : ''}
+              </span>
             </button>
           )}
         </div>
       </div>
 
-      {/* CONTENT AREA */}
-      {/* On mobile: overflow-y-auto so stacked cards can scroll; on desktop: flex-1 min-h-0 for height-constrained grid */}
-      <div className="sm:flex-1 sm:min-h-0 overflow-y-auto sm:overflow-visible pb-4 sm:pb-0">
+      {/* ── CONTENT — mobile scrolls naturally; desktop is height-constrained ── */}
+      <div className="sm:flex-1 sm:min-h-0">
         <ActiveComponent
-            key={activeTab + refreshKey}
-            {...sharedProps}
-            searchQuery={searchQuery}
+          key={activeTab + refreshKey}
+          {...sharedProps}
+          searchQuery={searchQuery}
         />
       </div>
 

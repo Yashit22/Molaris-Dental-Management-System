@@ -152,7 +152,7 @@ export const AddLogModal = ({ isOpen, onClose, onSave }) => {
 };
 
 // --- MAIN LOGS COMPONENT ---
-const InventoryLogs = ({ medicineEnabled = true, consumableEnabled = true }) => {
+const InventoryLogs = ({ medicineEnabled = true, consumableEnabled = true, searchQuery = '', logTypeFilter = '', logCategoryFilter = '' }) => {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -176,10 +176,15 @@ const InventoryLogs = ({ medicineEnabled = true, consumableEnabled = true }) => 
   // Rows whose item_id is missing/null are kept (cannot determine type).
   const visibleLogs = logs.filter(log => {
     const itemType = log.item_id?.type;
-    if (!itemType) return true;
-    if (itemType === 'Pharmacy') return medicineEnabled;
-    if (itemType === 'Consumable' || itemType === 'Asset') return consumableEnabled;
-    return true;
+    const categoryEnabled = !itemType ||
+                          (itemType === 'Pharmacy' ? medicineEnabled : true) ||
+                          ((itemType === 'Consumable' || itemType === 'Asset') ? consumableEnabled : true);
+    const matchesSearch = log.item_id?.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          log.reason.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          log.notes?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesLogType = !logTypeFilter || log.type === logTypeFilter;
+    const matchesCategory = !logCategoryFilter || itemType === logCategoryFilter;
+    return categoryEnabled && matchesSearch && matchesLogType && matchesCategory;
   });
 
   // Expose refresh function to parent via ref if needed, 
@@ -187,87 +192,88 @@ const InventoryLogs = ({ medicineEnabled = true, consumableEnabled = true }) => 
   // Alternatively, we can export a context or pass a refresh trigger.
   // *To make the Add Button work, we need to pass a callback to the parent page.*
 
+  const TypeBadge = ({ type }) => (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold border ${type === 'Stock In' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+      {type === 'Stock In' ? <ArrowDownLeft size={11}/> : <ArrowUpRight size={11}/>}
+      {type}
+    </span>
+  );
+
+  if (loading) return <div className="h-full flex items-center justify-center"><Loader2 className="animate-spin text-slate-400"/></div>;
+
   return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden h-full flex flex-col">
-      <div className="p-4 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center">
-        <h3 className="font-bold text-slate-700">Inventory Transactions</h3>
-        <button onClick={fetchLogs} className="text-xs text-blue-600 hover:underline">Refresh</button>
-      </div>
-      
-      <div className="overflow-auto flex-1">
-        {loading ? (
-            <div className="h-full flex items-center justify-center"><Loader2 className="animate-spin text-slate-400"/></div>
-        ) : (
-          <>
-            {/* Mobile cards */}
-            <div className="sm:hidden divide-y divide-slate-100">
-              {visibleLogs.map((log, index) => (
-                <div key={log._id} className="p-3 flex items-center justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className="font-medium text-slate-800 text-sm">{log.item_id?.name || 'Unknown Item'}</span>
-                      <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold border flex-shrink-0 ${log.type === 'Stock In' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
-                        {log.type === 'Stock In' ? <ArrowDownLeft size={10}/> : <ArrowUpRight size={10}/>}
-                        {log.type}
-                      </span>
-                    </div>
-                    <div className="text-xs text-slate-500">{log.reason}{log.notes ? ` · ${log.notes}` : ''}</div>
-                    <div className="text-[10px] text-slate-400 mt-0.5">{log.item_id?.type} · {new Date(log.date).toLocaleDateString()}</div>
+    <>
+      {/* ── Mobile: cards ── */}
+      <div className="sm:hidden flex flex-col gap-0 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+        <div className="p-3 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center">
+          <h3 className="font-bold text-slate-700 text-sm">Inventory Transactions</h3>
+          <button onClick={fetchLogs} className="text-xs text-blue-600 hover:underline">Refresh</button>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {visibleLogs.length === 0
+            ? <p className="p-4 text-center text-xs text-slate-400">No transactions found.</p>
+            : visibleLogs.map(log => (
+              <div key={log._id} className="p-3 flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <p className="font-semibold text-slate-700 truncate">{log.item_id?.name || 'Unknown Item'}</p>
+                    <TypeBadge type={log.type} />
                   </div>
-                  <div className={`font-bold text-base flex-shrink-0 ${log.type === 'Stock In' ? 'text-green-600' : 'text-red-600'}`}>
-                    {log.type === 'Stock In' ? '+' : '-'}{log.quantity}
-                  </div>
+                  <p className="text-xs text-slate-500">{log.reason}{log.notes ? ` · ${log.notes}` : ''}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">{log.item_id?.type} · {new Date(log.date).toLocaleDateString()}</p>
                 </div>
-              ))}
-              {visibleLogs.length === 0 && <div className="p-6 text-center text-slate-400 text-sm">No transactions found.</div>}
-            </div>
-            {/* Desktop table */}
-            <table className="hidden sm:table w-full text-left border-collapse">
-              <thead className="bg-slate-50 sticky top-0 z-10 text-xs font-semibold text-slate-500 uppercase">
-                <tr>
-                  <th className="p-4 w-16">S.No</th>
-                  <th className="p-4">Reason / Notes</th>
-                  <th className="p-4">Item Details</th>
-                  <th className="p-4 text-center">Type</th>
-                  <th className="p-4 text-right">Qty</th>
-                  <th className="p-4 text-right">Date</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {visibleLogs.map((log, index) => (
-                  <tr key={log._id} className="hover:bg-slate-50 text-sm">
-                    <td className="p-4 text-slate-400">{index + 1}</td>
-                    <td className="p-4">
-                      <div className="font-medium text-slate-800">{log.reason}</div>
-                      <div className="text-xs text-slate-500 italic">{log.notes || '-'}</div>
-                    </td>
-                    <td className="p-4">
-                      <div className="text-slate-700 font-medium">{log.item_id?.name || 'Unknown Item'}</div>
-                      <div className="text-xs text-slate-400 font-mono">Category: {log.item_id?.type}</div>
-                    </td>
-                    <td className="p-4 text-center">
-                      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-bold border ${log.type === 'Stock In' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
-                        {log.type === 'Stock In' ? <ArrowDownLeft size={12}/> : <ArrowUpRight size={12}/>}
-                        {log.type}
-                      </span>
-                    </td>
-                    <td className={`p-4 text-right font-bold ${log.type === 'Stock In' ? 'text-green-600' : 'text-red-600'}`}>
-                      {log.type === 'Stock In' ? '+' : '-'}{log.quantity}
-                    </td>
-                    <td className="p-4 text-right font-mono text-slate-600">
-                      {new Date(log.date).toLocaleDateString()}
-                    </td>
-                  </tr>
-                ))}
-                {logs.length === 0 && (
-                  <tr><td colSpan="6" className="p-6 text-center text-slate-400">No transactions found.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </>
-        )}
+                <p className={`font-bold flex-shrink-0 ${log.type === 'Stock In' ? 'text-green-600' : 'text-red-600'}`}>
+                  {log.type === 'Stock In' ? '+' : '-'}{log.quantity}
+                </p>
+              </div>
+            ))
+          }
+        </div>
       </div>
-    </div>
+
+      {/* ── Desktop: table ── */}
+      <div className="hidden sm:flex flex-col bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden h-full">
+        <div className="p-4 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center">
+          <h3 className="font-bold text-slate-700">Inventory Transactions</h3>
+          <button onClick={fetchLogs} className="text-xs text-blue-600 hover:underline">Refresh</button>
+        </div>
+        <div className="overflow-auto flex-1">
+          <table className="w-full text-left border-collapse">
+            <thead className="bg-slate-50 sticky top-0 z-10 text-xs font-semibold text-slate-500 uppercase">
+              <tr>
+                <th className="p-4 w-16">S.No</th>
+                <th className="p-4">Reason / Notes</th>
+                <th className="p-4">Item Details</th>
+                <th className="p-4 text-center">Type</th>
+                <th className="p-4 text-right">Qty</th>
+                <th className="p-4 text-right">Date</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {visibleLogs.map((log, index) => (
+                <tr key={log._id} className="hover:bg-slate-50 text-sm">
+                  <td className="p-4 text-slate-400">{index + 1}</td>
+                  <td className="p-4">
+                    <div className="font-medium text-slate-800">{log.reason}</div>
+                    <div className="text-xs text-slate-500 italic">{log.notes || '-'}</div>
+                  </td>
+                  <td className="p-4">
+                    <div className="text-slate-700 font-medium">{log.item_id?.name || 'Unknown Item'}</div>
+                    <div className="text-xs text-slate-400 font-mono">Category: {log.item_id?.type}</div>
+                  </td>
+                  <td className="p-4 text-center"><TypeBadge type={log.type} /></td>
+                  <td className={`p-4 text-right font-bold ${log.type === 'Stock In' ? 'text-green-600' : 'text-red-600'}`}>
+                    {log.type === 'Stock In' ? '+' : '-'}{log.quantity}
+                  </td>
+                  <td className="p-4 text-right font-mono text-slate-600">{new Date(log.date).toLocaleDateString()}</td>
+                </tr>
+              ))}
+              {logs.length === 0 && <tr><td colSpan="6" className="p-6 text-center text-slate-400">No transactions found.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
   );
 };
 
