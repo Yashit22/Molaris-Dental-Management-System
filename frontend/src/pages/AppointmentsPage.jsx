@@ -559,7 +559,7 @@ const AppointmentsPage = () => {
 
                   // Build shift bands for a doctor on the selected day
                   const getShiftBands = (doc) => {
-                    const slots = doc.availability?.[dayName] || [];
+                    const slots = Array.isArray(doc.availability?.[dayName]) ? doc.availability[dayName] : [];
                     return slots.map(({ start, end }) => {
                       const [sh, sm] = start.split(':').map(Number);
                       const [eh, em] = end.split(':').map(Number);

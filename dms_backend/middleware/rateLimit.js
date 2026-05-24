@@ -5,7 +5,7 @@ const limiterConfig = {
   max: 3,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip,
+  skip: (req) => false,
 };
 
 export const forgotPwLimiter   = rateLimit(limiterConfig);
