@@ -2,9 +2,28 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Mail, ChevronDown, FileText, Receipt, Sparkles,
-  X, Loader2, CheckCircle, XCircle, Settings,
+  X, Loader2, CheckCircle, XCircle, Settings, BookOpen, Edit3,
 } from 'lucide-react';
 import API from '../services/api';
+
+// Frontend-only presets for the manual send compose panel
+const SEND_PRESETS = [
+  {
+    name:    'Thank You — Standard',
+    subject: 'Thank you for your visit — {{date}}',
+    body:    'Dear {{first_name}},\n\nThank you for visiting us today. Your appointment with {{doctor}} on {{date}} has been completed.\n\nTreatments received: {{treatments}}.\n\nFor any queries, feel free to reach out to us.\n\nWarm regards,\n{{clinic}}',
+  },
+  {
+    name:    'Post-Visit Follow-Up',
+    subject: 'Your visit is complete — follow-up care inside',
+    body:    "Hi {{first_name}},\n\nYour appointment with {{doctor}} on {{date}} is now complete.\n\nTreatments completed: {{treatments}}.\n\nPlease follow the post-care instructions from your doctor. If you experience any discomfort, don't hesitate to contact us.\n\nLooking forward to seeing you again!\n\n{{clinic}}",
+  },
+  {
+    name:    'Simple Thank You',
+    subject: 'Visit Complete — {{date}}',
+    body:    "Dear {{name}},\n\nThank you for your visit on {{date}} with {{doctor}}. We hope you're feeling great.\n\nWarm regards,\n{{clinic}}",
+  },
+];
 
 export default function SendMailDropdown({ patientId, patient }) {
   const [open, setOpen]               = useState(false);
@@ -12,6 +31,10 @@ export default function SendMailDropdown({ patientId, patient }) {
   const [emailStatus, setEmailStatus] = useState(null);
   const [selected, setSelected]       = useState({ smart_report: true, invoice: false, ai_report: false });
   const [emailTo, setEmailTo]         = useState('');
+  const [customSubject, setCustomSubject] = useState('');
+  const [customBody, setCustomBody]       = useState('');
+  const [showEditor, setShowEditor]   = useState(false);
+  const [presetOpen, setPresetOpen]   = useState(false);
   const [sending, setSending]         = useState(false);
   const [result, setResult]           = useState(null); // { ok, message }
   const panelRef = useRef(null);
@@ -52,6 +75,13 @@ export default function SendMailDropdown({ patientId, patient }) {
     }
   }
 
+  function applyPreset(preset) {
+    setCustomSubject(preset.subject);
+    setCustomBody(preset.body);
+    setShowEditor(true);
+    setPresetOpen(false);
+  }
+
   function toggle(key) {
     setSelected(s => ({ ...s, [key]: !s[key] }));
   }
@@ -70,11 +100,10 @@ export default function SendMailDropdown({ patientId, patient }) {
     setSending(true);
     setResult(null);
     try {
-      const res = await API.post('/email/send-treatment-summary', {
-        patient_id: patientId,
-        to: emailTo.trim(),
-        include,
-      });
+      const payload = { patient_id: patientId, to: emailTo.trim(), include };
+      if (customSubject.trim()) payload.subject = customSubject.trim();
+      if (customBody.trim())    payload.body    = customBody.trim();
+      const res = await API.post('/email/send-treatment-summary', payload);
       const count = res.data.attachments?.length || 0;
       setResult({ ok: true, message: `Sent to ${res.data.to} — ${count} attachment${count !== 1 ? 's' : ''}` });
     } catch (err) {
@@ -184,8 +213,87 @@ export default function SendMailDropdown({ patientId, patient }) {
                   available={!!emailStatus.latestAiReport}
                 />
 
+                {/* Message composer */}
+                <div className="pt-1 border-t border-slate-100 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Message</p>
+                    <div className="flex items-center gap-2">
+                      {/* Preset picker */}
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setPresetOpen(p => !p)}
+                          className="flex items-center gap-1 text-[11px] font-semibold text-[#137fec] hover:text-blue-700"
+                        >
+                          <BookOpen size={11} /> Presets
+                          <ChevronDown size={11} className={`transition-transform ${presetOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                        {presetOpen && (
+                          <div className="absolute right-0 top-5 w-64 border border-slate-200 rounded-xl shadow-lg bg-white z-20 overflow-hidden">
+                            {SEND_PRESETS.map((p, i) => (
+                              <button
+                                key={i}
+                                type="button"
+                                onClick={() => applyPreset(p)}
+                                className="w-full text-left px-3 py-2.5 hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0"
+                              >
+                                <p className="text-xs font-semibold text-slate-700">{p.name}</p>
+                                <p className="text-[10px] text-slate-400 truncate mt-0.5">{p.subject}</p>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowEditor(e => !e)}
+                        className="text-[11px] text-slate-500 hover:text-slate-700 flex items-center gap-0.5"
+                      >
+                        <Edit3 size={11} /> {showEditor ? 'Hide' : 'Edit'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {!showEditor && !customSubject && !customBody && (
+                    <p className="text-xs text-slate-400 italic">Using built-in default — click Presets or Edit to customise.</p>
+                  )}
+
+                  {!showEditor && (customSubject || customBody) && (
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-0.5">
+                      {customSubject && <p className="text-xs font-semibold text-slate-700 truncate">{customSubject}</p>}
+                      {customBody    && <p className="text-xs text-slate-400 line-clamp-2 whitespace-pre-line">{customBody}</p>}
+                    </div>
+                  )}
+
+                  {showEditor && (
+                    <div className="space-y-2 border border-slate-200 rounded-xl p-3 bg-slate-50">
+                      <div>
+                        <label className="text-[11px] text-slate-500 block mb-0.5">Subject</label>
+                        <input
+                          type="text"
+                          value={customSubject}
+                          onChange={e => setCustomSubject(e.target.value)}
+                          placeholder="Subject line… e.g. Thank you for your visit — {{date}}"
+                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-[#137fec] outline-none bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-slate-500 block mb-0.5">Body</label>
+                        <textarea
+                          value={customBody}
+                          onChange={e => setCustomBody(e.target.value)}
+                          rows={5}
+                          placeholder="Dear {{first_name}}, … use {{name}}, {{doctor}}, {{date}}, {{treatments}}, {{clinic}}"
+                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-[#137fec] outline-none bg-white resize-none font-mono"
+                        />
+                      </div>
+                      <p className="text-[10px] text-slate-400">Leave blank to use the system default message.</p>
+                    </div>
+                  )}
+                </div>
+
                 {/* Email address */}
-                <div className="pt-1">
+                <div>
                   <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wide block mb-1">Send to</label>
                   <input
                     type="email"

@@ -9,6 +9,34 @@ import {
 import { encrypt, decrypt } from '../utils/crypto.util.js';
 import * as Templates from '../services/emailTemplates.js';
 
+// ─── Rich HTML email builder ───────────────────────────────────────────────
+function buildRichHtml(body, { clinicName = '', clinicPhone = '', clinicEmail = '', attachmentInfo = '' } = {}) {
+  const clinic = clinicName || 'Your Clinic';
+  const bodyHtml = (body || '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .split('\n')
+    .map(l => l.trim()
+      ? `<p style="margin:0 0 10px;font-size:14px;color:#334155;line-height:1.75">${l}</p>`
+      : `<div style="height:4px"></div>`)
+    .join('');
+  const footer = [clinicPhone, clinicEmail].filter(Boolean).join('  ·  ');
+  return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta charset="UTF-8"></head>
+  <body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 16px">
+  <table width="100%" style="max-width:560px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08)">
+  <tr><td style="background:linear-gradient(135deg,#1d6fe8,#137fec);padding:24px 32px">
+    <p style="margin:0;font-size:20px;font-weight:700;color:#fff">${clinic}</p>
+  </td></tr>
+  <tr><td style="padding:32px">${bodyHtml}${attachmentInfo ? `<p style="margin:16px 0 0;font-size:12px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:12px">📎 ${attachmentInfo}</p>` : ''}</td></tr>
+  ${footer ? `<tr><td style="padding:16px 32px;background:#f8fafc;border-top:1px solid #e2e8f0"><p style="margin:0;font-size:11px;color:#94a3b8;text-align:center">${footer}</p></td></tr>` : ''}
+  </table></td></tr></table></body></html>`;
+}
+
+// ─── Placeholder replacer ──────────────────────────────────────────────────
+function replacePlaceholders(template, vars) {
+  return (template || '').replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? `{{${k}}}`);
+}
+
 // ─── PDF helpers ───────────────────────────────────────────────────────────
 
 function stripHtml(html) {
@@ -235,6 +263,7 @@ export async function updateSettings(req, res) {
 
     if (events) {
       settings.events = { ...settings.events, ...events };
+      settings.markModified('events');
     }
 
     await settings.save();
@@ -645,45 +674,70 @@ export async function triggerAppointmentCompleted({ tenantModels, patientId, app
 
     if (!attachments.length) return;
 
-    // Build subject + body from template with variables
+    // Fetch clinic branding for HTML email
+    const clinic = await getClinicVars(tenantModels);
     const visit = await (tenantModels.Visit
       ? tenantModels.Visit.findOne({ patient_id: patientId }).sort({ date: -1 }).lean()
       : Promise.resolve(null));
     const treatmentNames = (visit?.treatments || []).map(t => t.treatment_name).filter(Boolean);
 
-    const templateData = {
-      name:        patientName,
-      first_name:  patient.first_name,
-      doctor:      doctorName || 'Attending Doctor',
-      date:        today,
-      treatments:  treatmentNames.join(', ') || 'your recent treatment',
+    const vars = {
+      patientName,
+      firstName:  patient.first_name,
+      first_name: patient.first_name,
+      name:       patientName,
+      doctor:     doctorName || 'Attending Doctor',
+      doctorName: doctorName || 'Attending Doctor',
+      date:       today,
+      treatments: treatmentNames.join(', ') || 'your recent treatment',
+      clinicName: clinic.clinic_name,
+      clinic:     clinic.clinic_name,
     };
 
-    const { subject, body } = await buildEmailMessage({
-      tenantModels,
-      eventType: 'appointmentCompleted',
-      data: templateData,
-      defaultSubject: `Your appointment summary — ${today}`,
-      defaultBody:    `Dear {{first_name}},\n\nThank you for visiting us. Please find your appointment documents attached.\n\nWarm regards,\n{{doctor}}\n{{clinic}}`,
+    // Use subject/body from settings.events.appointmentCompleted if configured, else fall back to buildEmailMessage
+    let subject, body;
+    const savedSubject = (eventCfg.subject || '').trim();
+    const savedBody    = (eventCfg.body    || '').trim();
+    if (savedSubject || savedBody) {
+      subject = replacePlaceholders(savedSubject || `Your appointment summary — ${today}`, vars);
+      body    = replacePlaceholders(savedBody    || `Dear {{firstName}},\n\nThank you for visiting us.\n\nWarm regards,\n{{doctorName}}\n{{clinicName}}`, vars);
+    } else {
+      ({ subject, body } = await buildEmailMessage({
+        tenantModels,
+        eventType: 'appointmentCompleted',
+        data: vars,
+        defaultSubject: `Your appointment summary — ${today}`,
+        defaultBody:    `Dear {{first_name}},\n\nThank you for visiting us. Please find your appointment documents attached.\n\nWarm regards,\n{{doctor}}\n{{clinic}}`,
+      }));
+    }
+
+    // Build rich HTML version
+    const attachmentInfo = attachments.map(a => a.filename).join(', ');
+    const html = buildRichHtml(body, {
+      clinicName:  clinic.clinic_name,
+      clinicPhone: clinic.clinic_phone,
+      clinicEmail: settings.fromEmail || '',
+      attachmentInfo,
     });
 
     const delayMs = (eventCfg.delayMinutes || 0) * 60 * 1000;
     if (delayMs > 0) {
-      setTimeout(() => _sendCompletionEmail({ tenantModels, settings, patient, patientId, subject, body, attachments }), delayMs);
+      setTimeout(() => _sendCompletionEmail({ tenantModels, settings, patient, patientId, subject, body, html, attachments }), delayMs);
     } else {
-      await _sendCompletionEmail({ tenantModels, settings, patient, patientId, subject, body, attachments });
+      await _sendCompletionEmail({ tenantModels, settings, patient, patientId, subject, body, html, attachments });
     }
   } catch (err) {
     console.error('[Email] triggerAppointmentCompleted silenced:', err.message);
   }
 }
 
-async function _sendCompletionEmail({ tenantModels, settings, patient, patientId, subject, body, attachments }) {
+async function _sendCompletionEmail({ tenantModels, settings, patient, patientId, subject, body, html, attachments }) {
   await sendEmail({
     tenantModels,
     settings,
     to: patient.contact.email,
     subject,
+    html,
     text: body,
     attachments,
     patientId,
@@ -821,6 +875,68 @@ export async function triggerBookingConfirmed({ tenantModels, patient, appointme
     await _fireMail(tenantModels, settings, { to: patientEmail, event: 'bookingConfirmed', patientId: patient._id?.toString(), ...tpl });
   } catch (err) {
     console.error('[Email] triggerBookingConfirmed silenced:', err.message);
+  }
+}
+
+// ─── Appointment booked (internal trigger from appointment controller) ──────
+export async function triggerAppointmentBookedEmail({ tenantModels, patientId, appointmentId, doctorName, appointment }) {
+  try {
+    const settings = await getSettingsOrNull(tenantModels);
+    if (!settings?.enabled || !settings?.automationEnabled) return;
+
+    const eventCfg = settings?.events?.appointmentBooked;
+    if (!eventCfg?.enabled) return;
+
+    const patient = await tenantModels.Patient?.findById(patientId).lean();
+    if (!patient?.contact?.email) return;
+
+    const patientName = `${patient.first_name} ${patient.last_name || ''}`.trim();
+    const today       = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+
+    const clinic = await getClinicVars(tenantModels);
+    const vars = {
+      patientName,
+      firstName:        patient.first_name,
+      first_name:       patient.first_name,
+      name:             patientName,
+      doctor:           doctorName || await getDoctorName(tenantModels, appointment?.doctor_id),
+      doctorName:       doctorName || await getDoctorName(tenantModels, appointment?.doctor_id),
+      date:             today,
+      appointmentDate:  appointment?.start_time ? fmtDate(appointment.start_time) : today,
+      appointmentTime:  appointment?.start_time ? fmtTime(appointment.start_time) : '',
+      clinicName:       clinic.clinic_name,
+      clinic:           clinic.clinic_name,
+    };
+
+    const savedSubject = (eventCfg.subject || '').trim();
+    const savedBody    = (eventCfg.body    || '').trim();
+    const subject = replacePlaceholders(
+      savedSubject || `Your appointment is confirmed — ${vars.appointmentDate}`,
+      vars,
+    );
+    const body = replacePlaceholders(
+      savedBody || `Dear {{firstName}},\n\nYour appointment on {{appointmentDate}} at {{appointmentTime}} has been booked.\n\nWarm regards,\n{{doctorName}}\n{{clinicName}}`,
+      vars,
+    );
+
+    const html = buildRichHtml(body, {
+      clinicName:  clinic.clinic_name,
+      clinicPhone: clinic.clinic_phone,
+      clinicEmail: settings.fromEmail || '',
+    });
+
+    const delayMs = (eventCfg.delayMinutes || 0) * 60 * 1000;
+    const doSend = () => sendEmail({
+      tenantModels, settings,
+      to: patient.contact.email,
+      subject, html, text: body,
+      patientId: String(patientId),
+      event: 'appointmentBooked',
+    }).catch(err => console.error('[Email] triggerAppointmentBookedEmail send silenced:', err.message));
+
+    if (delayMs > 0) setTimeout(doSend, delayMs); else await doSend();
+  } catch (err) {
+    console.error('[Email] triggerAppointmentBookedEmail silenced:', err.message);
   }
 }
 

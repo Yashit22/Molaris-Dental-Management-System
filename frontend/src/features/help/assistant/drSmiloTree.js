@@ -10,6 +10,7 @@ export const NODES = {
       { id: 'go-inventory', label: 'Inventory & stock',               emoji: '📦', next: 'inventory' },
       { id: 'go-lab',       label: 'Lab orders',                      emoji: '🧪', next: 'lab' },
       { id: 'go-whatsapp',  label: 'WhatsApp & messages',             emoji: '💬', next: 'whatsapp' },
+      { id: 'go-email',     label: 'Email setup',                     emoji: '📧', next: 'email' },
       { id: 'go-reports',   label: 'Reports & analytics',             emoji: '📊', next: 'reports' },
       { id: 'go-settings',  label: 'Settings & clinical data',        emoji: '⚙️', next: 'settings' },
       { id: 'go-broken',    label: "Something's not working",         emoji: '🔧', next: 'broken' },
@@ -99,6 +100,56 @@ export const NODES = {
       { id: 'w-silent',   label: "Patients not receiving messages",   slug: '07-whatsapp-automation', hint: 'Check: (1) WhatsApp is enabled in Settings, (2) the event is toggled on, (3) a template exists for that event and language, (4) patient has a mobile number saved.' },
       { id: 'w-logs',     label: 'Check message delivery logs',       slug: '07-whatsapp-automation', hint: 'Go to WhatsApp → Logs tab to see Scheduled / Sent / Failed messages. Filter by event or date.' },
       { id: 'back',       label: '← Back',                           back: true },
+    ],
+  },
+
+  email: {
+    smilo: "Email — what do you need help with?",
+    avatarState: 'thinking',
+    options: [
+      {
+        id: 'e-smtp',
+        label: 'Connect SMTP',
+        slug: 'email-setup',
+        hint: 'Go to Settings → Email → Connection tab. Enter your SMTP host, port, login and password, then click Save & Test. Gmail users should use an App Password, not their main account password.',
+      },
+      {
+        id: 'e-auto-booked',
+        label: 'Automation: appointment booked',
+        slug: 'email-setup',
+        hint: 'Settings → Email → Automation → Appointment Booked. Toggle it on, pick a preset or write a custom subject and body, then Save. The email fires automatically whenever a new appointment is created.',
+      },
+      {
+        id: 'e-auto-completed',
+        label: 'Automation: appointment completed',
+        slug: 'email-setup',
+        hint: 'Settings → Email → Automation → Appointment Completed. Choose which documents to include (Smart Report, Invoice, AI Report) and set your subject and body. The email is sent when the appointment status is marked Completed.',
+      },
+      {
+        id: 'e-send-docs',
+        label: 'Send documents to a patient',
+        slug: 'email-setup',
+        hint: 'On the patient profile or appointment card, click "Send Mail". Choose which documents to attach, pick a preset template or type your own message, confirm the email address, and click Send Email.',
+      },
+      {
+        id: 'e-share',
+        label: 'Configure Share with Patient',
+        slug: 'email-setup',
+        hint: 'Settings → Share with Patient. Set default delivery channels (email, WhatsApp) and toggle branded PDF on or off. These become the defaults every time you share documents with a patient.',
+      },
+      {
+        id: 'e-troubleshoot',
+        label: 'Troubleshoot delivery',
+        slug: 'email-setup',
+        hint: 'Settings → Email → Logs shows every outbound email with status and any error message. Common fixes: (1) verify SMTP credentials with Test button, (2) confirm the patient has an email saved, (3) check spam folder on the patient side.',
+      },
+      {
+        id: 'e-wa-alt',
+        label: 'WhatsApp alternative',
+        slug: '07-whatsapp-automation',
+        hint: 'WhatsApp is text-only in this plan — it cannot send PDF attachments. Use Email to deliver invoices, prescriptions and clinical reports as files. WhatsApp is still great for quick appointment reminders and follow-ups.',
+      },
+      { id: 'back', label: '← Back', back: true },
     ],
   },
 

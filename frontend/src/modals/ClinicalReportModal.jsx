@@ -1,13 +1,91 @@
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import {
   X, Mic, MicOff, Loader2, CheckCircle, ExternalLink,
   FileText, Minimize2, Maximize2, Sparkles, Save, SendHorizonal,
   ChevronDown, Mail, MessageSquare, XCircle, Pause, Play, Edit3,
-  RefreshCw,
+  RefreshCw, Headphones, HelpCircle, Settings2,
 } from 'lucide-react';
 import { openExternal } from '../utils/openExternal';
 import API from '../services/api';
 import { useAuth } from '../Context/AuthContext.jsx';
+
+// Substitute {{placeholder}} tokens; unknown tokens collapse to ''.
+export function applyVars(str, vars) {
+  if (typeof str !== 'string') return '';
+  return str.replace(/\{\{(\w+)\}\}/g, (_, k) => (vars[k] ?? ''));
+}
+
+// Build the variable map used for report-delivery templates.
+export function reportDeliveryVars(patient, user, selectedTemplate) {
+  const patientName = patient ? `${patient.first_name} ${patient.last_name || ''}`.trim() : '';
+  return {
+    patientName,
+    firstName:    patient?.first_name || patientName,
+    doctorName:   user?.name || 'Your Doctor',
+    clinicName:   user?.clinicName || user?.tenantName || '',
+    date:         new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+    templateName: selectedTemplate?.name || 'clinical report',
+  };
+}
+
+// Parse a backend error — may be a JSON-serialized classified error or a plain string.
+function parseError(raw) {
+  if (!raw) return null;
+  try {
+    const obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (obj && obj.source && obj.userMessage) return obj;
+  } catch { /* not JSON */ }
+  return { source: 'unknown', code: 'unknown', userMessage: raw, detail: raw };
+}
+
+const SOURCE_LABEL = { sarvam: 'Connect Transcribe', nvidia: 'Molaris.ai', unknown: 'Error' };
+const CODE_COLOR   = {
+  auth:       'bg-amber-50 border-amber-200 text-amber-800',
+  rate_limit: 'bg-orange-50 border-orange-200 text-orange-800',
+  timeout:    'bg-blue-50  border-blue-200  text-blue-800',
+  config:     'bg-amber-50 border-amber-200 text-amber-800',
+  server:     'bg-red-50   border-red-200   text-red-700',
+  empty:      'bg-yellow-50 border-yellow-200 text-yellow-800',
+  unknown:    'bg-red-50   border-red-200   text-red-700',
+};
+
+function ErrorBadge({ error }) {
+  const [expanded, setExpanded] = useState(false);
+  const parsed = parseError(error);
+  if (!parsed) return null;
+  const colors = CODE_COLOR[parsed.code] || CODE_COLOR.unknown;
+  const sourceLabel = SOURCE_LABEL[parsed.source] || 'Error';
+  const showDetail  = parsed.detail && parsed.detail !== parsed.userMessage;
+
+  return (
+    <div className={`border rounded-lg px-4 py-3 text-sm ${colors}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-2 min-w-0">
+          <XCircle size={15} className="mt-0.5 flex-shrink-0" />
+          <span>{parsed.userMessage}</span>
+        </div>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-black/10 uppercase tracking-wide">
+            {sourceLabel}
+          </span>
+          {showDetail && (
+            <button
+              onClick={() => setExpanded(v => !v)}
+              className="text-[10px] underline opacity-60 hover:opacity-100"
+            >
+              {expanded ? 'hide' : 'details'}
+            </button>
+          )}
+        </div>
+      </div>
+      {expanded && showDetail && (
+        <pre className="mt-2 text-[10px] opacity-70 whitespace-pre-wrap break-all font-mono border-t border-current/20 pt-2">
+          {parsed.detail}
+        </pre>
+      )}
+    </div>
+  );
+}
 
 function ReportDisplay({ text }) {
   if (!text) return <p className="text-slate-400 italic">Not generated.</p>;
@@ -44,8 +122,8 @@ function WaveformBar({ analyserRef, active }) {
     const analyser = analyserRef.current;
     const canvas   = canvasRef.current;
     if (!canvas) return;
-    const ctx    = canvas.getContext('2d');
-    const data   = new Uint8Array(analyser.frequencyBinCount);
+    const ctx  = canvas.getContext('2d');
+    const data = new Uint8Array(analyser.frequencyBinCount);
 
     function draw() {
       rafRef.current = requestAnimationFrame(draw);
@@ -54,10 +132,10 @@ function WaveformBar({ analyserRef, active }) {
       const H = canvas.height;
       ctx.clearRect(0, 0, W, H);
 
-      const bars   = 40;
-      const gap    = 2;
-      const barW   = (W - gap * (bars - 1)) / bars;
-      const step   = Math.floor(data.length / bars);
+      const bars = 40;
+      const gap  = 2;
+      const barW = (W - gap * (bars - 1)) / bars;
+      const step = Math.floor(data.length / bars);
 
       for (let i = 0; i < bars; i++) {
         const val    = data[i * step] / 255;
@@ -92,57 +170,74 @@ const DETAIL_LEVELS = [
 
 export default function ClinicalReportModal({ isOpen, onClose, patientId, appointmentId, patient, onSuccess }) {
   const { user } = useAuth();
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef   = useRef([]);
-  const cancelledRef     = useRef(false);
-  const analyserRef      = useRef(null);
-  const audioCtxRef      = useRef(null);
-  const streamRef        = useRef(null);
-  const audioPlaybackRef = useRef(null);
-  const playbackUrlRef   = useRef(null);
+  const mediaRecorderRef  = useRef(null);
+  const audioChunksRef    = useRef([]);
+  const cancelledRef      = useRef(false);
+  const analyserRef       = useRef(null);
+  const audioCtxRef       = useRef(null);
+  const streamRef         = useRef(null);
+  const audioPlaybackRef  = useRef(null);
+  const playbackUrlRef    = useRef(null);
+  const isGeneratingRef   = useRef(false);
+  const generateAbortRef  = useRef(null);
 
   // stages: idle | recording | paused | transcribing | editing | generating | done
-  const [stage, setStage]             = useState('idle');
-  const [minimized, setMinimized]     = useState(false);
-  const [transcript, setTranscript]   = useState('');
+  const [stage, setStage]               = useState('idle');
+  const [minimized, setMinimized]       = useState(false);
+  const [transcript, setTranscript]     = useState('');
   const [editedTranscript, setEditedTranscript] = useState('');
   const [isEditingTranscript, setIsEditingTranscript] = useState(false);
-  const [reportText, setReportText]   = useState('');
+  const [reportText, setReportText]     = useState('');
+  const [isEditingReport, setIsEditingReport] = useState(false);
   const [streamingText, setStreamingText] = useState('');
-  const [driveLinks, setDriveLinks]   = useState({});
+  const [driveLinks, setDriveLinks]     = useState({});
   const [autofillData, setAutofillData] = useState(null);
-  const [templateId, setTemplateId]   = useState('');
-  const [error, setError]             = useState('');
-  const [textInput, setTextInput]     = useState('');
-  const [jobId, setJobId]             = useState(null);
+  const [templateId, setTemplateId]     = useState('');
+  const [error, setError]               = useState('');
+  const [textInput, setTextInput]       = useState('');
+  const [jobId, setJobId]               = useState(null);
   const [cachedTranscript, setCachedTranscript] = useState(false);
   const jobPollRef = useRef(null);
 
-  const [playbackUrl, setPlaybackUrl]           = useState(null);
-  const [isPlayingBack, setIsPlayingBack]       = useState(false);
-  const [playbackProgress, setPlaybackProgress] = useState(0);
-  const [playbackDuration, setPlaybackDuration] = useState(0);
-
   // Template state
-  const [templates, setTemplates]           = useState([]);
-  const [selectedTemplate, setSelectedTemplate] = useState(null);
-  const [detailLevel, setDetailLevel]       = useState('standard');
-  const [saveReport, setSaveReport]         = useState(true);
-  const [autofillEnabled, setAutofillEnabled] = useState(false);
+  const [templates, setTemplates]                   = useState([]);
+  const [selectedTemplate, setSelectedTemplate]     = useState(null);
+  const [detailLevel, setDetailLevel]               = useState('standard');
+  const [saveReport, setSaveReport]                 = useState(true);
+  const [autofillEnabled, setAutofillEnabled]       = useState(false);
 
-  // Share panel state
-  const [showEmailPanel, setShowEmailPanel] = useState(false);
-  const [showWaPanel, setShowWaPanel]       = useState(false);
-  const [emailForm, setEmailForm] = useState({ to: '', subject: '', body: '' });
-  const [waForm, setWaForm]       = useState({ to: '', caption: '' });
-  const [sending, setSending]     = useState(null);
-  const [sendResult, setSendResult] = useState(null);
+  // Playback preview state
+  const [playbackUrl, setPlaybackUrl]               = useState(null);
+  const [isPlayingBack, setIsPlayingBack]           = useState(false);
+  const [playbackProgress, setPlaybackProgress]     = useState(0);
+  const [playbackDuration, setPlaybackDuration]     = useState(0);
 
-  // Fetch templates once on first open
+  // Delivery panel state (Approve & Send)
+  const [emailForm, setEmailForm]   = useState({ to: '', subject: '', body: '' });
+  const [deliver, setDeliver]       = useState({ cloud: true, email: false, whatsapp: false });
+  const [waForm, setWaForm]         = useState({ to: '', text: '' });
+  const [delivering, setDelivering] = useState(false);
+  const [deliverResults, setDeliverResults] = useState({});
+
+  // Cancel generation
+  const [cancelling, setCancelling] = useState(false);
+
+  // Delivery settings panel (toggled from done stage)
+  const [showDeliveryPanel, setShowDeliveryPanel] = useState(false);
+  const [deliverySettings, setDeliverySettings]   = useState(null);
+  const [deliverySaving, setDeliverySaving]       = useState(false);
+  const [deliveryBanner, setDeliveryBanner]       = useState(null);
+
+  // Fetch templates + delivery settings on first open
   useEffect(() => {
     if (isOpen && templates.length === 0) {
       API.get('/report/templates')
         .then(r => setTemplates(r.data))
+        .catch(() => {});
+    }
+    if (isOpen && !deliverySettings) {
+      API.get('/report/delivery-settings')
+        .then(r => setDeliverySettings(r.data))
         .catch(() => {});
     }
   }, [isOpen]);
@@ -159,14 +254,58 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
     }
   }, [stage]);
 
+  // Pre-fill delivery forms when report is done
+  useEffect(() => {
+    if (stage !== 'done') return;
+    const patientEmail = patient?.contact?.email  || '';
+    const patientPhone = patient?.contact?.mobile || '';
+    const vars = reportDeliveryVars(patient, user, selectedTemplate);
+
+    setEmailForm({ to: patientEmail, subject: '', body: '' });
+    setWaForm({ to: patientPhone, text: '' });
+    setDeliverResults({});
+
+    API.get('/report/delivery-settings')
+      .then(res => {
+        const s = res.data || {};
+        setDeliverySettings(s);
+        setEmailForm(f => ({
+          ...f,
+          subject: applyVars(s.email?.subject || 'Your visit summary — {{date}}', vars),
+          body:    applyVars(s.email?.body    || 'Hi {{patientName}},\n\nPlease find your {{templateName}} attached.\n\nWarm regards,\n{{doctorName}}', vars),
+        }));
+        setWaForm(f => ({
+          ...f,
+          text: applyVars(s.whatsapp?.text || 'Hi {{patientName}}, please find your {{templateName}} from {{doctorName}}.', vars),
+        }));
+        setDeliver({
+          cloud:    s.defaults?.cloud    ?? true,
+          email:    s.defaults?.email    ?? false,
+          whatsapp: s.defaults?.whatsapp ?? false,
+        });
+      })
+      .catch(() => {
+        setEmailForm(f => ({
+          ...f,
+          subject: applyVars('Your visit summary — {{date}}', vars),
+          body:    applyVars('Hi {{patientName}},\n\nPlease find your {{templateName}} attached.\n\nWarm regards,\n{{doctorName}}', vars),
+        }));
+        setWaForm(f => ({ ...f, text: applyVars('Hi {{patientName}}, please find your {{templateName}} from {{doctorName}}.', vars) }));
+        setDeliver({ cloud: true, email: false, whatsapp: false });
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage]);
+
   function fmtTime(secs) {
     const s = Math.floor(secs || 0);
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   }
 
   function revokePlaybackUrl() {
-    if (playbackUrlRef.current) URL.revokeObjectURL(playbackUrlRef.current);
-    playbackUrlRef.current = null;
+    if (playbackUrlRef.current) {
+      URL.revokeObjectURL(playbackUrlRef.current);
+      playbackUrlRef.current = null;
+    }
     setPlaybackUrl(null);
     setIsPlayingBack(false);
     setPlaybackProgress(0);
@@ -179,6 +318,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
     setEditedTranscript('');
     setIsEditingTranscript(false);
     setReportText('');
+    setIsEditingReport(false);
     setStreamingText('');
     setDriveLinks({});
     setAutofillData(null);
@@ -192,14 +332,18 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
     setTextInput('');
     setJobId(null);
     setCachedTranscript(false);
-    setShowEmailPanel(false);
-    setShowWaPanel(false);
     setEmailForm({ to: '', subject: '', body: '' });
-    setWaForm({ to: '', caption: '' });
-    setSending(null);
-    setSendResult(null);
-    if (jobPollRef.current) { clearInterval(jobPollRef.current); jobPollRef.current = null; }
+    setDeliver({ cloud: true, email: false, whatsapp: false });
+    setWaForm({ to: '', text: '' });
+    setDelivering(false);
+    setDeliverResults({});
+    setCancelling(false);
+    setShowDeliveryPanel(false);
+    setDeliveryBanner(null);
     revokePlaybackUrl();
+    if (jobPollRef.current) { clearInterval(jobPollRef.current); jobPollRef.current = null; }
+    if (generateAbortRef.current) { generateAbortRef.current.abort(); generateAbortRef.current = null; }
+    isGeneratingRef.current = false;
   }
 
   function handleClose() {
@@ -214,10 +358,11 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
   }
 
   function cleanupAudio() {
+    if (audioPlaybackRef.current) { audioPlaybackRef.current.pause(); audioPlaybackRef.current.src = ''; }
+    revokePlaybackUrl();
     if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null; }
     analyserRef.current = null;
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
-    revokePlaybackUrl();
   }
 
   function handleTemplateChange(e) {
@@ -225,71 +370,100 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
     setSelectedTemplate(t);
   }
 
-  // ── Share panel pre-fill ──────────────────────────────────────────────────────
-  function openEmailPanel() {
-    const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-    const patientName  = patient ? `${patient.first_name} ${patient.last_name || ''}`.trim() : '';
-    const patientEmail = patient?.contact?.email || '';
-    setEmailForm({
-      to:      patientEmail,
-      subject: `Your visit summary — ${today}`,
-      body:    `Hi ${patientName},\n\nPlease find your visit summary attached.\n\nWarm regards,\n${user?.name || 'Your Doctor'}`,
-    });
-    setShowEmailPanel(true);
-    setShowWaPanel(false);
-    setSendResult(null);
-
-    API.get('/email/templates', { params: { event: 'aiReportReady', language: 'en' } })
-      .then(res => {
-        const active = res.data.find(t => t.isActive);
-        if (!active) return;
-        const data = {
-          name: patientName, firstName: patient?.first_name || patientName,
-          doctor: user?.name || 'Your Doctor', doctorName: user?.name || 'Your Doctor',
-          date: today, templateName: selectedTemplate?.name || 'Clinical Report',
-        };
-        const subj = active.subject.replace(/\{\{(\w+)\}\}/g, (_, k) => data[k] ?? `{{${k}}}`);
-        const body = active.body.replace(/\{\{(\w+)\}\}/g, (_, k) => data[k] ?? `{{${k}}}`);
-        setEmailForm(f => ({ ...f, subject: subj, body }));
-      })
-      .catch(() => {});
+  // ── Approve & Send: run each ticked channel, collect per-channel results ────────
+  async function handleCancelGeneration() {
+    if (generateAbortRef.current) {
+      generateAbortRef.current.abort();
+      generateAbortRef.current = null;
+    }
+    isGeneratingRef.current = false;
+    setCancelling(true);
+    if (jobId) {
+      try { await API.patch(`/report/jobs/${jobId}/cancel`); } catch { /* ignore */ }
+    }
+    setStage('editing');
+    setStreamingText('');
+    setCancelling(false);
   }
 
-  function openWaPanel() {
-    const patientMobile = patient?.contact?.mobile || '';
-    const patientName   = patient ? `${patient.first_name} ${patient.last_name || ''}`.trim() : '';
-    setWaForm({ to: patientMobile, caption: `Hi ${patientName}, please find your visit summary attached.` });
-    setShowWaPanel(true);
-    setShowEmailPanel(false);
-    setSendResult(null);
+  async function handleApproveAndSend() {
+    setDelivering(true);
+    const results = {};
+    let cloudLink = driveLinks[templateId] || '';
+
+    if (deliver.cloud) {
+      try {
+        if (cloudLink) {
+          results.cloud = { status: 'ok', message: 'Already saved to Connect Cloud' };
+        } else {
+          const { data } = await API.post(`/report/jobs/${jobId}/save-to-drive`, { report_text: reportText });
+          cloudLink = data.webViewLink;
+          setDriveLinks(d => ({ ...d, [data.templateId || templateId]: data.webViewLink }));
+          results.cloud = { status: 'ok', message: 'Saved to Connect Cloud' };
+        }
+      } catch (err) {
+        results.cloud = { status: 'fail', message: err.response?.data?.error || err.message };
+      }
+    }
+
+    if (deliver.email) {
+      if (!emailForm.to.trim()) {
+        results.email = { status: 'fail', message: 'Patient email is required.' };
+      } else {
+        try {
+          await API.post('/email/send-report', {
+            patient_id:    patientId,
+            to:            emailForm.to.trim(),
+            subject:       emailForm.subject,
+            body:          emailForm.body,
+            report_text:   reportText,
+            template_name: selectedTemplate?.name || 'Clinical Report',
+          });
+          results.email = { status: 'ok', message: `Emailed to ${emailForm.to.trim()}` };
+        } catch (err) {
+          results.email = { status: 'fail', message: err.response?.data?.error || err.message };
+        }
+      }
+    }
+
+    if (deliver.whatsapp) {
+      if (!waForm.to.trim()) {
+        results.whatsapp = { status: 'fail', message: 'Patient phone is required.' };
+      } else {
+        try {
+          const text = waForm.text + (cloudLink ? `\n\n${cloudLink}` : '');
+          await API.post('/whatsapp/send-report', {
+            patient_id:    patientId,
+            to:            waForm.to.trim(),
+            caption:       text,
+            report_text:   reportText,
+            template_name: selectedTemplate?.name || 'Clinical Report',
+          });
+          results.whatsapp = { status: 'ok', message: `Sent on WhatsApp to ${waForm.to.trim()}` };
+        } catch (err) {
+          results.whatsapp = { status: 'fail', message: err.response?.data?.message || err.response?.data?.error || err.message };
+        }
+      }
+    }
+
+    setDeliverResults(results);
+    setDelivering(false);
   }
 
-  async function handleSendEmail() {
-    if (!emailForm.to.trim()) return;
-    setSending('email'); setSendResult(null);
+  async function handleSaveDeliverySettings() {
+    if (!deliverySettings) return;
+    setDeliverySaving(true);
+    setDeliveryBanner(null);
     try {
-      await API.post('/email/send-report', {
-        patient_id: patientId, to: emailForm.to.trim(), subject: emailForm.subject,
-        body: emailForm.body, report_text: reportText, template_name: selectedTemplate?.name || 'Clinical Report',
-      });
-      setSendResult({ channel: 'email', status: 'ok', message: `Email sent to ${emailForm.to}` });
+      const { _id, __v, createdAt, updatedAt, ...body } = deliverySettings;
+      const res = await API.put('/report/delivery-settings', body);
+      setDeliverySettings(res.data);
+      setDeliveryBanner({ ok: true, msg: 'Delivery settings saved.' });
     } catch (err) {
-      setSendResult({ channel: 'email', status: 'fail', message: err.response?.data?.error || err.message });
-    } finally { setSending(null); }
-  }
-
-  async function handleSendWhatsApp() {
-    if (!waForm.to.trim()) return;
-    setSending('whatsapp'); setSendResult(null);
-    try {
-      await API.post('/whatsapp/send-report', {
-        patient_id: patientId, to: waForm.to.trim(), caption: waForm.caption,
-        report_text: reportText, template_name: selectedTemplate?.name || 'Clinical Report',
-      });
-      setSendResult({ channel: 'whatsapp', status: 'ok', message: `WhatsApp sent to ${waForm.to}` });
-    } catch (err) {
-      setSendResult({ channel: 'whatsapp', status: 'fail', message: err.response?.data?.error || err.message });
-    } finally { setSending(null); }
+      setDeliveryBanner({ ok: false, msg: err.response?.data?.error || err.message });
+    } finally {
+      setDeliverySaving(false);
+    }
   }
 
   // ── Recording ─────────────────────────────────────────────────────────────────
@@ -304,7 +478,6 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
-      // Set up Web Audio analyser for waveform
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       audioCtxRef.current = audioCtx;
       const source  = audioCtx.createMediaStreamSource(stream);
@@ -313,16 +486,15 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
       source.connect(analyser);
       analyserRef.current = analyser;
 
-      // Interruption detection (incoming call, permission withdrawn)
       const track = stream.getAudioTracks()[0];
       if (track) {
-        track.onmute = () => setError('Microphone paused — incoming call? Tap Stop to save what was captured.');
+        track.onmute   = () => setError('⚠️ Microphone paused — was there an incoming call? Your recording is on hold. Tap Pause then Resume, or Stop to process what was captured.');
         track.onunmute = () => setError('');
-        track.onended = () => {
-          setError('Recording interrupted — the microphone was taken by another app.');
-          if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-            try { mediaRecorderRef.current.stop(); } catch (_) {}
+        track.onended  = () => {
+          if (mediaRecorderRef.current?.state === 'recording' || mediaRecorderRef.current?.state === 'paused') {
+            try { mediaRecorderRef.current.stop(); } catch { /* ignore */ }
           }
+          setError('Recording interrupted — your microphone was disconnected. Processing audio captured so far…');
         };
       }
 
@@ -332,69 +504,83 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
       try {
         recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       } catch {
-        // Android: isTypeSupported() lied — retry bare
-        try {
-          recorder = new MediaRecorder(stream);
-        } catch (err2) {
-          setError('Recorder failed to start: ' + err2.message);
-          stream.getTracks().forEach(t => t.stop());
-          return;
-        }
+        recorder = new MediaRecorder(stream);
       }
       recorder.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       recorder.onstop = () => { stream.getTracks().forEach(t => t.stop()); processRecording(); };
       mediaRecorderRef.current = recorder;
-      recorder.start(100); // timeslice 100ms for smoother waveform data
+      recorder.start(100);
       setStage('recording');
 
-      // MediaSession metadata for Bluetooth mic button
       if ('mediaSession' in navigator) {
         navigator.mediaSession.metadata = new MediaMetadata({ title: 'Recording — Dental DMS' });
         navigator.mediaSession.playbackState = 'playing';
       }
     } catch (err) {
-      const msg =
-        (err.name === 'NotAllowedError'  || err.name === 'PermissionDeniedError') ? 'Microphone permission was denied. Please allow access in your browser settings.' :
-        (err.name === 'NotFoundError'    || err.name === 'DevicesNotFoundError')  ? 'No microphone found on this device.' :
-        (err.name === 'NotReadableError' || err.name === 'TrackStartError')       ? 'Microphone is in use by another app.' :
-        (err.message || 'Could not access the microphone. Please try again.');
-      setError(msg);
+      const name = err?.name || '';
+      if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+        setError('Microphone access was denied. Please allow microphone permissions in your browser settings and try again.');
+      } else if (name === 'NotFoundError') {
+        setError('No microphone found. Please connect a microphone and try again.');
+      } else if (name === 'NotReadableError') {
+        setError('Microphone is in use by another app. Close it and try again.');
+      } else {
+        setError('Could not access the microphone. Please try again.');
+      }
     }
   }
 
   function pauseRecording() {
-    if (mediaRecorderRef.current?.state === 'recording') {
-      // Flush any buffered audio before pausing so the preview blob is complete
-      try { mediaRecorderRef.current.requestData(); } catch (_) {}
-      mediaRecorderRef.current.pause();
-      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
-      setStage('paused');
+    if (mediaRecorderRef.current?.state !== 'recording') return;
+    try { mediaRecorderRef.current.requestData(); } catch { /* not all browsers */ }
+    mediaRecorderRef.current.pause();
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+    setStage('paused');
 
-      // Build preview blob after 150ms to let requestData() flush
-      setTimeout(() => {
-        const mime = mediaRecorderRef.current?.mimeType || 'audio/webm';
-        const blob = new Blob([...audioChunksRef.current], { type: mime });
-        if (playbackUrlRef.current) URL.revokeObjectURL(playbackUrlRef.current);
-        const url = URL.createObjectURL(blob);
-        playbackUrlRef.current = url;
-        setPlaybackUrl(url);
-        setPlaybackProgress(0);
-      }, 150);
-    }
+    setTimeout(() => {
+      const chunks = [...audioChunksRef.current];
+      if (chunks.length === 0) return;
+      const mime = mediaRecorderRef.current?.mimeType || 'audio/webm';
+      revokePlaybackUrl();
+      const blob = new Blob(chunks, { type: mime });
+      const url  = URL.createObjectURL(blob);
+      playbackUrlRef.current = url;
+      setPlaybackUrl(url);
+    }, 150);
   }
 
   function resumeRecording() {
+    if (audioPlaybackRef.current) {
+      audioPlaybackRef.current.pause();
+      audioPlaybackRef.current.currentTime = 0;
+    }
+    setIsPlayingBack(false);
     if (mediaRecorderRef.current?.state === 'paused') {
-      // Stop any active playback before resuming the mic
-      if (audioPlaybackRef.current) {
-        audioPlaybackRef.current.pause();
-        audioPlaybackRef.current.currentTime = 0;
-      }
-      setIsPlayingBack(false);
       mediaRecorderRef.current.resume();
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
       setStage('recording');
     }
+  }
+
+  function togglePlayback() {
+    const audio = audioPlaybackRef.current;
+    if (!audio) return;
+    if (isPlayingBack) {
+      audio.pause();
+      setIsPlayingBack(false);
+    } else {
+      audio.play().catch(() => {});
+      setIsPlayingBack(true);
+    }
+  }
+
+  function seekPlayback(e) {
+    const audio = audioPlaybackRef.current;
+    if (!audio || !playbackDuration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    audio.currentTime = ratio * playbackDuration;
+    setPlaybackProgress(audio.currentTime);
   }
 
   function stopRecording() {
@@ -416,7 +602,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
   }
 
   // ── Consume SSE stream from /api/report/generate ───────────────────────────
-  async function consumeGenerateStream(payload) {
+  async function consumeGenerateStream(payload, signal) {
     setStage('generating');
     setStreamingText('');
 
@@ -429,6 +615,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
         'Authorization': `Bearer ${token}`,
       },
       body: JSON.stringify(payload),
+      signal,
     });
 
     if (!response.ok) {
@@ -438,7 +625,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
 
     const reader  = response.body.getReader();
     const decoder = new TextDecoder();
-    let buffer  = '';
+    let buffer    = '';
     let finalData = null;
 
     while (true) {
@@ -446,7 +633,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
-      buffer = lines.pop(); // keep incomplete line
+      buffer = lines.pop();
 
       for (const line of lines) {
         const trimmed = line.trim();
@@ -454,12 +641,8 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
         try {
           const parsed = JSON.parse(trimmed.slice(6));
           if (parsed.error) throw new Error(parsed.error);
-          if (parsed.token) {
-            setStreamingText(prev => prev + parsed.token);
-          }
-          if (parsed.done) {
-            finalData = parsed;
-          }
+          if (parsed.token) setStreamingText(prev => prev + parsed.token);
+          if (parsed.done)  finalData = parsed;
         } catch (parseErr) {
           if (parseErr.message && !parseErr.message.startsWith('Unexpected')) throw parseErr;
         }
@@ -484,7 +667,6 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
       const fd   = buildFormData();
       fd.append('file', blob, `dictation.${ext}`);
 
-      // POST /transcribe — returns jobId immediately
       const { data: transcribeData } = await API.post('/report/transcribe', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
@@ -494,12 +676,10 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
       setCachedTranscript(!!transcribeData.cachedTranscript);
 
       if (transcribeData.status === 'transcribed') {
-        // Direct (text input / cached) — skip polling
         await runGeneration(newJobId, null);
         return;
       }
 
-      // Poll for transcription completion
       await new Promise((resolve, reject) => {
         jobPollRef.current = setInterval(async () => {
           try {
@@ -511,7 +691,6 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
               clearInterval(jobPollRef.current); jobPollRef.current = null;
               reject(new Error(jobData.errorMessage || 'Transcription failed'));
             }
-            // else still pending/transcribing — keep polling
           } catch (pollErr) {
             clearInterval(jobPollRef.current); jobPollRef.current = null;
             reject(pollErr);
@@ -522,10 +701,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
       const { data: jobData } = await API.get(`/report/jobs/${newJobId}`);
       setTranscript(jobData.transcript);
       setEditedTranscript(jobData.transcript);
-
-      // Show transcript for review before generating
       setStage('editing');
-
     } catch (err) {
       setError(err.response?.data?.error || err.message || 'Unknown error');
       setStage('idle');
@@ -534,7 +710,14 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
   }
 
   async function runGeneration(jId, transcriptOverride) {
-    const jIdToUse  = jId || jobId;
+    if (isGeneratingRef.current) return;
+    isGeneratingRef.current = true;
+
+    const jIdToUse   = jId || jobId;
+    const controller = new AbortController();
+    if (generateAbortRef.current) generateAbortRef.current.abort();
+    generateAbortRef.current = controller;
+
     try {
       const finalData = await consumeGenerateStream({
         jobId:        jIdToUse,
@@ -543,15 +726,26 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
         save_report:  String(saveReport),
         autofill:     String(autofillEnabled),
         ...(transcriptOverride != null ? { transcript: transcriptOverride } : {}),
-      });
+      }, controller.signal);
 
-      const generatedText = finalData?.reports?.[finalData?.template_id] || streamingText;
+      const reportsMap = finalData?.reports || {};
+      const resolvedTemplateId = selectedTemplate?.id || Object.keys(reportsMap)[0] || '';
+      const generatedText = (reportsMap[resolvedTemplateId] || Object.values(reportsMap)[0] || streamingText || '').trim();
+
+      if (!generatedText) {
+        setError('The AI returned an empty report. Try again, or edit the transcript and regenerate.');
+        setStreamingText('');
+        setStage('editing');
+        setMinimized(false);
+        return;
+      }
+
       setReportText(generatedText);
       setStreamingText('');
       setTranscript(finalData?.transcript || transcript);
       setDriveLinks(finalData?.drive_links || {});
       setAutofillData(finalData?.autofill_v2 || null);
-      setTemplateId(finalData?.template_id || selectedTemplate?.id || '');
+      setTemplateId(resolvedTemplateId);
       setIsEditingTranscript(false);
       setStage('done');
       setMinimized(false);
@@ -559,9 +753,13 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
       if (autofillEnabled && finalData?.autofill_v2) await applyAutofill(finalData.autofill_v2);
       onSuccess?.();
     } catch (err) {
+      if (err.name === 'AbortError') return;
       setError(err.message || 'Generation failed');
       setStage('editing');
       setMinimized(false);
+    } finally {
+      isGeneratingRef.current = false;
+      if (generateAbortRef.current === controller) generateAbortRef.current = null;
     }
   }
 
@@ -638,26 +836,6 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
     if (failures.length > 0) console.warn('[Autofill] Some endpoints failed:', failures.map(f => f.reason?.message));
   }
 
-  function togglePlayback() {
-    const audio = audioPlaybackRef.current;
-    if (!audio) return;
-    if (isPlayingBack) {
-      audio.pause();
-      setIsPlayingBack(false);
-    } else {
-      audio.play().catch(() => {});
-      setIsPlayingBack(true);
-    }
-  }
-
-  function seekPlayback(e) {
-    const audio = audioPlaybackRef.current;
-    if (!audio || !playbackDuration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const ratio = (e.clientX - rect.left) / rect.width;
-    audio.currentTime = ratio * playbackDuration;
-  }
-
   if (!isOpen) return null;
 
   // ── MINIMIZED PILL ──────────────────────────────────────────────────────────
@@ -697,25 +875,30 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
 
   const canRecord = !!selectedTemplate;
 
+  // Delivery outcome flags
+  const deliveryAttempted = Object.keys(deliverResults).length > 0;
+  const deliverySucceeded = deliveryAttempted && Object.values(deliverResults).every(r => r.status === 'ok');
+  const CHANNEL_LABEL = { cloud: 'Saved to Connect Cloud', email: 'Emailed to patient', whatsapp: 'Sent on WhatsApp' };
+
   // ── FULL MODAL ──────────────────────────────────────────────────────────────
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl w-full max-w-3xl shadow-2xl flex flex-col overflow-hidden max-h-[92vh]">
+    <div className="fixed inset-0 z-[300] flex items-stretch sm:items-center justify-center bg-black/50 backdrop-blur-sm sm:p-4">
+      <div className="bg-white w-full sm:max-w-3xl shadow-2xl overflow-y-auto overscroll-contain h-[100dvh] sm:max-h-[92vh] sm:rounded-2xl flex flex-col">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+        <div className="flex-shrink-0 flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100">
           <div>
-            <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
-              <span className="size-8 rounded-lg bg-[#137fec]/10 flex items-center justify-center">
+            <h3 className="font-bold text-base sm:text-lg text-slate-800 flex items-center gap-2">
+              <span className="size-8 rounded-lg bg-[#137fec]/10 flex items-center justify-center flex-shrink-0">
                 <Mic size={16} className="text-[#137fec]" />
               </span>
-              AI Clinical Report Generator
+              AI Clinical Report
             </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Select a template, then dictate the consultation — the AI will generate the document
+            <p className="text-xs text-slate-400 mt-0.5 ml-10">
+              Select a template, then dictate the consultation — the AI generates the document
             </p>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 flex-shrink-0">
             <button onClick={() => setMinimized(true)} title="Minimize"
               className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
               <Minimize2 size={18} />
@@ -728,7 +911,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-5">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 sm:py-5 flex flex-col gap-4 sm:gap-5">
 
           {/* ── IDLE / RECORDING / PAUSED ── */}
           {(stage === 'idle' || stage === 'recording' || stage === 'paused') && (
@@ -764,14 +947,22 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
                     {selectedTemplate && (
                       <p className="text-xs text-slate-500 mt-2 leading-relaxed">{selectedTemplate.description}</p>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => window.dispatchEvent(new CustomEvent('smilo:open-node', { detail: { nodeId: 'ai-report-templates' } }))}
+                      className="mt-3 flex items-center gap-1.5 text-xs text-[#137fec] hover:text-blue-700 font-medium transition-colors"
+                    >
+                      <HelpCircle size={13} />
+                      How do I choose the right template?
+                    </button>
                   </div>
 
-                  <div className="bg-slate-50 rounded-xl border border-slate-200 p-4">
-                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Detail Level</p>
+                  <div className="bg-slate-50 rounded-xl border border-slate-200 p-3 sm:p-4">
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 sm:mb-3">Detail Level</p>
                     <div className="flex gap-2">
                       {DETAIL_LEVELS.map(dl => (
                         <button key={dl.key} onClick={() => setDetailLevel(dl.key)}
-                          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                          className={`flex-1 py-2.5 sm:py-2 rounded-lg text-sm font-medium transition-colors border ${
                             detailLevel === dl.key
                               ? 'bg-[#137fec] text-white border-[#137fec]'
                               : 'bg-white text-slate-600 border-slate-200 hover:border-[#137fec] hover:text-[#137fec]'
@@ -807,7 +998,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
                             <p className={`font-semibold text-sm ${autofillEnabled ? 'text-[#137fec]' : 'text-slate-700'}`}>
                               Auto-fill Treatment Page
                             </p>
-                            <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                            <p className="hidden sm:block text-xs text-slate-500 mt-0.5 leading-relaxed">
                               Consultation note, patient advice, and treatment plan entries will be auto-filled from the dictation.
                             </p>
                           </div>
@@ -825,10 +1016,10 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
                   </div>
 
                   <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-                    <p className="text-xs font-bold text-amber-600 uppercase tracking-wider mb-2">Testing — Text Input (skips Sarvam)</p>
+                    <p className="text-xs font-bold text-amber-600 uppercase tracking-wider mb-2">Testing — Text Input (skips AI transcription)</p>
                     <textarea value={textInput} onChange={e => setTextInput(e.target.value)}
                       placeholder="Paste or type the consultation transcript here…"
-                      rows={4}
+                      rows={3}
                       className="w-full text-sm border border-amber-200 rounded-lg p-3 resize-y focus:outline-none focus:ring-2 focus:ring-amber-300 bg-white placeholder:text-amber-300"
                     />
                     <button onClick={processTextInput} disabled={!textInput.trim() || !canRecord}
@@ -842,49 +1033,66 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
                 </div>
               )}
 
-              {/* Waveform display (recording only) */}
+              {/* Hidden audio element for preview playback */}
+              {playbackUrl && (
+                <audio
+                  ref={audioPlaybackRef}
+                  src={playbackUrl}
+                  preload="metadata"
+                  onLoadedMetadata={e => setPlaybackDuration(e.target.duration)}
+                  onTimeUpdate={e => setPlaybackProgress(e.target.currentTime)}
+                  onEnded={() => setIsPlayingBack(false)}
+                  onPause={() => setIsPlayingBack(false)}
+                  onPlay={() => setIsPlayingBack(true)}
+                  style={{ display: 'none' }}
+                />
+              )}
+
+              {/* Waveform + playback preview */}
               {(stage === 'recording' || stage === 'paused') && (
-                <div className="w-full max-w-sm flex flex-col items-center gap-2">
+                <div className="w-full max-w-sm flex flex-col items-center gap-3">
                   <WaveformBar analyserRef={analyserRef} active={stage === 'recording'} />
-                  {stage === 'paused' && (
+
+                  {stage === 'paused' && playbackUrl && (
+                    <div className="w-full bg-amber-50 border border-amber-200 rounded-xl p-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Headphones size={13} className="text-amber-600 flex-shrink-0" />
+                        <p className="text-xs font-semibold text-amber-700">Preview recording</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={togglePlayback}
+                          className="size-9 rounded-full bg-amber-500 hover:bg-amber-600 text-white flex items-center justify-center flex-shrink-0 transition-colors shadow"
+                        >
+                          {isPlayingBack ? <Pause size={15} /> : <Play size={15} />}
+                        </button>
+                        <div className="flex-1 flex flex-col gap-1">
+                          <div
+                            className="h-2 bg-amber-200 rounded-full cursor-pointer relative overflow-hidden"
+                            onClick={seekPlayback}
+                          >
+                            <div
+                              className="h-full bg-amber-500 rounded-full transition-all"
+                              style={{ width: playbackDuration ? `${(playbackProgress / playbackDuration) * 100}%` : '0%' }}
+                            />
+                          </div>
+                          <div className="flex justify-between text-[10px] text-amber-600 font-medium">
+                            <span>{fmtTime(playbackProgress)}</span>
+                            <span>{fmtTime(playbackDuration)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {stage === 'paused' && !playbackUrl && (
                     <p className="text-xs text-amber-600 font-semibold animate-pulse">Recording paused — press Resume to continue</p>
                   )}
                 </div>
               )}
 
-              {/* Playback preview (paused stage only) */}
-              {stage === 'paused' && playbackUrl && (
-                <div className="w-full max-w-sm bg-amber-50 border border-amber-200 rounded-xl p-3">
-                  <p className="text-xs font-semibold text-amber-700 mb-2 flex items-center gap-1.5">
-                    🎧 Preview recording
-                  </p>
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={togglePlayback}
-                      className="flex-shrink-0 size-8 rounded-full bg-amber-500 hover:bg-amber-600 text-white flex items-center justify-center transition-colors"
-                    >
-                      {isPlayingBack ? <Pause size={14} /> : <Play size={14} />}
-                    </button>
-                    {/* Progress bar */}
-                    <div
-                      className="flex-1 h-2 bg-amber-200 rounded-full cursor-pointer relative"
-                      onClick={seekPlayback}
-                    >
-                      <div
-                        className="h-full bg-amber-500 rounded-full transition-all"
-                        style={{ width: playbackDuration ? `${(playbackProgress / playbackDuration) * 100}%` : '0%' }}
-                      />
-                    </div>
-                    <span className="text-xs text-amber-700 font-mono flex-shrink-0">
-                      {fmtTime(playbackProgress)} / {fmtTime(playbackDuration)}
-                    </span>
-                  </div>
-                </div>
-              )}
-
               {/* Mic / Pause / Resume buttons */}
               <div className="flex items-center gap-4">
-                {/* Main mic button */}
                 <button
                   onClick={stage === 'recording' || stage === 'paused' ? stopRecording : startRecording}
                   disabled={stage === 'idle' && !canRecord}
@@ -907,7 +1115,6 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
                     : <Mic    size={36} className="text-white" />}
                 </button>
 
-                {/* Pause / Resume (only while recording/paused) */}
                 {(stage === 'recording' || stage === 'paused') && (
                   <button
                     onClick={stage === 'recording' ? pauseRecording : resumeRecording}
@@ -937,7 +1144,9 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
                     )}
                   </>
                 ) : stage === 'paused' ? (
-                  <p className="text-amber-600 font-semibold text-base">Paused — tap Resume or the mic button (Stop)</p>
+                  <p className="text-amber-600 font-semibold text-base">
+                    Paused — {playbackUrl ? 'listen back above, then ' : ''}tap Resume or Stop (mic button)
+                  </p>
                 ) : (
                   <>
                     <p className="text-red-600 font-semibold text-base animate-pulse">Recording… speak clearly</p>
@@ -956,7 +1165,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
               <Loader2 size={52} className="text-[#137fec] animate-spin" />
               <div className="text-center">
                 <p className="text-slate-700 font-semibold text-base">Transcribing audio…</p>
-                <p className="text-slate-400 text-sm mt-1">Sarvam is processing your dictation. This may take a minute.</p>
+                <p className="text-slate-400 text-sm mt-1">Molaris AI is processing your dictation. This may take a minute.</p>
               </div>
             </div>
           )}
@@ -1005,17 +1214,28 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
           {/* ── GENERATING (streaming) ── */}
           {stage === 'generating' && (
             <div className="flex flex-col gap-4">
-              <div className="flex items-center gap-3 py-4">
-                <Loader2 size={28} className="text-[#137fec] animate-spin flex-shrink-0" />
-                <div>
-                  <p className="text-slate-700 font-semibold text-sm">Generating {selectedTemplate?.name || 'report'}…</p>
-                  <p className="text-slate-400 text-xs mt-0.5">
-                    {autofillEnabled ? 'Will auto-fill treatment page after generation.' : 'Saving to Connect Cloud after generation.'}
-                  </p>
+              <div className="flex items-start justify-between gap-3 py-4">
+                <div className="flex items-center gap-3">
+                  <Loader2 size={28} className="text-[#137fec] animate-spin flex-shrink-0" />
+                  <div>
+                    <p className="text-slate-700 font-semibold text-sm">Generating {selectedTemplate?.name || 'report'}…</p>
+                    <p className="text-slate-400 text-xs mt-0.5">
+                      {autofillEnabled ? 'Will auto-fill treatment page after generation.' : 'Saving to Connect Cloud after generation.'}
+                    </p>
+                  </div>
                 </div>
+                <button
+                  onClick={handleCancelGeneration}
+                  disabled={cancelling}
+                  title="Cancel and go back to edit the transcript"
+                  className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-red-50 hover:border-red-300 hover:text-red-600 transition-colors disabled:opacity-50"
+                >
+                  {cancelling ? <Loader2 size={12} className="animate-spin" /> : <XCircle size={13} />}
+                  Cancel
+                </button>
               </div>
               {streamingText && (
-                <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap font-mono bg-slate-50 rounded-lg p-4 border border-slate-100 overflow-y-auto max-h-[300px]">
+                <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap font-mono bg-slate-50 rounded-lg p-4 border border-slate-100 overflow-y-auto max-h-[30vh] sm:max-h-[300px]">
                   {streamingText}
                   <span className="inline-block w-0.5 h-4 bg-[#137fec] ml-0.5 animate-pulse" />
                 </div>
@@ -1023,29 +1243,40 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
             </div>
           )}
 
-          {/* ── DONE ── */}
-          {stage === 'done' && (
-            <>
-              {transcript && (
-                <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle size={15} className="text-green-600" />
-                      <p className="text-sm font-semibold text-green-700">Transcript</p>
-                    </div>
-                    {jobId && (
-                      <button
-                        onClick={() => { setIsEditingTranscript(false); setEditedTranscript(transcript); setStage('editing'); }}
-                        className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 px-2 py-1 rounded border border-slate-200 hover:bg-slate-50 transition-colors"
-                      >
-                        <RefreshCw size={11} /> Regenerate
-                      </button>
-                    )}
+          {/* ── DONE: success acknowledgement ── */}
+          {stage === 'done' && deliverySucceeded && (
+            <div className="flex flex-col items-center justify-center text-center py-8 gap-4">
+              <div className="size-16 rounded-full bg-green-100 flex items-center justify-center">
+                <CheckCircle size={36} className="text-green-600" />
+              </div>
+              <div>
+                <p className="text-lg font-bold text-slate-800">Report delivered</p>
+                <p className="text-sm text-slate-500 mt-1">Everything you selected was completed successfully.</p>
+              </div>
+              <div className="w-full max-w-sm space-y-2">
+                {Object.entries(deliverResults).map(([channel, r]) => (
+                  <div key={channel} className="flex items-center gap-2 text-sm bg-green-50 text-green-700 px-3 py-2.5 rounded-lg">
+                    <CheckCircle size={15} className="flex-shrink-0" />
+                    <span className="font-semibold">{CHANNEL_LABEL[channel] || channel}</span>
                   </div>
-                  <p className="text-sm text-slate-600 leading-relaxed line-clamp-3">{transcript}</p>
-                </div>
+                ))}
+              </div>
+              {driveLinks[templateId] && (
+                <button onClick={() => openExternal(driveLinks[templateId])}
+                  className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-800 underline underline-offset-2">
+                  <ExternalLink size={12} /> Open the saved file
+                </button>
               )}
+              <button onClick={() => setDeliverResults({})}
+                className="mt-1 text-xs font-semibold text-slate-500 hover:text-slate-700 px-3 py-1.5 rounded border border-slate-200 hover:bg-slate-50">
+                Send to another channel
+              </button>
+            </div>
+          )}
 
+          {/* ── DONE: report + delivery ── */}
+          {stage === 'done' && !deliverySucceeded && (
+            <>
               {driveLinks[templateId] && (
                 <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
                   <p className="text-sm font-semibold mb-2 flex items-center gap-1.5 text-slate-700">
@@ -1091,164 +1322,290 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
                 </div>
               )}
 
+              {/* Report display */}
               <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <FileText size={15} className="text-slate-500" />
-                  <p className="text-sm font-semibold text-slate-700">{selectedTemplate?.name || 'Generated Report'}</p>
-                  {selectedTemplate?.type && (
-                    <span className="text-[11px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">{selectedTemplate.type}</span>
-                  )}
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FileText size={15} className="text-slate-500 flex-shrink-0" />
+                    <p className="text-sm font-semibold text-slate-700 truncate">{selectedTemplate?.name || 'Generated Report'}</p>
+                    {selectedTemplate?.type && (
+                      <span className="text-[11px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full flex-shrink-0">{selectedTemplate.type}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {jobId && (
+                      <button
+                        onClick={() => { setIsEditingTranscript(false); setEditedTranscript(transcript); setStage('editing'); }}
+                        className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 px-2 py-1 rounded border border-slate-200 hover:bg-slate-50 transition-colors"
+                        title="Go back and regenerate from the transcript"
+                      >
+                        <RefreshCw size={11} /> Regenerate
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setIsEditingReport(v => !v)}
+                      className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 px-2 py-1 rounded border border-slate-200 hover:bg-slate-50 transition-colors"
+                    >
+                      <Edit3 size={11} /> {isEditingReport ? 'Done editing' : 'Edit'}
+                    </button>
+                  </div>
                 </div>
-                <ReportDisplay text={reportText} />
+                {isEditingReport ? (
+                  <textarea
+                    autoFocus
+                    value={reportText}
+                    onChange={e => setReportText(e.target.value)}
+                    rows={8}
+                    className="w-full text-sm text-slate-700 leading-relaxed font-mono bg-white rounded-lg p-4 border border-[#137fec]/40 focus:outline-none focus:ring-2 focus:ring-[#137fec] resize-y max-h-[280px]"
+                    placeholder="Edit the report…"
+                  />
+                ) : (
+                  <div onClick={() => setIsEditingReport(true)} className="cursor-text group relative" title="Click to edit">
+                    <ReportDisplay text={reportText} />
+                    <span className="absolute top-2 right-2 text-[10px] font-semibold text-slate-400 bg-white/80 px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 pointer-events-none">
+                      <Edit3 size={10} /> Click to edit
+                    </span>
+                  </div>
+                )}
               </div>
 
-              {/* Share Panel */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-200">
-                  <p className="text-sm font-semibold text-slate-700">Share with Patient</p>
-                  <div className="flex gap-2">
-                    <button onClick={openEmailPanel}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                        showEmailPanel ? 'bg-[#137fec] text-white' : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-100'
-                      }`}>
-                      <Mail size={13} /> Email
-                    </button>
-                    <button onClick={openWaPanel}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                        showWaPanel ? 'bg-green-600 text-white' : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-100'
-                      }`}>
-                      <MessageSquare size={13} /> WhatsApp
-                    </button>
+              {/* Delivery Settings toggle */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowDeliveryPanel(v => !v)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border rounded-lg transition-colors ${
+                    showDeliveryPanel
+                      ? 'bg-slate-100 border-slate-300 text-slate-700'
+                      : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+                  }`}
+                >
+                  <Settings2 size={13} /> Report Delivery Settings
+                </button>
+              </div>
+
+              {/* Delivery Settings panel */}
+              {showDeliveryPanel && deliverySettings && (
+                <div className="border border-slate-200 rounded-xl p-4 space-y-4 bg-slate-50">
+                  <p className="text-sm font-bold text-slate-700 flex items-center gap-1.5"><Settings2 size={14} /> Report Delivery Settings</p>
+
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Default Channels</p>
+                    <div className="flex flex-wrap gap-3">
+                      {[['cloud','Save to Drive'],['email','Email'],['whatsapp','WhatsApp']].map(([key, label]) => (
+                        <label key={key} className="flex items-center gap-2 text-sm cursor-pointer">
+                          <input type="checkbox"
+                            checked={deliverySettings.defaults?.[key] ?? false}
+                            onChange={() => setDeliverySettings(s => ({ ...s, defaults: { ...s.defaults, [key]: !(s.defaults?.[key]) } }))}
+                            className="accent-[#137fec] w-4 h-4" />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
                   </div>
+
+                  <div>
+                    <label className="flex items-center gap-3 cursor-pointer mb-2">
+                      <div onClick={() => setDeliverySettings(s => ({ ...s, pdf: { ...s.pdf, enabled: !s.pdf?.enabled } }))}
+                        className={`relative w-9 h-5 rounded-full transition-colors cursor-pointer ${deliverySettings.pdf?.enabled ? 'bg-[#137fec]' : 'bg-slate-300'}`}>
+                        <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${deliverySettings.pdf?.enabled ? 'left-4' : 'left-0.5'}`} />
+                      </div>
+                      <p className="text-sm font-medium text-slate-700">Branded PDF</p>
+                    </label>
+                    {deliverySettings.pdf?.enabled && (
+                      <div className="space-y-2 ml-1">
+                        {[
+                          ['clinicName','Clinic Name','City Dental Clinic'],
+                          ['clinicTagline','Tagline','Your smile, our care'],
+                          ['clinicAddress','Address','123 Main St, Mumbai'],
+                          ['clinicPhone','Phone','+91 98765 43210'],
+                          ['clinicEmail','Email','clinic@example.com'],
+                        ].map(([field, lbl, ph]) => (
+                          <div key={field}>
+                            <label className="text-xs text-slate-500 block mb-0.5">{lbl}</label>
+                            <input type="text" placeholder={ph}
+                              value={deliverySettings.pdf?.[field] || ''}
+                              onChange={e => setDeliverySettings(s => ({ ...s, pdf: { ...s.pdf, [field]: e.target.value } }))}
+                              className="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-[#137fec] outline-none" />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {deliveryBanner && (
+                    <div className={`text-sm px-3 py-2 rounded-lg ${deliveryBanner.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                      {deliveryBanner.msg}
+                    </div>
+                  )}
+                  <button onClick={handleSaveDeliverySettings} disabled={deliverySaving}
+                    className="px-5 py-2 bg-[#137fec] hover:bg-blue-600 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-60">
+                    {deliverySaving ? 'Saving…' : 'Save Settings'}
+                  </button>
+                </div>
+              )}
+
+              {/* Approve & Send delivery panel */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <div className="px-4 py-3 bg-slate-50 border-b border-slate-200">
+                  <p className="text-sm font-semibold text-slate-700">Approve &amp; Send</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Pick where this report should go, review each message, then approve.</p>
                 </div>
 
-                {sendResult && (
-                  <div className={`px-4 py-2.5 text-sm flex items-center gap-2 ${
-                    sendResult.status === 'ok' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-                  }`}>
-                    {sendResult.status === 'ok' ? <CheckCircle size={14} /> : <XCircle size={14} />}
-                    {sendResult.message}
-                  </div>
-                )}
+                <div className="p-4 space-y-3">
+                  {/* Save to Connect Cloud */}
+                  <label className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors">
+                    <input type="checkbox" checked={deliver.cloud}
+                      onChange={e => setDeliver(d => ({ ...d, cloud: e.target.checked }))}
+                      className="mt-0.5 w-4 h-4 rounded accent-[#137fec] cursor-pointer" />
+                    <Save size={16} className="text-slate-400 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-slate-700">Save to Connect Cloud</p>
+                      {driveLinks[templateId]
+                        ? <button onClick={(e) => { e.preventDefault(); openExternal(driveLinks[templateId]); }}
+                            className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-800 underline underline-offset-2 mt-0.5">
+                            <ExternalLink size={11} /> Already saved — view file
+                          </button>
+                        : <p className="text-xs text-slate-400 mt-0.5">Stores the report in the patient's Drive folder.</p>}
+                    </div>
+                  </label>
 
-                {showEmailPanel && (
-                  <div className="p-4 space-y-3">
-                    <div>
-                      <label className="text-xs font-semibold text-slate-500 block mb-1">To</label>
-                      <input type="email" value={emailForm.to} onChange={e => setEmailForm(f => ({ ...f, to: e.target.value }))}
-                        placeholder="patient@example.com"
-                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#137fec] outline-none" />
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold text-slate-500 block mb-1">Subject</label>
-                      <input type="text" value={emailForm.subject} onChange={e => setEmailForm(f => ({ ...f, subject: e.target.value }))}
-                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#137fec] outline-none" />
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold text-slate-500 block mb-1">Message</label>
-                      <textarea value={emailForm.body} onChange={e => setEmailForm(f => ({ ...f, body: e.target.value }))} rows={3}
-                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#137fec] outline-none resize-none" />
-                    </div>
-                    <p className="text-xs text-slate-400">
-                      Attachment: {selectedTemplate?.name || 'Report'}_{(patient?.first_name || 'patient')}_{new Date().toISOString().slice(0,10)}.pdf
-                    </p>
-                    <div className="flex gap-2">
-                      <button onClick={handleSendEmail} disabled={!emailForm.to.trim() || sending === 'email'}
-                        className="flex items-center gap-1.5 px-4 py-2 bg-[#137fec] hover:bg-blue-600 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-60">
-                        {sending === 'email' ? <Loader2 size={13} className="animate-spin" /> : <Mail size={13} />}
-                        {sending === 'email' ? 'Sending…' : 'Send Email'}
-                      </button>
-                      <button onClick={() => setShowEmailPanel(false)}
-                        className="px-3 py-2 text-xs font-semibold text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors">
-                        Cancel
-                      </button>
-                    </div>
+                  {/* Email to patient */}
+                  <div className="rounded-xl border border-slate-200 overflow-hidden">
+                    <label className="flex items-start gap-3 p-3 cursor-pointer hover:bg-slate-50 transition-colors">
+                      <input type="checkbox" checked={deliver.email}
+                        onChange={e => setDeliver(d => ({ ...d, email: e.target.checked }))}
+                        className="mt-0.5 w-4 h-4 rounded accent-[#137fec] cursor-pointer" />
+                      <Mail size={16} className="text-slate-400 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-slate-700">Email to patient</p>
+                        <p className="text-xs text-slate-400 mt-0.5">PDF attached. Review the message below.</p>
+                      </div>
+                    </label>
+                    {deliver.email && (
+                      <div className="px-4 pb-4 pt-1 space-y-2 bg-slate-50/60 border-t border-slate-100">
+                        <div>
+                          <label className="text-xs font-semibold text-slate-500 block mb-1">To</label>
+                          <input type="email" value={emailForm.to} onChange={e => setEmailForm(f => ({ ...f, to: e.target.value }))}
+                            placeholder="patient@example.com"
+                            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#137fec] outline-none" />
+                        </div>
+                        <div>
+                          <label className="text-xs font-semibold text-slate-500 block mb-1">Subject</label>
+                          <input type="text" value={emailForm.subject} onChange={e => setEmailForm(f => ({ ...f, subject: e.target.value }))}
+                            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#137fec] outline-none" />
+                        </div>
+                        <div>
+                          <label className="text-xs font-semibold text-slate-500 block mb-1">Message</label>
+                          <textarea value={emailForm.body} onChange={e => setEmailForm(f => ({ ...f, body: e.target.value }))} rows={2}
+                            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#137fec] outline-none resize-none" />
+                        </div>
+                        <p className="text-xs text-slate-400">
+                          Attachment: {selectedTemplate?.name || 'Report'}_{(patient?.first_name || 'patient')}_{new Date().toISOString().slice(0,10)}.pdf
+                        </p>
+                      </div>
+                    )}
                   </div>
-                )}
 
-                {showWaPanel && (
-                  <div className="p-4 space-y-3">
-                    <div>
-                      <label className="text-xs font-semibold text-slate-500 block mb-1">To (with country code)</label>
-                      <input type="tel" value={waForm.to} onChange={e => setWaForm(f => ({ ...f, to: e.target.value }))}
-                        placeholder="+919876543210"
-                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#137fec] outline-none" />
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold text-slate-500 block mb-1">Caption</label>
-                      <textarea value={waForm.caption} onChange={e => setWaForm(f => ({ ...f, caption: e.target.value }))} rows={2}
-                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#137fec] outline-none resize-none" />
-                    </div>
-                    <p className="text-xs text-slate-400">
-                      Attachment: {selectedTemplate?.name || 'Report'}_{(patient?.first_name || 'patient')}_{new Date().toISOString().slice(0,10)}.pdf
-                    </p>
-                    <div className="flex gap-2">
-                      <button onClick={handleSendWhatsApp} disabled={!waForm.to.trim() || sending === 'whatsapp'}
-                        className="flex items-center gap-1.5 px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-60">
-                        {sending === 'whatsapp' ? <Loader2 size={13} className="animate-spin" /> : <MessageSquare size={13} />}
-                        {sending === 'whatsapp' ? 'Sending…' : 'Send via WhatsApp'}
-                      </button>
-                      <button onClick={() => setShowWaPanel(false)}
-                        className="px-3 py-2 text-xs font-semibold text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors">
-                        Cancel
-                      </button>
-                    </div>
+                  {/* WhatsApp to patient (text-only) */}
+                  <div className="rounded-xl border border-slate-200 overflow-hidden">
+                    <label className="flex items-start gap-3 p-3 cursor-pointer hover:bg-slate-50 transition-colors">
+                      <input type="checkbox" checked={deliver.whatsapp}
+                        onChange={e => setDeliver(d => ({ ...d, whatsapp: e.target.checked }))}
+                        className="mt-0.5 w-4 h-4 rounded accent-[#137fec] cursor-pointer" />
+                      <MessageSquare size={16} className="text-slate-400 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-slate-700">WhatsApp to patient</p>
+                        <p className="text-xs text-slate-400 mt-0.5">Text notification{driveLinks[templateId] ? ' with the Cloud link' : ''}. Review below.</p>
+                      </div>
+                    </label>
+                    {deliver.whatsapp && (
+                      <div className="px-4 pb-4 pt-1 space-y-2 bg-slate-50/60 border-t border-slate-100">
+                        <div>
+                          <label className="text-xs font-semibold text-slate-500 block mb-1">Phone</label>
+                          <input type="text" value={waForm.to} onChange={e => setWaForm(f => ({ ...f, to: e.target.value }))}
+                            placeholder="+91 98765 43210"
+                            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#137fec] outline-none" />
+                        </div>
+                        <div>
+                          <label className="text-xs font-semibold text-slate-500 block mb-1">Message</label>
+                          <textarea value={waForm.text} onChange={e => setWaForm(f => ({ ...f, text: e.target.value }))} rows={2}
+                            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#137fec] outline-none resize-none" />
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
 
-                {!showEmailPanel && !showWaPanel && !sendResult && (
-                  <div className="px-4 py-3 text-xs text-slate-400 text-center">
-                    Choose a channel above to send the report to the patient.
-                  </div>
-                )}
+                  {/* Per-channel results */}
+                  {Object.keys(deliverResults).length > 0 && (
+                    <div className="space-y-1.5 pt-1">
+                      {Object.entries(deliverResults).map(([channel, r]) => (
+                        <div key={channel} className={`text-sm flex items-center gap-2 px-3 py-2 rounded-lg ${
+                          r.status === 'ok' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+                        }`}>
+                          {r.status === 'ok' ? <CheckCircle size={14} /> : <XCircle size={14} />}
+                          <span className="capitalize font-semibold">{channel === 'cloud' ? 'Cloud' : channel}:</span> {r.message}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </>
           )}
 
-          {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
-              {error}
-            </div>
-          )}
+          {error && <ErrorBadge error={error} />}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50">
-          <p className="text-xs text-slate-400">
+        <div className="flex-shrink-0 flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-t border-slate-100 bg-slate-50">
+          <p className="hidden sm:block text-xs text-slate-400 truncate">
             {stage === 'done'
-              ? 'Scroll down on the treatment page to see the updated sections'
+              ? deliverySucceeded
+                ? 'Report delivered successfully'
+                : 'Tick a channel, then Approve & Send'
               : stage === 'editing'
               ? 'Review or edit the transcript, then click Generate'
               : 'You can minimize this window while recording or processing'}
           </p>
-          <div className="flex gap-3">
-            {stage === 'done' && (
-              <button onClick={resetState}
-                className="px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
-                Record Again
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+            {stage === 'done' && !deliverySucceeded && (
+              <>
+                <button onClick={resetState}
+                  className="px-4 py-2 sm:py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+                  Record Again
+                </button>
+                <button
+                  onClick={handleApproveAndSend}
+                  disabled={delivering || (!deliver.cloud && !deliver.email && !deliver.whatsapp)}
+                  className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-[#137fec] rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {delivering ? <Loader2 size={14} className="animate-spin" /> : <SendHorizonal size={14} />}
+                  {delivering ? 'Sending…' : 'Approve & Send'}
+                </button>
+              </>
+            )}
+            {stage === 'done' && deliverySucceeded && (
+              <>
+                <button onClick={resetState}
+                  className="px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+                  Record Again
+                </button>
+                <button onClick={handleClose}
+                  className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors">
+                  <CheckCircle size={14} /> Done
+                </button>
+              </>
+            )}
+            {stage !== 'done' && (
+              <button onClick={handleClose}
+                className="w-full sm:w-auto px-5 py-2.5 sm:py-2 text-sm font-medium text-white bg-[#137fec] rounded-xl sm:rounded-lg hover:bg-blue-600 transition-colors">
+                Close
               </button>
             )}
-            <button onClick={handleClose}
-              className="px-5 py-2 text-sm font-medium text-white bg-[#137fec] rounded-lg hover:bg-blue-600 transition-colors">
-              {stage === 'done' ? 'Done' : 'Close'}
-            </button>
           </div>
         </div>
 
       </div>
-
-      {/* Hidden audio element for playback preview */}
-      {playbackUrl && (
-        <audio
-          ref={audioPlaybackRef}
-          src={playbackUrl}
-          preload="metadata"
-          onLoadedMetadata={e => setPlaybackDuration(e.target.duration)}
-          onTimeUpdate={e => setPlaybackProgress(e.target.currentTime)}
-          onEnded={() => setIsPlayingBack(false)}
-          style={{ display: 'none' }}
-        />
-      )}
     </div>
   );
 }

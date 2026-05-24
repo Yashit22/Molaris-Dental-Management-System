@@ -1052,13 +1052,73 @@ function Section({ number, title, description, defaultOpen = false, children }) 
 function MobileActionBar({ onConclude, onPrescription, onInvoice, patientId, patient }) {
   const [open, setOpen] = useState(false);
 
+  // Draggable FAB position state
+  const [pos, setPos] = useState(null); // null = default centered position
+  const dragging = React.useRef(false);
+  const dragOffset = React.useRef({ x: 0, y: 0 });
+  const fabRef = React.useRef(null);
+
+  function onPointerDown(e) {
+    // Only start drag on the FAB itself (not during tap-to-toggle)
+    dragging.current = false;
+    const fab = fabRef.current;
+    if (!fab) return;
+    const rect = fab.getBoundingClientRect();
+    dragOffset.current = {
+      x: e.clientX - rect.left - rect.width / 2,
+      y: e.clientY - rect.top  - rect.height / 2,
+    };
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+
+    function onMove(me) {
+      const dx = me.clientX - startX;
+      const dy = me.clientY - startY;
+      if (!dragging.current && Math.hypot(dx, dy) > 8) {
+        dragging.current = true;
+        fab.setPointerCapture(e.pointerId);
+      }
+      if (!dragging.current) return;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const half = 28; // half of 56px button
+      const newX = Math.min(Math.max(me.clientX - dragOffset.current.x, half), vw - half);
+      const newY = Math.min(Math.max(me.clientY - dragOffset.current.y, half), vh - half);
+      setPos({ x: newX, y: newY });
+    }
+
+    function onUp() {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      if (!dragging.current) {
+        // It was a tap, toggle the menu
+        setOpen(o => !o);
+      }
+      dragging.current = false;
+    }
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  }
+
+  // When menu is open and FAB is dragged, close the menu
+  function handleMenuClose() { setOpen(false); }
+
+  const fabStyle = pos
+    ? { position: 'fixed', left: pos.x - 28, top: pos.y - 28, bottom: 'auto', transform: 'none', zIndex: 97 }
+    : {};
+
   return (
     <div className="sm:hidden">
       {open && (
-        <div className="fixed inset-0 z-[95] bg-black/40" onClick={() => setOpen(false)} />
+        <div className="fixed inset-0 z-[95] bg-black/40" onClick={handleMenuClose} />
       )}
       {open && (
-        <div className="fixed bottom-20 left-4 right-4 z-[96] flex flex-col gap-2">
+        <div
+          className="fixed left-4 right-4 z-[96] flex flex-col gap-2"
+          style={pos ? { bottom: window.innerHeight - pos.y + 44 } : { bottom: 84 }}
+        >
           <button
             onClick={() => { onConclude(); setOpen(false); }}
             className="w-full flex items-center gap-2 px-4 py-3 bg-white border-2 border-red-300 text-red-600 font-semibold rounded-xl shadow-lg text-sm"
@@ -1083,8 +1143,10 @@ function MobileActionBar({ onConclude, onPrescription, onInvoice, patientId, pat
         </div>
       )}
       <button
-        onClick={() => setOpen(o => !o)}
-        className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[97] w-14 h-14 rounded-full bg-[#137fec] text-white shadow-xl shadow-blue-400/40 flex items-center justify-center active:scale-95 transition-transform"
+        ref={fabRef}
+        onPointerDown={onPointerDown}
+        style={fabStyle}
+        className={`${pos ? '' : 'fixed bottom-4 left-1/2 -translate-x-1/2'} z-[97] w-14 h-14 rounded-full bg-[#137fec] text-white shadow-xl shadow-blue-400/40 flex items-center justify-center active:scale-95 transition-colors touch-none select-none`}
       >
         {open ? <X size={22} /> : <Plus size={22} />}
       </button>

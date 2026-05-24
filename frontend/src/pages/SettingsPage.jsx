@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Edit2, Trash2, X, Download, Upload, Mail, CheckCircle, XCircle, RefreshCw, Pill, FileSpreadsheet, ExternalLink, Loader2, Calendar, Clock, Globe, Copy, Link2, BookOpen } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Download, Upload, Mail, CheckCircle, XCircle, RefreshCw, Pill, FileSpreadsheet, ExternalLink, Loader2, Calendar, Clock, Globe, Copy, Link2, BookOpen, ChevronDown } from 'lucide-react';
 import API from '../services/api';
-import EmailTemplateEditorModal from '../modals/EmailTemplateEditorModal';
 import AddClinicalDataModal from '../modals/AddClinicalDataModal';
 import SingleClinicalItemModal from '../modals/SingleClinicalItemModal';
 import BulkUploadClinicalModal from '../modals/BulkUploadClinicalModal';
@@ -1007,6 +1006,44 @@ const COMPLETION_DOCS = [
 
 const LANG_LABELS = { en: 'English', hi: 'Hindi', mr: 'Marathi' };
 
+// Frontend-only preset templates — imported into the automation editor
+const EMAIL_PRESETS = {
+  appointmentBooked: [
+    {
+      name: 'Appointment Confirmed (Formal)',
+      subject: 'Your appointment is confirmed — {{date}}',
+      body: 'Dear {{first_name}},\n\nThis is to confirm your appointment with {{doctor}} on {{date}} at {{time}}.\n\nPlease arrive 10 minutes before your scheduled time.\n\nWarm regards,\n{{clinic}}',
+    },
+    {
+      name: 'Appointment Confirmed (Friendly)',
+      subject: "Great, you're booked! See you on {{date}} 😊",
+      body: "Hi {{first_name}},\n\nJust confirming your appointment with {{doctor}} on {{date}} at {{time}}. We're looking forward to seeing you!\n\nAny questions? Just reply to this email.\n\nBest,\n{{clinic}}",
+    },
+    {
+      name: 'Appointment Confirmed (Minimal)',
+      subject: 'Appointment Confirmed',
+      body: 'Dear {{name}},\n\nYour appointment with {{doctor}} on {{date}} at {{time}} has been confirmed.\n\nSee you soon,\n{{clinic}}',
+    },
+  ],
+  appointmentCompleted: [
+    {
+      name: 'Thank You — Standard',
+      subject: 'Thank you for your visit — {{date}}',
+      body: 'Dear {{first_name}},\n\nThank you for visiting us today. Your appointment with {{doctor}} on {{date}} has been completed.\n\nTreatments received: {{treatments}}.\n\nFor any queries, feel free to reach out to us.\n\nWarm regards,\n{{clinic}}',
+    },
+    {
+      name: 'Post-Visit Follow-Up',
+      subject: 'Your visit is complete — follow-up care inside',
+      body: "Hi {{first_name}},\n\nYour appointment with {{doctor}} on {{date}} is now complete.\n\nTreatments completed: {{treatments}}.\n\nPlease follow the post-care instructions from your doctor. If you experience any discomfort, don't hesitate to contact us.\n\nLooking forward to seeing you again!\n\n{{clinic}}",
+    },
+    {
+      name: 'Simple Thank You',
+      subject: 'Visit Complete — {{date}}',
+      body: "Dear {{name}},\n\nThank you for your visit on {{date}} with {{doctor}}. We hope you're feeling great.\n\nWarm regards,\n{{clinic}}",
+    },
+  ],
+};
+
 function EmailTab() {
   const [emailSubTab, setEmailSubTab] = useState('connection');
 
@@ -1018,9 +1055,8 @@ function EmailTab() {
     fromName: '', fromEmail: '', replyTo: '',
     smtp: { host: 'smtp.gmail.com', port: 465, secure: true, user: '', password: '' },
     events: {
-      aiReportReady:     { enabled: false, delayMinutes: 0 },
-      appointmentBooked: { enabled: false, delayMinutes: 0 },
-      invoiceGenerated:  { enabled: false, delayMinutes: 0 },
+      appointmentBooked:    { enabled: false, delayMinutes: 0, subject: '', body: '' },
+      appointmentCompleted: { enabled: false, delayMinutes: 0, subject: '', body: '' },
     },
   });
   const [testEmail, setTestEmail] = useState('');
@@ -1029,10 +1065,8 @@ function EmailTab() {
   const [saveBanner, setSaveBanner] = useState(null); // null | { ok, msg }
   const [showGuide, setShowGuide] = useState(false);
 
-  // Templates state
-  const [templates, setTemplates] = useState([]);
-  const [templateModal, setTemplateModal] = useState(null); // null | template obj | 'new'
-  const [templatesLoading, setTemplatesLoading] = useState(false);
+  // Per-event preset picker: which event has the picker open
+  const [presetPickerOpen, setPresetPickerOpen] = useState(null); // null | 'appointmentBooked' | 'appointmentCompleted'
 
   // Logs state
   const [logs, setLogs] = useState([]);
@@ -1045,7 +1079,6 @@ function EmailTab() {
   }, []);
 
   useEffect(() => {
-    if (emailSubTab === 'templates') fetchTemplates();
     if (emailSubTab === 'logs') fetchLogs();
   }, [emailSubTab]);
 
@@ -1067,15 +1100,22 @@ function EmailTab() {
           user:     res.data.smtp?.user || '',
           password: '', // never pre-fill password
         },
-        events: res.data.events || {
-          aiReportReady:     { enabled: false, delayMinutes: 0 },
-          appointmentBooked: { enabled: false, delayMinutes: 0 },
-          invoiceGenerated:  { enabled: false, delayMinutes: 0 },
+        events: {
+          appointmentBooked:    { enabled: false, delayMinutes: 0, subject: '', body: '', ...(res.data.events?.appointmentBooked    || {}) },
+          appointmentCompleted: { enabled: false, delayMinutes: 0, subject: '', body: '', ...(res.data.events?.appointmentCompleted || {}) },
         },
       });
     } catch (err) {
       console.error('Failed to load email settings:', err);
     }
+  }
+
+  function applyPreset(event, preset) {
+    setSmtpForm(f => ({
+      ...f,
+      events: { ...f.events, [event]: { ...f.events[event], subject: preset.subject, body: preset.body } },
+    }));
+    setPresetPickerOpen(null);
   }
 
   async function saveSettings() {
@@ -1126,33 +1166,6 @@ function EmailTab() {
     }));
   }
 
-  async function fetchTemplates() {
-    setTemplatesLoading(true);
-    try {
-      const res = await API.get('/email/templates');
-      setTemplates(res.data);
-    } catch (err) {
-      console.error('Failed to load email templates:', err);
-    } finally {
-      setTemplatesLoading(false);
-    }
-  }
-
-  async function handleSaveTemplate(form, id) {
-    if (id) {
-      await API.put(`/email/templates/${id}`, form);
-    } else {
-      await API.post('/email/templates', form);
-    }
-    await fetchTemplates();
-  }
-
-  async function handleDeleteTemplate(id) {
-    if (!window.confirm('Delete this template?')) return;
-    await API.delete(`/email/templates/${id}`);
-    setTemplates(ts => ts.filter(t => t._id !== id));
-  }
-
   async function fetchLogs() {
     setLogsLoading(true);
     try {
@@ -1178,7 +1191,7 @@ function EmailTab() {
 
       {/* Sub-tabs — scrollable on mobile */}
       <div className="flex gap-0 mb-6 border-b border-slate-200 dark:border-slate-700 overflow-x-auto scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-0">
-        {['connection', 'automation', 'templates', 'logs'].map(t => (
+        {['connection', 'automation', 'logs'].map(t => (
           <button
             key={t}
             onClick={() => setEmailSubTab(t)}
@@ -1466,165 +1479,169 @@ function EmailTab() {
           {/* Per-event explainer */}
           <div className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-xl p-3 leading-relaxed space-y-1">
             <p className="font-semibold text-slate-600">Per-event settings</p>
-            <p><strong>Toggle</strong> — Turn individual events on or off. For example, you may want to auto-send invoices but not AI reports.</p>
-            <p><strong>Delay (minutes)</strong> — How many minutes after the event to wait before sending. Set to 0 to send immediately. Useful if you want to review before the email goes out.</p>
+            <p><strong>Toggle</strong> — Turn each event on or off independently. Both automations can run at the same time.</p>
+            <p><strong>Delay (minutes)</strong> — How many minutes after the event to wait before sending. Set to 0 to send immediately.</p>
+            <p><strong>Subject & Body</strong> — Use "Choose from templates" to start from a preset, then edit freely. Use <code className="bg-slate-100 px-1 rounded">{'{{variables}}'}</code> to personalise. If left blank, a built-in default is used.</p>
           </div>
 
-          {/* Per-event toggles */}
-          <div className="space-y-4">
-            {Object.keys(EVENT_LABELS).map(event => (
-              <div key={event} className="p-4 border border-slate-200 dark:border-slate-700 rounded-xl space-y-3">
-                {/* Header row */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">{EVENT_LABELS[event]}</p>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      {event === 'appointmentBooked'    && 'Sends a confirmation email when a new appointment is created'}
-                      {event === 'appointmentCompleted' && 'Sends a summary email with selected documents when an appointment is marked Completed'}
-                    </p>
-                  </div>
-                  <div
-                    onClick={() => setSmtpForm(f => ({
-                      ...f,
-                      events: { ...f.events, [event]: { ...f.events[event], enabled: !f.events[event]?.enabled } }
-                    }))}
-                    className={`flex-shrink-0 w-10 h-5 rounded-full relative transition-colors cursor-pointer ${smtpForm.events?.[event]?.enabled ? 'bg-[#137fec]' : 'bg-slate-300 dark:bg-slate-600'}`}
-                  >
-                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${smtpForm.events?.[event]?.enabled ? 'left-5' : 'left-0.5'}`} />
-                  </div>
-                </div>
+          {/* Per-event editors */}
+          <div className="space-y-6">
+            {Object.keys(EVENT_LABELS).map(event => {
+              const evtVars = event === 'appointmentBooked'
+                ? ['{{first_name}}', '{{name}}', '{{doctor}}', '{{date}}', '{{time}}', '{{clinic}}']
+                : ['{{first_name}}', '{{name}}', '{{doctor}}', '{{date}}', '{{treatments}}', '{{clinic}}'];
 
-                {/* Delay */}
-                <div className="flex items-center gap-2">
-                  <label className="text-xs text-slate-500 whitespace-nowrap">Send after (minutes):</label>
-                  <input
-                    type="number" min="0"
-                    value={smtpForm.events?.[event]?.delayMinutes || 0}
-                    onChange={e => setSmtpForm(f => ({
-                      ...f,
-                      events: { ...f.events, [event]: { ...f.events[event], delayMinutes: Number(e.target.value) } }
-                    }))}
-                    className="w-20 px-2 py-1 border border-slate-300 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 focus:ring-2 focus:ring-[#137fec] outline-none"
-                  />
-                  <span className="text-xs text-slate-400">0 = immediately</span>
-                </div>
+              return (
+                <div key={event} className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+                  {/* Header row */}
+                  <div className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-700/50">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">{EVENT_LABELS[event]}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {event === 'appointmentBooked'    && 'Confirmation email sent when a new appointment is created'}
+                        {event === 'appointmentCompleted' && 'Plain-text notification sent when an appointment is marked Completed'}
+                      </p>
+                    </div>
+                    <div
+                      onClick={() => setSmtpForm(f => ({
+                        ...f,
+                        events: { ...f.events, [event]: { ...f.events[event], enabled: !f.events[event]?.enabled } }
+                      }))}
+                      className={`flex-shrink-0 w-10 h-5 rounded-full relative transition-colors cursor-pointer ${smtpForm.events?.[event]?.enabled ? 'bg-[#137fec]' : 'bg-slate-300 dark:bg-slate-600'}`}
+                    >
+                      <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${smtpForm.events?.[event]?.enabled ? 'left-5' : 'left-0.5'}`} />
+                    </div>
+                  </div>
 
-                {/* Document selection — only for appointmentCompleted */}
-                {event === 'appointmentCompleted' && (
-                  <div className="space-y-1.5 pt-1 border-t border-slate-100">
-                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Documents to attach</p>
-                    {COMPLETION_DOCS.map(doc => (
-                      <label key={doc.key} className="flex items-start gap-3 p-2.5 rounded-lg border border-slate-100 hover:bg-slate-50 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={smtpForm.events?.appointmentCompleted?.include?.[doc.key] ?? false}
-                          onChange={() => setSmtpForm(f => ({
-                            ...f,
-                            events: {
-                              ...f.events,
-                              appointmentCompleted: {
-                                ...f.events?.appointmentCompleted,
-                                include: {
-                                  ...f.events?.appointmentCompleted?.include,
-                                  [doc.key]: !f.events?.appointmentCompleted?.include?.[doc.key],
+                  <div className="p-4 space-y-3">
+                    {/* Delay */}
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-slate-500 whitespace-nowrap">Send after (minutes):</label>
+                      <input
+                        type="number" min="0"
+                        value={smtpForm.events?.[event]?.delayMinutes || 0}
+                        onChange={e => setSmtpForm(f => ({
+                          ...f,
+                          events: { ...f.events, [event]: { ...f.events[event], delayMinutes: Number(e.target.value) } }
+                        }))}
+                        className="w-20 px-2 py-1 border border-slate-300 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 focus:ring-2 focus:ring-[#137fec] outline-none"
+                      />
+                      <span className="text-xs text-slate-400">0 = immediately</span>
+                    </div>
+
+                    {/* Choose from templates button (collapsible) */}
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setPresetPickerOpen(presetPickerOpen === event ? null : event)}
+                        className="flex items-center gap-1.5 text-xs font-semibold text-[#137fec] hover:text-blue-700 px-3 py-1.5 border border-blue-200 rounded-lg bg-blue-50 hover:bg-blue-100 transition-colors"
+                      >
+                        <BookOpen size={12} /> Choose from templates
+                        <ChevronDown size={12} className={`transition-transform ${presetPickerOpen === event ? 'rotate-180' : ''}`} />
+                      </button>
+
+                      {presetPickerOpen === event && (
+                        <div className="mt-1.5 border border-slate-200 rounded-xl shadow-lg bg-white dark:bg-slate-800 overflow-hidden z-10 relative">
+                          <p className="px-3 py-2 text-[11px] font-bold text-slate-400 uppercase tracking-wide border-b border-slate-100">
+                            Select a preset — it will fill the subject & body below
+                          </p>
+                          {(EMAIL_PRESETS[event] || []).map((preset, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => applyPreset(event, preset)}
+                              className="w-full text-left px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors border-b border-slate-50 last:border-0"
+                            >
+                              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{preset.name}</p>
+                              <p className="text-xs text-slate-400 truncate mt-0.5">{preset.subject}</p>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Subject */}
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Subject Line</label>
+                      <input
+                        type="text"
+                        value={smtpForm.events?.[event]?.subject || ''}
+                        onChange={e => setSmtpForm(f => ({
+                          ...f,
+                          events: { ...f.events, [event]: { ...f.events[event], subject: e.target.value } }
+                        }))}
+                        placeholder={event === 'appointmentBooked'
+                          ? 'Your appointment is confirmed — {{date}}'
+                          : 'Thank you for your visit — {{date}}'}
+                        className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 focus:ring-2 focus:ring-[#137fec] outline-none"
+                      />
+                    </div>
+
+                    {/* Body */}
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Email Body</label>
+                      <textarea
+                        rows={6}
+                        value={smtpForm.events?.[event]?.body || ''}
+                        onChange={e => setSmtpForm(f => ({
+                          ...f,
+                          events: { ...f.events, [event]: { ...f.events[event], body: e.target.value } }
+                        }))}
+                        placeholder={event === 'appointmentBooked'
+                          ? 'Dear {{first_name}},\n\nYour appointment with {{doctor}} is confirmed for {{date}} at {{time}}.\n\nWarm regards,\n{{clinic}}'
+                          : 'Dear {{first_name}},\n\nThank you for your visit on {{date}} with {{doctor}}.\n\nTreatments: {{treatments}}\n\nWarm regards,\n{{clinic}}'}
+                        className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-mono bg-white dark:bg-slate-800 focus:ring-2 focus:ring-[#137fec] outline-none resize-y"
+                      />
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {evtVars.map(v => (
+                          <code key={v} className="text-[10px] bg-blue-50 text-blue-600 border border-blue-100 px-1.5 py-0.5 rounded font-mono">{v}</code>
+                        ))}
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-1">Click a variable chip above to see what it resolves to. Leave subject/body blank to use the built-in default.</p>
+                    </div>
+
+                  {/* Document selection — only for appointmentCompleted */}
+                  {event === 'appointmentCompleted' && (
+                    <div className="space-y-1.5 pt-1 border-t border-slate-100 dark:border-slate-700">
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Documents to attach</p>
+                      {COMPLETION_DOCS.map(doc => (
+                        <label key={doc.key} className="flex items-start gap-3 p-2.5 rounded-lg border border-slate-100 hover:bg-slate-50 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={smtpForm.events?.appointmentCompleted?.include?.[doc.key] ?? false}
+                            onChange={() => setSmtpForm(f => ({
+                              ...f,
+                              events: {
+                                ...f.events,
+                                appointmentCompleted: {
+                                  ...f.events?.appointmentCompleted,
+                                  include: {
+                                    ...f.events?.appointmentCompleted?.include,
+                                    [doc.key]: !f.events?.appointmentCompleted?.include?.[doc.key],
+                                  },
                                 },
                               },
-                            },
-                          }))}
-                          className="accent-[#137fec] w-4 h-4 mt-0.5 flex-shrink-0"
-                        />
-                        <div>
-                          <p className="text-sm font-medium text-slate-700">{doc.label}</p>
-                          <p className="text-xs text-slate-400">{doc.sub}</p>
-                        </div>
-                      </label>
-                    ))}
-                    <p className="text-xs text-slate-400 pt-1">Only documents that exist for the patient at the time of completion will be attached. If none exist, the email is skipped.</p>
-                  </div>
-                )}
-              </div>
-            ))}
+                            }))}
+                            className="accent-[#137fec] w-4 h-4 mt-0.5 flex-shrink-0"
+                          />
+                          <div>
+                            <p className="text-sm font-medium text-slate-700">{doc.label}</p>
+                            <p className="text-xs text-slate-400">{doc.sub}</p>
+                          </div>
+                        </label>
+                      ))}
+                      <p className="text-xs text-slate-400 pt-1">Only documents that exist for the patient at the time of completion will be attached. If none exist, the email is skipped.</p>
+                    </div>
+                  )}
+                  </div>{/* end p-4 space-y-3 */}
+                </div>{/* end card */}
+              );
+            })}
           </div>
 
           <button onClick={saveSettings} disabled={settingsSaving} className="px-6 py-2.5 bg-[#137fec] hover:bg-blue-600 text-white font-semibold rounded-xl text-sm transition-colors disabled:opacity-60">
             {settingsSaving ? 'Saving...' : 'Save Automation Settings'}
           </button>
-        </div>
-      )}
-
-      {/* ── Templates ── */}
-      {emailSubTab === 'templates' && (
-        <div>
-          <div className="flex justify-between items-center mb-3">
-            <p className="text-sm font-semibold text-slate-700">Email Templates</p>
-            <button onClick={() => setTemplateModal('new')} className="flex items-center gap-2 px-4 py-2 bg-[#137fec] hover:bg-blue-600 text-white font-semibold rounded-xl text-sm transition-colors">
-              <Plus size={16} /> New Template
-            </button>
-          </div>
-
-          {/* Guide card */}
-          <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3 text-xs text-slate-600">
-            <p className="text-sm font-bold text-slate-700">How templates work</p>
-            <p className="leading-relaxed">Templates define the <strong>subject line and body text</strong> of the email. They apply to both automated emails (when an appointment is completed) and the manual <strong>Send Mail</strong> button on the Treatment page. The selected PDF documents (Smart Report, Invoice, etc.) are attached automatically — you only write the message here.</p>
-            <div className="bg-white border border-slate-200 rounded-lg p-3 space-y-2">
-              <p className="font-bold text-slate-700">Available variables — type these in your subject or body:</p>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                {[
-                  ['{{name}}',        'Patient full name (e.g. Rahul Sharma)'],
-                  ['{{first_name}}',  'Patient first name only (e.g. Rahul)'],
-                  ['{{doctor}}',      'Doctor\'s name'],
-                  ['{{date}}',        'Today\'s date (e.g. 12 May 2026)'],
-                  ['{{treatments}}',  'Comma-separated treatment names from the visit'],
-                ].map(([v, d]) => (
-                  <div key={v} className="flex gap-2 items-start">
-                    <code className="bg-blue-50 text-blue-700 border border-blue-100 px-1.5 py-0.5 rounded font-mono text-xs flex-shrink-0">{v}</code>
-                    <span className="text-slate-500">{d}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <p className="text-slate-400">Each event can have one active template per language. If no template is set for an event, a sensible default message is used automatically.</p>
-          </div>
-
-          {templatesLoading ? (
-            <div className="text-center py-8 text-slate-500">Loading...</div>
-          ) : templates.length === 0 ? (
-            <div className="text-center py-12 text-slate-400">No templates yet. Create one to get started.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-slate-50 dark:bg-slate-700">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Event</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Language</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Subject</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">Status</th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 dark:text-slate-300">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                  {templates.map(t => (
-                    <tr key={t._id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                      <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">{EVENT_LABELS[t.event] || t.event}</td>
-                      <td className="px-4 py-3 text-sm text-slate-500">{LANG_LABELS[t.language] || t.language}</td>
-                      <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 max-w-xs truncate">{t.subject}</td>
-                      <td className="px-4 py-3">
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${t.isActive ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-                          {t.isActive ? 'Active' : 'Inactive'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex justify-center gap-2">
-                          <button onClick={() => setTemplateModal(t)} className="p-1.5 text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-600 rounded-lg transition-colors"><Edit2 size={16} /></button>
-                          <button onClick={() => handleDeleteTemplate(t._id)} className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-slate-600 rounded-lg transition-colors"><Trash2 size={16} /></button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
         </div>
       )}
 
@@ -1737,14 +1754,454 @@ function EmailTab() {
         </div>
       )}
 
-      {/* Template editor modal */}
-      {templateModal && (
-        <EmailTemplateEditorModal
-          template={templateModal === 'new' ? null : templateModal}
-          onClose={() => setTemplateModal(null)}
-          onSave={handleSaveTemplate}
-        />
+    </div>
+  );
+}
+
+// ─── PatientDocumentsTab ──────────────────────────────────────────────────────
+function PatientDocumentsTab() {
+  const [docSubTab, setDocSubTab] = useState('invoice');
+  const [showPreview, setShowPreview] = useState(true);
+
+  // Delivery settings state for AI Report / Send Email / Send WhatsApp
+  const [deliverySettings, setDeliverySettings] = useState(null);
+  const [deliverySaving, setDeliverySaving] = useState(false);
+  const [deliveryBanner, setDeliveryBanner] = useState(null);
+
+  useEffect(() => {
+    API.get('/report/delivery-settings')
+      .then(r => setDeliverySettings(r.data))
+      .catch(() => {});
+  }, []);
+
+  async function saveDelivery(patch) {
+    setDeliverySaving(true);
+    setDeliveryBanner(null);
+    try {
+      const current = await API.get('/report/delivery-settings');
+      const merged  = deepMerge(current.data, patch);
+      const { _id, __v, createdAt, updatedAt, ...body } = merged;
+      const res = await API.put('/report/delivery-settings', body);
+      setDeliverySettings(res.data);
+      setDeliveryBanner({ ok: true, msg: 'Saved.' });
+    } catch (err) {
+      setDeliveryBanner({ ok: false, msg: err.response?.data?.error || err.message });
+    } finally {
+      setDeliverySaving(false);
+    }
+  }
+
+  function deepMerge(target, source) {
+    const result = { ...target };
+    for (const key of Object.keys(source)) {
+      if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+        result[key] = deepMerge(target[key] || {}, source[key]);
+      } else {
+        result[key] = source[key];
+      }
+    }
+    return result;
+  }
+
+  const VARS = [
+    { v: '{{patientName}}', d: 'Full name' },
+    { v: '{{firstName}}',   d: 'First name' },
+    { v: '{{doctorName}}',  d: 'Doctor name' },
+    { v: '{{clinicName}}',  d: 'Clinic name' },
+    { v: '{{date}}',        d: "Today's date" },
+    { v: '{{templateName}}',d: 'Report type' },
+  ];
+
+  const DOC_TABS = [
+    { key: 'invoice',      label: 'Invoice' },
+    { key: 'prescription', label: 'Prescription' },
+    { key: 'smartReport',  label: 'Smart Report' },
+    { key: 'aiReport',     label: 'AI Report' },
+    { key: 'sendEmail',    label: 'Send Email' },
+    { key: 'sendWhatsApp', label: 'Send WhatsApp' },
+  ];
+
+  const hidePreviewTabs = ['sendEmail', 'sendWhatsApp'];
+  const showSidebar = showPreview && !hidePreviewTabs.includes(docSubTab);
+
+  const inputCls = 'w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 focus:ring-2 focus:ring-[#137fec] outline-none';
+
+  return (
+    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-4 sm:p-6">
+      <h2 className="text-lg sm:text-2xl font-bold text-slate-800 dark:text-white mb-5 flex items-center gap-2">
+        <Mail size={20} /> Share with Patient
+      </h2>
+
+      {/* Sub-tabs */}
+      <div className="flex gap-0 mb-6 border-b border-slate-200 dark:border-slate-700 overflow-x-auto scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-0">
+        {DOC_TABS.map(t => (
+          <button key={t.key} onClick={() => setDocSubTab(t.key)}
+            className={`flex-shrink-0 px-3 sm:px-4 py-2.5 text-sm font-semibold capitalize transition-all whitespace-nowrap ${
+              docSubTab === t.key
+                ? 'text-[#137fec] border-b-2 border-[#137fec]'
+                : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Mobile preview toggle */}
+      {!hidePreviewTabs.includes(docSubTab) && (
+        <div className="lg:hidden mb-4 flex justify-end">
+          <button onClick={() => setShowPreview(v => !v)}
+            className="text-xs border border-slate-200 rounded-lg px-3 py-1.5 text-slate-600 font-medium">
+            {showPreview ? 'Hide Preview' : 'Show Preview'}
+          </button>
+        </div>
       )}
+
+      {/* Two-column layout */}
+      <div className={`flex gap-6 ${showSidebar ? 'lg:flex-row flex-col' : ''}`}>
+        {/* Settings panel */}
+        <div className="flex-1 min-w-0">
+
+          {/* ── Invoice ── */}
+          {docSubTab === 'invoice' && <InvoiceSettingsTab embedded />}
+
+          {/* ── Prescription ── */}
+          {docSubTab === 'prescription' && <PrescriptionSettingsTab embedded />}
+
+          {/* ── Smart Report ── */}
+          {docSubTab === 'smartReport' && (
+            <div className="space-y-4">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                <p className="text-sm font-bold text-slate-700 mb-1">Smart Report</p>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  The Smart Report is a PDF generated from the patient's visit — treatments, prescriptions, consultation notes and advice. It is created automatically when you mark an appointment as Completed and use <strong>Send Mail</strong> from the Treatment page.
+                </p>
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                <p className="text-xs font-semibold text-blue-700 mb-1">How to send</p>
+                <p className="text-xs text-blue-600 leading-relaxed">On the Treatment page, click the <strong>Send Mail</strong> button → check <em>Smart Report</em> → enter the patient's email → Send. You can also include it in automated appointment completed emails via Settings → Email → Automation.</p>
+              </div>
+            </div>
+          )}
+
+          {/* ── AI Report ── */}
+          {docSubTab === 'aiReport' && deliverySettings && (
+            <div className="space-y-5">
+              <div>
+                <p className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-3">Default Delivery Channels</p>
+                <p className="text-xs text-slate-500 mb-3">When the AI Report modal opens, these channels will be pre-ticked for the doctor.</p>
+                <div className="space-y-2">
+                  {[
+                    { key: 'cloud',    label: 'Save to Connect Cloud', sub: 'Saves to patient\'s Google Drive folder' },
+                    { key: 'email',    label: 'Send via Email',         sub: 'Emails the report to the patient' },
+                    { key: 'whatsapp', label: 'Send via WhatsApp',      sub: 'Sends a WhatsApp notification (text only)' },
+                  ].map(ch => (
+                    <label key={ch.key} className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                      <input type="checkbox"
+                        checked={deliverySettings.defaults?.[ch.key] ?? false}
+                        onChange={() => setDeliverySettings(s => ({
+                          ...s,
+                          defaults: { ...s.defaults, [ch.key]: !(s.defaults?.[ch.key]) }
+                        }))}
+                        className="accent-[#137fec] w-4 h-4 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium text-slate-700">{ch.label}</p>
+                        <p className="text-xs text-slate-400">{ch.sub}</p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="border-t border-slate-200 pt-4">
+                <div className="flex items-center gap-3 mb-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <div
+                      onClick={() => setDeliverySettings(s => ({ ...s, pdf: { ...s.pdf, enabled: !s.pdf?.enabled } }))}
+                      className={`relative w-10 h-5 rounded-full transition-colors cursor-pointer ${deliverySettings.pdf?.enabled ? 'bg-[#137fec]' : 'bg-slate-300'}`}>
+                      <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${deliverySettings.pdf?.enabled ? 'left-5' : 'left-0.5'}`} />
+                    </div>
+                    <p className="text-sm font-bold text-slate-700">Branded PDF</p>
+                  </label>
+                </div>
+                {deliverySettings.pdf?.enabled && (
+                  <div className="space-y-3">
+                    <p className="text-xs text-slate-500">Clinic branding fields below will appear in the generated PDF header and footer.</p>
+                    {[
+                      { field: 'clinicName',    label: 'Clinic Name',    placeholder: 'City Dental Clinic' },
+                      { field: 'clinicTagline', label: 'Tagline',        placeholder: 'Your smile, our care' },
+                      { field: 'clinicAddress', label: 'Address',        placeholder: '123 Main St, Mumbai' },
+                      { field: 'clinicPhone',   label: 'Phone',          placeholder: '+91 98765 43210' },
+                      { field: 'clinicEmail',   label: 'Email',          placeholder: 'clinic@example.com' },
+                    ].map(({ field, label, placeholder }) => (
+                      <div key={field}>
+                        <label className="text-xs text-slate-500 block mb-1">{label}</label>
+                        <input type="text" placeholder={placeholder}
+                          value={deliverySettings.pdf?.[field] || ''}
+                          onChange={e => setDeliverySettings(s => ({ ...s, pdf: { ...s.pdf, [field]: e.target.value } }))}
+                          className={inputCls} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {deliveryBanner && (
+                <div className={`text-sm px-4 py-2 rounded-lg ${deliveryBanner.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                  {deliveryBanner.msg}
+                </div>
+              )}
+              <button onClick={() => saveDelivery(deliverySettings)} disabled={deliverySaving}
+                className="px-6 py-2.5 bg-[#137fec] hover:bg-blue-600 text-white font-semibold rounded-xl text-sm transition-colors disabled:opacity-60">
+                {deliverySaving ? 'Saving…' : 'Save AI Report Settings'}
+              </button>
+            </div>
+          )}
+
+          {/* ── Send Email ── */}
+          {docSubTab === 'sendEmail' && deliverySettings && (
+            <div className="space-y-4 max-w-lg">
+              <p className="text-xs text-slate-500 leading-relaxed">Configure the email template used when sending AI Reports to patients. Use the variables below in your subject and body.</p>
+
+              {/* Variable palette */}
+              <div className="flex flex-wrap gap-1.5">
+                {VARS.map(({ v, d }) => (
+                  <button key={v} title={d}
+                    onClick={() => {
+                      const ta = document.getElementById('aiEmailBody');
+                      if (!ta) return;
+                      const start = ta.selectionStart; const end = ta.selectionEnd;
+                      const current = deliverySettings.email?.body || '';
+                      const next = current.slice(0, start) + v + current.slice(end);
+                      setDeliverySettings(s => ({ ...s, email: { ...s.email, body: next } }));
+                    }}
+                    className="text-[11px] bg-blue-50 text-blue-700 border border-blue-100 rounded px-2 py-0.5 font-mono hover:bg-blue-100 transition-colors">
+                    {v}
+                  </button>
+                ))}
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-500 block mb-1">Subject</label>
+                <input type="text"
+                  value={deliverySettings.email?.subject || ''}
+                  onChange={e => setDeliverySettings(s => ({ ...s, email: { ...s.email, subject: e.target.value } }))}
+                  placeholder="Your visit summary — {{date}}"
+                  className={inputCls} />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 block mb-1">Body</label>
+                <textarea id="aiEmailBody" rows={6}
+                  value={deliverySettings.email?.body || ''}
+                  onChange={e => setDeliverySettings(s => ({ ...s, email: { ...s.email, body: e.target.value } }))}
+                  placeholder="Hi {{patientName}}, please find your {{templateName}} from {{doctorName}} attached…"
+                  className={`${inputCls} resize-y`} />
+              </div>
+
+              <label className="flex items-center gap-3 cursor-pointer">
+                <div
+                  onClick={() => setDeliverySettings(s => ({ ...s, htmlEmail: { ...s.htmlEmail, enabled: !s.htmlEmail?.enabled } }))}
+                  className={`relative w-10 h-5 rounded-full transition-colors cursor-pointer ${deliverySettings.htmlEmail?.enabled ? 'bg-[#137fec]' : 'bg-slate-300'}`}>
+                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${deliverySettings.htmlEmail?.enabled ? 'left-5' : 'left-0.5'}`} />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-700">Rich HTML Email</p>
+                  <p className="text-xs text-slate-400">Wrap the body in a branded HTML email layout with clinic branding</p>
+                </div>
+              </label>
+
+              {/* Inline preview */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                <p className="text-xs font-bold text-slate-500 mb-2">Preview (with sample data)</p>
+                <p className="text-xs font-semibold text-slate-600 mb-1">Subject: {(deliverySettings.email?.subject || '').replace(/\{\{patientName\}\}/g,'Priya Sharma').replace(/\{\{firstName\}\}/g,'Priya').replace(/\{\{doctorName\}\}/g,'Dr. Rajan').replace(/\{\{clinicName\}\}/g,'City Dental').replace(/\{\{date\}\}/g,new Date().toLocaleDateString('en-GB', {day:'numeric',month:'long',year:'numeric'})).replace(/\{\{templateName\}\}/g,'Clinical Report') || '(empty)'}</p>
+                <p className="text-xs text-slate-500 whitespace-pre-wrap leading-relaxed">{(deliverySettings.email?.body || '').replace(/\{\{patientName\}\}/g,'Priya Sharma').replace(/\{\{firstName\}\}/g,'Priya').replace(/\{\{doctorName\}\}/g,'Dr. Rajan').replace(/\{\{clinicName\}\}/g,'City Dental').replace(/\{\{date\}\}/g,new Date().toLocaleDateString('en-GB', {day:'numeric',month:'long',year:'numeric'})).replace(/\{\{templateName\}\}/g,'Clinical Report') || '(empty)'}</p>
+              </div>
+
+              {deliveryBanner && (
+                <div className={`text-sm px-4 py-2 rounded-lg ${deliveryBanner.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                  {deliveryBanner.msg}
+                </div>
+              )}
+              <button onClick={() => saveDelivery({ email: deliverySettings.email, htmlEmail: deliverySettings.htmlEmail })} disabled={deliverySaving}
+                className="px-6 py-2.5 bg-[#137fec] hover:bg-blue-600 text-white font-semibold rounded-xl text-sm transition-colors disabled:opacity-60">
+                {deliverySaving ? 'Saving…' : 'Save Email Template'}
+              </button>
+            </div>
+          )}
+
+          {/* ── Send WhatsApp ── */}
+          {docSubTab === 'sendWhatsApp' && deliverySettings && (
+            <div className="space-y-4 max-w-lg">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                <p className="text-xs text-amber-700 leading-relaxed"><strong>Note:</strong> WhatsApp reports send a text-only message with a link to the patient. File attachments via WhatsApp are not supported in this version.</p>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed">Configure the WhatsApp message sent when sharing an AI Report with a patient.</p>
+
+              {/* Variable palette */}
+              <div className="flex flex-wrap gap-1.5">
+                {VARS.map(({ v, d }) => (
+                  <button key={v} title={d}
+                    onClick={() => {
+                      const current = deliverySettings.whatsapp?.text || '';
+                      setDeliverySettings(s => ({ ...s, whatsapp: { ...s.whatsapp, text: current + v } }));
+                    }}
+                    className="text-[11px] bg-blue-50 text-blue-700 border border-blue-100 rounded px-2 py-0.5 font-mono hover:bg-blue-100 transition-colors">
+                    {v}
+                  </button>
+                ))}
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-500 block mb-1">Message</label>
+                <textarea rows={5}
+                  value={deliverySettings.whatsapp?.text || ''}
+                  onChange={e => setDeliverySettings(s => ({ ...s, whatsapp: { ...s.whatsapp, text: e.target.value } }))}
+                  placeholder="Hi {{patientName}}, please find your {{templateName}} from {{doctorName}} at {{clinicName}}…"
+                  className={`${inputCls} resize-y`} />
+              </div>
+
+              {/* Inline preview */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                <p className="text-xs font-bold text-slate-500 mb-2">Preview (with sample data)</p>
+                <div className="bg-[#dcf8c6] rounded-xl rounded-bl-none p-3 max-w-xs">
+                  <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">
+                    {(deliverySettings.whatsapp?.text || '').replace(/\{\{patientName\}\}/g,'Priya Sharma').replace(/\{\{firstName\}\}/g,'Priya').replace(/\{\{doctorName\}\}/g,'Dr. Rajan').replace(/\{\{clinicName\}\}/g,'City Dental').replace(/\{\{date\}\}/g,new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})).replace(/\{\{templateName\}\}/g,'Clinical Report') || '(empty)'}
+                  </p>
+                </div>
+              </div>
+
+              {deliveryBanner && (
+                <div className={`text-sm px-4 py-2 rounded-lg ${deliveryBanner.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                  {deliveryBanner.msg}
+                </div>
+              )}
+              <button onClick={() => saveDelivery({ whatsapp: deliverySettings.whatsapp })} disabled={deliverySaving}
+                className="px-6 py-2.5 bg-[#137fec] hover:bg-blue-600 text-white font-semibold rounded-xl text-sm transition-colors disabled:opacity-60">
+                {deliverySaving ? 'Saving…' : 'Save WhatsApp Template'}
+              </button>
+            </div>
+          )}
+
+        </div>
+
+        {/* Sidebar preview */}
+        {showSidebar && (
+          <div className="lg:w-72 flex-shrink-0">
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Document Preview</p>
+
+            {/* Invoice preview */}
+            {docSubTab === 'invoice' && (
+              <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden" style={{ maxHeight: 420, overflowY: 'auto', scrollbarWidth: 'none' }}>
+                <div className="bg-gradient-to-r from-[#1d6fe8] to-[#137fec] px-4 py-3">
+                  <p className="text-white font-bold text-sm">City Dental Clinic</p>
+                  <p className="text-blue-100 text-xs">Your smile, our care</p>
+                </div>
+                <div className="p-4">
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <p className="text-xs text-slate-500">Invoice #</p>
+                      <p className="font-bold text-slate-800 text-sm">INV-2025-042</p>
+                    </div>
+                    <span className="bg-green-100 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded-full">PAID</span>
+                  </div>
+                  <p className="text-xs text-slate-500 mb-1">Patient: <span className="text-slate-700 font-medium">Priya Sharma</span></p>
+                  <p className="text-xs text-slate-500 mb-3">Date: <span className="text-slate-700">{new Date().toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}</span></p>
+                  <table className="w-full text-xs mb-3">
+                    <thead><tr className="border-b border-slate-200"><th className="text-left py-1 text-slate-500">Item</th><th className="text-right py-1 text-slate-500">Qty</th><th className="text-right py-1 text-slate-500">Total</th></tr></thead>
+                    <tbody>
+                      <tr className="border-b border-slate-100"><td className="py-1 text-slate-700">Root Canal</td><td className="text-right py-1 text-slate-600">1</td><td className="text-right py-1 font-medium">₹3,500</td></tr>
+                      <tr><td className="py-1 text-slate-700">X-Ray</td><td className="text-right py-1 text-slate-600">2</td><td className="text-right py-1 font-medium">₹600</td></tr>
+                    </tbody>
+                  </table>
+                  <div className="text-right space-y-0.5">
+                    <p className="text-xs text-slate-500">Subtotal: <span className="font-medium text-slate-700">₹4,100</span></p>
+                    <p className="text-xs font-bold text-slate-800">Total: ₹4,100</p>
+                    <p className="text-xs text-green-600 font-semibold">Paid: ₹4,100</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Prescription preview */}
+            {docSubTab === 'prescription' && (
+              <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden" style={{ maxHeight: 420, overflowY: 'auto', scrollbarWidth: 'none' }}>
+                <div className="bg-gradient-to-r from-[#1d6fe8] to-[#137fec] px-4 py-3">
+                  <p className="text-white font-bold text-sm">City Dental Clinic</p>
+                </div>
+                <div className="p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-3xl font-serif text-slate-700">℞</span>
+                    <div>
+                      <p className="text-xs text-slate-500">Patient: <span className="font-medium text-slate-700">Priya Sharma</span></p>
+                      <p className="text-xs text-slate-500">Doctor: <span className="font-medium text-slate-700">Dr. Rajan</span></p>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    {[
+                      { drug: 'Amoxicillin 500mg', dosage: '1 tablet', freq: 'TID × 5 days' },
+                      { drug: 'Ibuprofen 400mg',   dosage: '1 tablet', freq: 'BD × 3 days' },
+                    ].map((rx, i) => (
+                      <div key={i} className="bg-slate-50 rounded-lg p-2 text-xs">
+                        <p className="font-semibold text-slate-700">{rx.drug}</p>
+                        <p className="text-slate-500">{rx.dosage} · {rx.freq}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Smart Report preview */}
+            {docSubTab === 'smartReport' && (
+              <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden" style={{ maxHeight: 420, overflowY: 'auto', scrollbarWidth: 'none' }}>
+                <div className="bg-gradient-to-r from-[#1d6fe8] to-[#137fec] px-4 py-3">
+                  <p className="text-white font-bold text-sm">Visit Summary</p>
+                  <p className="text-blue-100 text-xs">City Dental Clinic</p>
+                </div>
+                <div className="p-4 space-y-3">
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {[['Patient','Priya Sharma'],['Doctor','Dr. Rajan'],['Date',new Date().toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})],['Type','Follow-up']].map(([k,v]) => (
+                      <div key={k} className="bg-slate-50 rounded p-2"><p className="text-slate-400">{k}</p><p className="font-semibold text-slate-700">{v}</p></div>
+                    ))}
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-[#137fec] mb-1">Treatments</p>
+                    <div className="space-y-1">
+                      {['Root Canal — Tooth 36','X-Ray — Periapical'].map(t => (
+                        <div key={t} className="flex items-center gap-2 text-xs text-slate-600 bg-slate-50 px-2 py-1.5 rounded">
+                          <span className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0" />{t}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-[#137fec] mb-1">Prescription</p>
+                    <p className="text-xs text-slate-600 bg-slate-50 px-2 py-1.5 rounded">Amoxicillin 500mg TID × 5 days</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* AI Report preview */}
+            {docSubTab === 'aiReport' && (
+              <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden" style={{ maxHeight: 420, overflowY: 'auto', scrollbarWidth: 'none' }}>
+                <div className="bg-gradient-to-r from-[#1d6fe8] to-[#137fec] px-4 py-3">
+                  <p className="text-white font-bold text-sm">{deliverySettings?.pdf?.clinicName || 'City Dental Clinic'}</p>
+                  {deliverySettings?.pdf?.clinicTagline && <p className="text-blue-100 text-xs">{deliverySettings.pdf.clinicTagline}</p>}
+                  <p className="text-blue-200 text-[10px] mt-1">Generated by Molaris AI</p>
+                </div>
+                <div className="p-4 space-y-3 text-xs">
+                  <div className="bg-slate-50 rounded-lg p-3 grid grid-cols-2 gap-2">
+                    {[['Patient','Priya Sharma'],['Type','Clinical Report'],['Doctor','Dr. Rajan'],['Date',new Date().toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})]].map(([k,v]) => (
+                      <div key={k}><p className="text-slate-400">{k}</p><p className="font-semibold text-slate-700">{v}</p></div>
+                    ))}
+                  </div>
+                  <p className="text-slate-600 leading-relaxed">Patient presented with chief complaint of pain in lower left quadrant for 3 days. Clinical examination revealed carious lesion on tooth 36 with pulpal involvement…</p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -2108,14 +2565,15 @@ const SettingsPage = () => {
         {/* Tabs — horizontally scrollable on mobile */}
         <div className="flex gap-0 mb-6 border-b border-slate-200 dark:border-slate-700 overflow-x-auto scrollbar-none -mx-3 px-3 sm:mx-0 sm:px-0">
           {[
-            { key: 'doctors',        label: 'Doctors' },
-            { key: 'treatment',      label: 'Clinical Data' },
-            { key: 'inventory',      label: 'Inventory' },
-            { key: 'email',          label: 'Email' },
-            { key: 'booking',        label: 'Online Booking' },
-            { key: 'doctorSchedules',label: 'Doctor Schedules' },
-            { key: 'invoice',        label: 'Invoice' },
-            { key: 'prescription',   label: 'Prescription' },
+            { key: 'doctors',           label: 'Doctors' },
+            { key: 'treatment',         label: 'Clinical Data' },
+            { key: 'inventory',         label: 'Inventory' },
+            { key: 'email',             label: 'Email' },
+            { key: 'shareWithPatient',  label: 'Share with Patient' },
+            { key: 'booking',           label: 'Online Booking' },
+            { key: 'doctorSchedules',   label: 'Doctor Schedules' },
+            { key: 'invoice',           label: 'Invoice' },
+            { key: 'prescription',      label: 'Prescription' },
           ].map(({ key, label }) => (
             <button
               key={key}
@@ -2467,6 +2925,9 @@ const SettingsPage = () => {
 
         {/* Email Tab */}
         {activeTab === 'email' && <EmailTab />}
+
+        {/* Share with Patient Tab */}
+        {activeTab === 'shareWithPatient' && <PatientDocumentsTab />}
 
         {/* ── Online Booking Tab ────────────────────────────────────────────── */}
         {activeTab === 'booking' && (() => {

@@ -1,5 +1,5 @@
 import express from 'express';
-import { uploadMiddleware, generateReport, listTemplates, transcribeAudio, getJobStatus, editTranscript } from '../controllers/report.controller.js';
+import { uploadMiddleware, generateReport, listTemplates, transcribeAudio, getJobStatus, editTranscript, cancelGeneration, saveReportToDrive, getReportDeliverySettings, saveReportDeliverySettings } from '../controllers/report.controller.js';
 
 const router = express.Router();
 
@@ -19,5 +19,10 @@ function maybeUpload(req, res, next) {
   }
 }
 router.post('/generate', maybeUpload, generateReport);
+
+router.get('/delivery-settings',          getReportDeliverySettings);
+router.put('/delivery-settings',          saveReportDeliverySettings);
+router.patch('/jobs/:jobId/cancel',       cancelGeneration);
+router.post('/jobs/:jobId/save-to-drive', saveReportToDrive);
 
 export default router;

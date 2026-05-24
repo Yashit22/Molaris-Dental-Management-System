@@ -3,10 +3,6 @@ import {
   getSettings,
   updateSettings,
   testSend,
-  getTemplates,
-  createTemplate,
-  updateTemplate,
-  deleteTemplate,
   sendReportEmail,
   getPatientEmailStatus,
   sendTreatmentSummary,
@@ -19,12 +15,6 @@ const router = express.Router();
 router.get('/settings', getSettings);
 router.put('/settings', updateSettings);
 router.post('/test', testSend);
-
-// Templates
-router.get('/templates', getTemplates);
-router.post('/templates', createTemplate);
-router.put('/templates/:id', updateTemplate);
-router.delete('/templates/:id', deleteTemplate);
 
 // Send (must register specific paths before /:id wildcards)
 router.get('/patient-status/:patientId', getPatientEmailStatus);

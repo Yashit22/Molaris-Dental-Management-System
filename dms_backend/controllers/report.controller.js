@@ -5,9 +5,50 @@ import {
   createSubfolder,
 } from '../services/googleDrive.service.js';
 import { TEMPLATES, getTemplateById } from '../config/templates.config.js';
+import { generateReportPdf } from '../services/reportPdf.service.js';
 
 const upload = multer({ storage: multer.memoryStorage() });
 export const uploadMiddleware = upload.single('file');
+
+// ─── Structured error classification ───────────────────────────────────────────
+function classifyError(err, source) {
+  const raw = err?.message || String(err);
+
+  if (source === 'sarvam') {
+    if (/401|403|Unauthorized|Forbidden|api.subscription.key/i.test(raw))
+      return { source, code: 'auth',       userMessage: 'Transcription failed — invalid API key.',              detail: raw };
+    if (/429|rate.limit|quota/i.test(raw))
+      return { source, code: 'rate_limit', userMessage: 'Transcription failed — rate limit reached. Try again shortly.', detail: raw };
+    if (/timed out|timeout|10 min/i.test(raw))
+      return { source, code: 'timeout',    userMessage: 'Transcription timed out — the audio may be too long.',  detail: raw };
+    if (/empty|no transcript/i.test(raw))
+      return { source, code: 'empty',      userMessage: 'Transcription returned no text. Check audio quality and try again.', detail: raw };
+    if (/5\d\d|server error/i.test(raw))
+      return { source, code: 'server',     userMessage: 'Transcription service is temporarily unavailable. Try again later.', detail: raw };
+    return { source, code: 'unknown',      userMessage: 'Transcription service error. Please try again.',       detail: raw };
+  }
+
+  if (source === 'nvidia') {
+    if (/401|403|Unauthorized|Forbidden|Bearer/i.test(raw))
+      return { source, code: 'auth',       userMessage: 'Report generation failed — invalid API key.',          detail: raw };
+    if (/429|rate.limit|quota/i.test(raw))
+      return { source, code: 'rate_limit', userMessage: 'Report generation failed — rate limit reached. Try again shortly.', detail: raw };
+    if (/timed out|timeout|210/i.test(raw))
+      return { source, code: 'timeout',    userMessage: 'Report generation timed out. Try again or use a shorter recording.', detail: raw };
+    if (/not configured/i.test(raw))
+      return { source, code: 'config',     userMessage: 'AI API key is not configured. Add it in Settings → API Keys.', detail: raw };
+    if (/5\d\d|server error|upstream/i.test(raw))
+      return { source, code: 'server',     userMessage: 'AI service is temporarily unavailable. Try again later.', detail: raw };
+    return { source, code: 'unknown',      userMessage: 'AI report generation failed. Please try again.',       detail: raw };
+  }
+
+  return { source: 'unknown', code: 'unknown', userMessage: raw, detail: raw };
+}
+
+// Serialize a classified error for SSE / job storage transport.
+function serializeError(classified) {
+  return JSON.stringify(classified);
+}
 
 // ─── In-memory audio buffer store (keyed by jobId, TTL ~1h) ───────────────────
 // We can't persist audio to MongoDB (too large). Buffer lives in memory between
@@ -377,7 +418,8 @@ export async function transcribeAudio(req, res) {
       } catch (err) {
         console.error('[Report] Sarvam error:', err.message);
         audioBuffers.delete(String(job._id));
-        await ReportJob.findByIdAndUpdate(job._id, { status: 'failed', errorMessage: err.message });
+        const classified = classifyError(err, 'sarvam');
+        await ReportJob.findByIdAndUpdate(job._id, { status: 'failed', errorMessage: serializeError(classified) });
       }
     })();
 
@@ -511,8 +553,9 @@ export async function generateReport(req, res) {
           reports[template.id] = reportText;
           res.write(`data: ${JSON.stringify({ completed: template.id })}\n\n`);
         } catch (err) {
-          res.write(`data: ${JSON.stringify({ error: `Failed to generate ${template.name}: ${err.message}` })}\n\n`);
-          await ReportJob.findByIdAndUpdate(jobId, { status: 'failed', errorMessage: err.message });
+          const classified = classifyError(err, 'nvidia');
+          res.write(`data: ${JSON.stringify({ error: serializeError(classified) })}\n\n`);
+          await ReportJob.findByIdAndUpdate(jobId, { status: 'failed', errorMessage: serializeError(classified) });
           res.end();
           return;
         }
@@ -632,7 +675,8 @@ export async function generateReport(req, res) {
         reports[template.id] = reportText;
         res.write(`data: ${JSON.stringify({ completed: template.id })}\n\n`);
       } catch (err) {
-        res.write(`data: ${JSON.stringify({ error: `Failed to generate ${template.name}: ${err.message}` })}\n\n`);
+        const classified = classifyError(err, 'nvidia');
+        res.write(`data: ${JSON.stringify({ error: serializeError(classified) })}\n\n`);
         res.end();
         return;
       }
@@ -690,5 +734,116 @@ export async function generateReport(req, res) {
       res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
       res.end();
     }
+  }
+}
+
+// ─── PDF upload helper ─────────────────────────────────────────────────────────
+async function uploadPdfToDrive(credentials, folderId, pdfBuffer, filename) {
+  return uploadFileToDrive(credentials, folderId, pdfBuffer, filename, 'application/pdf');
+}
+
+// ─── Delivery settings helper ──────────────────────────────────────────────────
+async function fetchDeliverySettings(tenantModels) {
+  const { ReportDeliverySettings } = tenantModels;
+  let s = await ReportDeliverySettings.findOne();
+  if (!s) s = await ReportDeliverySettings.create({});
+  return s;
+}
+
+// ─── PATCH /api/report/jobs/:jobId/cancel ──────────────────────────────────────
+export async function cancelGeneration(req, res) {
+  const { ReportJob } = req.tenantModels;
+  try {
+    const { jobId } = req.params;
+    const job = await ReportJob.findOneAndUpdate(
+      { _id: jobId, status: { $in: ['generating', 'pending', 'transcribing'] } },
+      { $set: { status: 'transcribed', generatingStartedAt: null } },
+      { new: true },
+    );
+    if (!job) {
+      const existing = await ReportJob.findById(jobId).select('status');
+      if (!existing) return res.status(404).json({ error: 'Job not found' });
+      return res.json({ status: existing.status, message: 'Nothing to cancel' });
+    }
+    res.json({ status: 'transcribed', message: 'Generation cancelled. Ready to retry.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ─── GET /api/report/delivery-settings ────────────────────────────────────────
+export async function getReportDeliverySettings(req, res) {
+  try {
+    const { ReportDeliverySettings } = req.tenantModels;
+    let settings = await ReportDeliverySettings.findOne();
+    if (!settings) settings = await ReportDeliverySettings.create({});
+    res.json(settings);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ─── PUT /api/report/delivery-settings ────────────────────────────────────────
+export async function saveReportDeliverySettings(req, res) {
+  try {
+    const { ReportDeliverySettings } = req.tenantModels;
+    const { _id, __v, createdAt, updatedAt, ...body } = req.body;
+    const settings = await ReportDeliverySettings.findOneAndUpdate(
+      {},
+      { $set: body },
+      { new: true, upsert: true, runValidators: true },
+    );
+    res.json(settings);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}
+
+// ─── POST /api/report/jobs/:jobId/save-to-drive ────────────────────────────────
+export async function saveReportToDrive(req, res) {
+  const { Patient, ReportJob } = req.tenantModels;
+  const credentials = req.tenantConfig;
+  try {
+    const { jobId } = req.params;
+    const job = await ReportJob.findById(jobId);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    const reportText = (req.body.report_text || job.reportText || '').trim();
+    if (!reportText) return res.status(422).json({ error: 'No report text to save.' });
+    const patient = await Patient.findById(job.patientId);
+    if (!patient) return res.status(404).json({ error: 'Patient not found' });
+    const template     = getTemplateById(job.templateId);
+    const templateName = template?.name || 'Clinical Report';
+    const patientName  = `${patient.first_name} ${patient.last_name || ''}`.trim();
+    const doctorName   = req.user?.name || 'Attending Doctor';
+    const ds = await fetchDeliverySettings(req.tenantModels);
+    const pdfEnabled = ds.pdf?.enabled ?? false;
+    if (!patient.drive_folders?.root) {
+      patient.drive_folders = await createPatientDriveFolders(credentials, patient.patientId, patientName);
+      await patient.save();
+    }
+    const clinicalNotesFolderId = patient.drive_folders.clinical_notes;
+    if (!clinicalNotesFolderId) return res.status(400).json({ error: 'Clinical Notes folder not available.' });
+    const dateFolderName = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
+    const dateFolderId   = await createSubfolder(credentials, clinicalNotesFolderId, dateFolderName);
+    const dateStr        = new Date().toISOString().slice(0, 10);
+    let uploaded;
+    if (pdfEnabled) {
+      const pdfBuffer = await generateReportPdf(reportText, {
+        templateName, patientName, doctorName,
+        clinicName:    ds.pdf?.clinicName    || '',
+        clinicTagline: ds.pdf?.clinicTagline || '',
+        clinicAddress: ds.pdf?.clinicAddress || '',
+        clinicPhone:   ds.pdf?.clinicPhone   || '',
+        clinicEmail:   ds.pdf?.clinicEmail   || '',
+      });
+      uploaded = await uploadPdfToDrive(credentials, dateFolderId, pdfBuffer, `${templateName}_${patientName}_${dateStr}.pdf`);
+    } else {
+      const textBuffer = Buffer.from(reportText, 'utf-8');
+      uploaded = await uploadFileToDrive(credentials, dateFolderId, textBuffer, `${templateName}_${patientName}_${dateStr}.txt`, 'text/plain');
+    }
+    await ReportJob.findByIdAndUpdate(jobId, { $set: { [`driveLinks.${templateName}`]: uploaded.webViewLink } });
+    res.json({ success: true, webViewLink: uploaded.webViewLink, pdfEnabled });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 }

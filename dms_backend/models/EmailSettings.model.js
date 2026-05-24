@@ -63,10 +63,19 @@ export const EmailSettingsSchema = new mongoose.Schema(
         enabled:        { type: Boolean, default: true },
         attachInvoice:  { type: Boolean, default: true },
       },
+      // Appointment booked → send confirmation to patient
+      appointmentBooked: {
+        enabled:      { type: Boolean, default: false },
+        delayMinutes: { type: Number,  default: 0 },
+        subject:      { type: String,  default: '' },
+        body:         { type: String,  default: '' },
+      },
       // Appointment completed → send visit summary / invoice / AI report
       appointmentCompleted: {
         enabled: { type: Boolean, default: false },
         delayMinutes: { type: Number, default: 0 },
+        subject: { type: String, default: '' },
+        body:    { type: String, default: '' },
         include: {
           smartReport:  { type: Boolean, default: true },
           invoice:      { type: Boolean, default: true },
