@@ -30,6 +30,7 @@ import whatsappRoutes from './routes/whatsapp.routes.js';
 import feedbackRoutes from './routes/feedback.routes.js';
 import emailRoutes from './routes/email.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
+import bookingRoutes from './routes/booking.routes.js';
 import { startAppointmentStatusJob } from './services/appointmentStatusJob.js';
 
 dotenv.config();
@@ -52,15 +53,12 @@ app.get("/health", (req, res) => {
 
 // Authentication & Public Routes
 app.use('/api/users', userRoutes);
+app.use('/api/booking', bookingRoutes);
 
 // Webhook Routes (public, no auth required)
 // WAAPI sends feedback webhook without bearer token; validation happens inside handler
 import { handlePollResponse } from './controllers/whatsapp.controller.js';
 app.post('/api/whatsapp/feedback/webhook', handlePollResponse);
-
-// Public booking info endpoint
-import { getPublicBookingInfo } from './controllers/booking.controller.js';
-app.get('/api/public/booking/:tenantId', getPublicBookingInfo);
 
 // Multi-Tenant Aware Routes
 // resolveTenant must come AFTER authenticate because it relies on req.user.tenantId
