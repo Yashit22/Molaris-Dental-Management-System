@@ -1,6 +1,140 @@
 import { uploadFile, deleteFile } from '../services/cloudinary.service.js';
 import { buildMessage, sendToWAAPI, normalizePhone } from '../services/whatsapp.service.js';
-import { generateReportPdf } from '../services/email.service.js';
+import { generateReportPdf, getTransporter, buildEmailMessage, sendEmail } from '../services/email.service.js';
+
+// Import PDF generators from email controller for reuse
+import PDFDocumentLib from 'pdfkit';
+
+function stripHtml(html) {
+  return (html || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .trim();
+}
+
+function generateVisitSummaryPdf(visit, patientName, doctorName, date) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocumentLib({ margin: 50 });
+    const buffers = [];
+    doc.on('data', c => buffers.push(c));
+    doc.on('end',  () => resolve(Buffer.concat(buffers)));
+    doc.on('error', reject);
+
+    doc.fontSize(16).font('Helvetica-Bold').text('Visit Summary', { align: 'center' });
+    doc.moveDown(0.5);
+    doc.fontSize(10).font('Helvetica')
+      .text(`Patient: ${patientName}`)
+      .text(`Doctor: ${doctorName}`)
+      .text(`Date: ${date}`);
+    doc.moveDown();
+    doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
+    doc.moveDown();
+
+    if (visit.treatments?.length) {
+      doc.fontSize(12).font('Helvetica-Bold').text('Treatment Plan');
+      doc.moveDown(0.3);
+      visit.treatments.forEach(t => {
+        const teeth = t.teeth_numbers?.length ? ` (Teeth: ${t.teeth_numbers.join(', ')})` : '';
+        doc.fontSize(10).font('Helvetica').text(`• ${t.treatment_name}${teeth} — ${t.status} — ₹${t.cost || 0}`);
+      });
+      doc.moveDown();
+    }
+
+    if (visit.prescriptions?.length) {
+      doc.fontSize(12).font('Helvetica-Bold').text('Prescriptions');
+      doc.moveDown(0.3);
+      visit.prescriptions.forEach(p => {
+        const parts = [p.drug_name, p.dosage, p.duration ? `for ${p.duration}` : '', p.instructions].filter(Boolean).join(' — ');
+        doc.fontSize(10).font('Helvetica').text(`• ${parts}`);
+      });
+      doc.moveDown();
+    }
+
+    if (visit.consultation_notes?.length) {
+      doc.fontSize(12).font('Helvetica-Bold').text('Consultation Notes');
+      doc.moveDown(0.3);
+      visit.consultation_notes.forEach(n => {
+        doc.fontSize(10).font('Helvetica').text(stripHtml(n.content));
+        doc.moveDown(0.3);
+      });
+      doc.moveDown();
+    }
+
+    if (visit.advices?.length) {
+      doc.fontSize(12).font('Helvetica-Bold').text('Advice');
+      doc.moveDown(0.3);
+      visit.advices.forEach(a => {
+        doc.fontSize(10).font('Helvetica').text(stripHtml(a.content));
+        doc.moveDown(0.3);
+      });
+    }
+
+    doc.end();
+  });
+}
+
+function generateInvoicePdf(invoice, patientName) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocumentLib({ margin: 50 });
+    const buffers = [];
+    doc.on('data', c => buffers.push(c));
+    doc.on('end',  () => resolve(Buffer.concat(buffers)));
+    doc.on('error', reject);
+
+    doc.fontSize(18).font('Helvetica-Bold').text('INVOICE', { align: 'center' });
+    doc.moveDown(0.5);
+    const invDate = new Date(invoice.date || invoice.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    doc.fontSize(10).font('Helvetica')
+      .text(`Invoice #: ${invoice.invoice_id}`)
+      .text(`Patient: ${patientName}`)
+      .text(`Date: ${invDate}`);
+    doc.moveDown();
+    doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
+    doc.moveDown(0.5);
+
+    const col = { item: 50, qty: 310, rate: 370, total: 450 };
+    doc.fontSize(10).font('Helvetica-Bold');
+    doc.text('Item',  col.item,  doc.y, { width: 255 });
+    doc.text('Qty',   col.qty,   doc.y - doc.currentLineHeight(), { width: 55,  align: 'right' });
+    doc.text('Rate',  col.rate,  doc.y - doc.currentLineHeight(), { width: 75,  align: 'right' });
+    doc.text('Total', col.total, doc.y - doc.currentLineHeight(), { width: 95,  align: 'right' });
+    doc.moveDown(0.3);
+    doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
+    doc.moveDown(0.3);
+
+    doc.font('Helvetica').fontSize(10);
+    (invoice.items || []).forEach(item => {
+      const y = doc.y;
+      doc.text(item.name,            col.item,  y, { width: 255 });
+      doc.text(String(item.quantity), col.qty,  y, { width: 55,  align: 'right' });
+      doc.text(`₹${item.rate}`,       col.rate, y, { width: 75,  align: 'right' });
+      doc.text(`₹${item.total}`,      col.total, y, { width: 95,  align: 'right' });
+      doc.moveDown(0.4);
+    });
+
+    doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
+    doc.moveDown(0.3);
+    doc.font('Helvetica-Bold').fontSize(11);
+    const subtotal = (invoice.subtotal || 0).toFixed(2);
+    doc.text(`Subtotal: ₹${subtotal}`, col.item, doc.y, { width: 255, align: 'right' });
+    if (invoice.tax) {
+      doc.text(`Tax: ₹${invoice.tax.toFixed(2)}`, col.item, doc.y, { width: 255, align: 'right' });
+    }
+    doc.text(`Total: ₹${(invoice.total_amount || 0).toFixed(2)}`, col.item, doc.y, { width: 255, align: 'right' });
+    doc.moveDown(1);
+
+    if (invoice.pending_amount && invoice.pending_amount > 0) {
+      doc.fontSize(10).font('Helvetica-Bold').fillColor('red').text(`Pending: ₹${invoice.pending_amount.toFixed(2)}`);
+    }
+
+    doc.end();
+  });
+}
 
 // ─── Treatment Journey CRUD ───────────────────────────────────────────────────
 
@@ -679,6 +813,145 @@ export async function sendReportWhatsApp(req, res) {
     });
   } catch (err) {
     console.error('[WhatsApp Report] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ─── Send Treatment Summary via WhatsApp ──────────────────────────────────────
+
+export async function sendTreatmentSummaryWhatsApp(req, res) {
+  const { Patient, Visit, Invoice, ReportJob, WhatsAppLog } = req.tenantModels;
+  const { patient_id, to, include = [], text } = req.body;
+
+  if (!patient_id || !to) {
+    return res.status(400).json({ error: 'patient_id and to are required' });
+  }
+  if (!Array.isArray(include) || include.length === 0) {
+    return res.status(400).json({ error: 'include must be a non-empty array' });
+  }
+
+  try {
+    const patient = await Patient.findById(patient_id);
+    if (!patient) {
+      return res.status(404).json({ error: 'Patient not found' });
+    }
+
+    const waapiBaseUrl = process.env.WAAPI_BASE_URL;
+    const doctorName = req.user?.name || 'Attending Doctor';
+    const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const patientName = `${patient.first_name} ${patient.last_name || ''}`.trim();
+
+    const uploads = [];
+    const cloudinaryConfig = req.tenantConfig?.cloudinaryCloudName ? req.tenantConfig : null;
+
+    // Generate and upload PDFs for each selected item
+    if (include.includes('smart_report')) {
+      const visit = await Visit.findOne({ patient_id }).sort({ date: -1 }).lean();
+      if (visit) {
+        const pdf = await generateVisitSummaryPdf(visit, patientName, doctorName, today);
+        if (cloudinaryConfig) {
+          const uploaded = await uploadFile(
+            pdf,
+            `VisitSummary_${patientName}_${dateStr}.pdf`,
+            'dms/treatment-summaries',
+            ['treatment-summary', 'visit'],
+            cloudinaryConfig
+          );
+          if (uploaded?.url) uploads.push({ url: uploaded.url, name: 'Treatment Summary' });
+        }
+      }
+    }
+
+    if (include.includes('invoice')) {
+      const invoice = await Invoice.findOne({ patient_id }).sort({ createdAt: -1 }).lean();
+      if (invoice) {
+        const pdf = await generateInvoicePdf(invoice, patientName);
+        if (cloudinaryConfig) {
+          const uploaded = await uploadFile(
+            pdf,
+            `Invoice_${invoice.invoice_id}_${patientName}_${dateStr}.pdf`,
+            'dms/treatment-summaries',
+            ['invoice'],
+            cloudinaryConfig
+          );
+          if (uploaded?.url) uploads.push({ url: uploaded.url, name: 'Invoice' });
+        }
+      }
+    }
+
+    if (include.includes('ai_report')) {
+      const job = ReportJob
+        ? await ReportJob.findOne({ patientId: patient_id, status: 'done' }).sort({ createdAt: -1 }).lean()
+        : null;
+      if (job?.reportText) {
+        const pdf = await generateReportPdf(job.reportText, {
+          patientName,
+          doctorName,
+          date: today,
+          templateName: job.templateId || 'Clinical Report',
+        });
+        if (cloudinaryConfig) {
+          const uploaded = await uploadFile(
+            pdf,
+            `AIReport_${patientName}_${dateStr}.pdf`,
+            'dms/treatment-summaries',
+            ['ai-report'],
+            cloudinaryConfig
+          );
+          if (uploaded?.url) uploads.push({ url: uploaded.url, name: 'AI Report' });
+        }
+      }
+    }
+
+    // Build message with links
+    let messageText = (text || 'Here are your documents:').trim();
+    if (uploads.length > 0) {
+      messageText += '\n\n' + uploads.map(u => `📄 ${u.name}: ${u.url}`).join('\n');
+    }
+
+    // Send message via WAAPI
+    const payload = {
+      tenantId: req.user.tenantId,
+      to,
+      messageType: 'treatmentSummary',
+      contentType: 'text',
+      content: { text: messageText },
+    };
+
+    let status = 'sent';
+    let errorMessage;
+
+    try {
+      if (waapiBaseUrl) {
+        await sendToWAAPI(payload, waapiBaseUrl);
+      }
+    } catch (sendErr) {
+      status = 'failed';
+      errorMessage = sendErr.message;
+    }
+
+    // Log the message
+    await WhatsAppLog.create({
+      event: 'treatmentSummary',
+      to,
+      payload,
+      status,
+      errorMessage,
+      sentAt: new Date(),
+    });
+
+    if (status === 'failed') {
+      return res.status(500).json({ error: errorMessage });
+    }
+
+    res.json({
+      status: 'sent',
+      to,
+      documents: uploads.length,
+    });
+  } catch (err) {
+    console.error('[WhatsApp Treatment Summary] Error:', err.message);
     res.status(500).json({ error: err.message });
   }
 }

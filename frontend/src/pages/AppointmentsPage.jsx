@@ -442,25 +442,59 @@ const AppointmentsPage = () => {
               <div className="flex justify-center items-center h-64 bg-white rounded-xl border border-red-200 text-red-500 font-medium"><AlertCircle className="mr-2" /> {error}</div>
             ) : (
               <>
-                <div className="md:hidden bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                <div className="md:hidden bg-white border border-slate-200 rounded-xl shadow-sm overflow-visible">
                   {appointments.length > 0 ? appointments.map((apt) => (
-                    <div key={apt.id} className="flex items-center gap-3 px-4 py-3.5 border-b border-slate-100 last:border-b-0">
-                      <div className="text-xs font-bold text-slate-400 w-11 shrink-0 text-center leading-tight">{apt.time}</div>
-                      <div className="size-9 rounded-full bg-slate-100 flex items-center justify-center text-sm font-bold text-slate-500 shrink-0">{apt.patient.charAt(0)}</div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-slate-900 text-sm truncate">{apt.patient}</p>
-                        <p className="text-xs text-slate-400 truncate">{apt.treatment}{apt.doctor ? ` · ${apt.doctor}` : ''}</p>
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${getStatusStyles(apt.statusColor)}`}>
-                          <span className={`size-1.5 rounded-full ${getDotColor(apt.statusColor)}`} />{apt.status}
-                        </span>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setActiveDropdown(activeDropdown === apt.id ? null : apt.id); }}
-                          className={`p-1.5 rounded-lg transition-colors ${activeDropdown === apt.id ? 'bg-blue-50 text-[#137fec]' : 'text-slate-400 hover:bg-slate-100'}`}
-                        >
-                          <MoreVertical size={18} />
-                        </button>
+                    <div key={apt.id} className="relative border-b border-slate-100 last:border-b-0">
+                      <div className="flex items-center gap-3 px-4 py-3.5">
+                        <div className="text-xs font-bold text-slate-400 w-11 shrink-0 text-center leading-tight">{apt.time}</div>
+                        <div className="size-9 rounded-full bg-slate-100 flex items-center justify-center text-sm font-bold text-slate-500 shrink-0">{apt.patient.charAt(0)}</div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-slate-900 text-sm truncate">{apt.patient}</p>
+                          <p className="text-xs text-slate-400 truncate">{apt.treatment}{apt.doctor ? ` · ${apt.doctor}` : ''}</p>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${getStatusStyles(apt.statusColor)}`}>
+                            <span className={`size-1.5 rounded-full ${getDotColor(apt.statusColor)}`} />{apt.status}
+                          </span>
+                          <div className="relative">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setActiveDropdown(activeDropdown === apt.id ? null : apt.id); }}
+                              className={`p-1.5 rounded-lg transition-colors ${activeDropdown === apt.id ? 'bg-blue-50 text-[#137fec]' : 'text-slate-400 hover:bg-slate-100'}`}
+                            >
+                              <MoreVertical size={18} />
+                            </button>
+                            {activeDropdown === apt.id && (
+                              <div
+                                ref={dropdownRef}
+                                className="absolute right-0 top-full mt-1 w-56 max-h-96 bg-white border border-slate-200 rounded-lg shadow-xl z-[60] overflow-y-auto text-left"
+                                onMouseDown={e => e.stopPropagation()}
+                              >
+                                {!['Completed', 'Cancelled', 'No Show'].includes(apt.status) && (
+                                  <div className="sticky top-0 bg-white p-1 border-b border-slate-100 z-10">
+                                    <button
+                                      onClick={() => handleStartVisit(apt)}
+                                      className={`w-full text-left px-3 py-2.5 text-sm font-bold text-white rounded-md flex items-center gap-2 transition-colors shadow-sm ${apt.status === 'In Progress' ? 'bg-orange-500 hover:bg-orange-600' : 'bg-[#137fec] hover:bg-blue-600'}`}
+                                    >
+                                      <PlayCircle size={16} fill="currentColor" className="opacity-80" />
+                                      {apt.status === 'In Progress' ? 'Continue Visit' : 'Start Visit'}
+                                    </button>
+                                  </div>
+                                )}
+                                <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 text-[10px] font-bold uppercase text-slate-400 tracking-wider">Change Status</div>
+                                {ALL_STATUSES.filter(s => s !== apt.status && s !== 'In Progress').map(status => (
+                                  <button key={status} onClick={() => handleStatusChange(apt.id, status)} className="w-full text-left px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 flex items-center gap-2 whitespace-nowrap">
+                                    <div className={`size-1.5 rounded-full flex-shrink-0 ${getDotColor(getStatusColor(status))}`} /><span>{status}</span>
+                                  </button>
+                                ))}
+                                <div className="sticky bottom-0 bg-white border-t border-slate-100 p-1">
+                                  <button onClick={() => handleViewProfile(apt)} className="w-full text-left px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded-md flex items-center gap-2"><Users size={14} className="text-[#137fec]" /> Patient Profile</button>
+                                  <button onClick={() => handleEditPatient(apt)} className="w-full text-left px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded-md flex items-center gap-2"><User size={14} className="text-[#137fec]" /> Edit Patient Details</button>
+                                  <button onClick={() => handleEdit(apt)} className="w-full text-left px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded-md flex items-center gap-2"><Edit size={14} className="text-[#137fec]" /> Edit Appointment</button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )) : (

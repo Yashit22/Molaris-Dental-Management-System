@@ -2,28 +2,15 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Mail, ChevronDown, FileText, Receipt, Sparkles,
-  X, Loader2, CheckCircle, XCircle, Settings, BookOpen, Edit3,
+  X, Loader2, CheckCircle, XCircle, Settings, BookOpen, Edit3, MessageSquare,
 } from 'lucide-react';
 import API from '../services/api';
 
-// Frontend-only presets for the manual send compose panel
-const SEND_PRESETS = [
-  {
-    name:    'Thank You — Standard',
-    subject: 'Thank you for your visit — {{date}}',
-    body:    'Dear {{first_name}},\n\nThank you for visiting us today. Your appointment with {{doctor}} on {{date}} has been completed.\n\nTreatments received: {{treatments}}.\n\nFor any queries, feel free to reach out to us.\n\nWarm regards,\n{{clinic}}',
-  },
-  {
-    name:    'Post-Visit Follow-Up',
-    subject: 'Your visit is complete — follow-up care inside',
-    body:    "Hi {{first_name}},\n\nYour appointment with {{doctor}} on {{date}} is now complete.\n\nTreatments completed: {{treatments}}.\n\nPlease follow the post-care instructions from your doctor. If you experience any discomfort, don't hesitate to contact us.\n\nLooking forward to seeing you again!\n\n{{clinic}}",
-  },
-  {
-    name:    'Simple Thank You',
-    subject: 'Visit Complete — {{date}}',
-    body:    "Dear {{name}},\n\nThank you for your visit on {{date}} with {{doctor}}. We hope you're feeling great.\n\nWarm regards,\n{{clinic}}",
-  },
-];
+// Helper: replace {{placeholder}} with actual values
+function applyVars(template, vars) {
+  if (!template) return '';
+  return template.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? `{{${k}}}`);
+}
 
 export default function SendMailDropdown({ patientId, patient }) {
   const [open, setOpen]               = useState(false);
@@ -31,19 +18,42 @@ export default function SendMailDropdown({ patientId, patient }) {
   const [emailStatus, setEmailStatus] = useState(null);
   const [selected, setSelected]       = useState({ smart_report: true, invoice: false, ai_report: false });
   const [emailTo, setEmailTo]         = useState('');
-  const [customSubject, setCustomSubject] = useState('');
-  const [customBody, setCustomBody]       = useState('');
-  const [showEditor, setShowEditor]   = useState(false);
-  const [presetOpen, setPresetOpen]   = useState(false);
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailBody, setEmailBody]     = useState('');
+  const [showEmailEditor, setShowEmailEditor] = useState(false);
+  const [whatsappPhone, setWhatsappPhone] = useState('');
+  const [whatsappText, setWhatsappText] = useState('');
+  const [showWhatsappEditor, setShowWhatsappEditor] = useState(false);
+  const [sendMode, setSendMode]       = useState('email'); // email | whatsapp
   const [sending, setSending]         = useState(false);
   const [result, setResult]           = useState(null); // { ok, message }
+  const [emailSettings, setEmailSettings] = useState(null);
   const panelRef = useRef(null);
   const navigate = useNavigate();
 
-  // Pre-fill email whenever patient loads
+  // Build variable map for placeholder substitution
+  function getVars() {
+    const patientName = patient ? `${patient.first_name} ${patient.last_name || ''}`.trim() : '';
+    const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    return {
+      patientName,
+      name: patientName,
+      first_name: patient?.first_name || patientName,
+      lastName: patient?.last_name || '',
+      doctor: 'Your Doctor',
+      doctorName: 'Your Doctor',
+      date: today,
+      treatments: 'your treatments',
+      clinic: emailSettings?.clinic?.name || 'Your Clinic',
+      clinicName: emailSettings?.clinic?.name || 'Your Clinic',
+    };
+  }
+
+  // Pre-fill email and phone whenever patient loads
   useEffect(() => {
     if (patient?.contact?.email) setEmailTo(patient.contact.email);
-  }, [patient?.contact?.email]);
+    if (patient?.contact?.mobile) setWhatsappPhone(patient.contact.mobile);
+  }, [patient?.contact?.email, patient?.contact?.mobile]);
 
   // Close on outside click
   useEffect(() => {
@@ -58,28 +68,42 @@ export default function SendMailDropdown({ patientId, patient }) {
   async function handleOpen() {
     setOpen(o => !o);
     setResult(null);
-    if (loadState !== 'idle') return; // already loaded
+    if (loadState !== 'idle') return;
     setLoadState('loading');
     try {
-      const res = await API.get(`/email/patient-status/${patientId}`);
-      setEmailStatus(res.data);
+      const [statusRes, settingsRes] = await Promise.all([
+        API.get(`/email/patient-status/${patientId}`),
+        API.get('/settings/email').catch(() => ({ data: {} })),
+      ]);
+
+      setEmailStatus(statusRes.data);
+      setEmailSettings(settingsRes.data);
+
+      const vars = getVars();
+
+      // Pre-fill email with default template
+      const defaultSubject = 'Thank you for your visit — {{date}}';
+      const defaultBody = 'Dear {{first_name}},\n\nThank you for visiting us. Please find your documents attached.\n\nWarm regards,\n{{doctor}}';
+
+      setEmailSubject(applyVars(defaultSubject, vars));
+      setEmailBody(applyVars(defaultBody, vars));
+
+      // Pre-fill WhatsApp
+      const waDefaultText = 'Hi {{first_name}}, thank you for visiting us. Your documents are ready.';
+      setWhatsappText(applyVars(waDefaultText, vars));
+
       setSelected({
         smart_report: true,
-        invoice:      !!res.data.latestInvoice,
-        ai_report:    !!res.data.latestAiReport,
+        invoice:      !!statusRes.data.latestInvoice,
+        ai_report:    !!statusRes.data.latestAiReport,
       });
-    } catch {
+    } catch (err) {
+      console.error(err);
       setEmailStatus({ emailEnabled: false, hasSmtp: false, latestInvoice: null, latestAiReport: null });
+      setEmailSettings({});
     } finally {
       setLoadState('ready');
     }
-  }
-
-  function applyPreset(preset) {
-    setCustomSubject(preset.subject);
-    setCustomBody(preset.body);
-    setShowEditor(true);
-    setPresetOpen(false);
   }
 
   function toggle(key) {
@@ -94,18 +118,43 @@ export default function SendMailDropdown({ patientId, patient }) {
     });
   }
 
-  async function handleSend() {
+  async function handleSendEmail() {
     const include = Object.keys(selected).filter(k => selected[k]);
     if (!include.length || !emailTo.trim()) return;
     setSending(true);
     setResult(null);
     try {
-      const payload = { patient_id: patientId, to: emailTo.trim(), include };
-      if (customSubject.trim()) payload.subject = customSubject.trim();
-      if (customBody.trim())    payload.body    = customBody.trim();
+      const payload = {
+        patient_id: patientId,
+        to: emailTo.trim(),
+        include,
+        subject: emailSubject.trim(),
+        body: emailBody.trim(),
+      };
       const res = await API.post('/email/send-treatment-summary', payload);
       const count = res.data.attachments?.length || 0;
       setResult({ ok: true, message: `Sent to ${res.data.to} — ${count} attachment${count !== 1 ? 's' : ''}` });
+    } catch (err) {
+      setResult({ ok: false, message: err.response?.data?.error || err.message });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleSendWhatsApp() {
+    const include = Object.keys(selected).filter(k => selected[k]);
+    if (!include.length || !whatsappPhone.trim()) return;
+    setSending(true);
+    setResult(null);
+    try {
+      const payload = {
+        patient_id: patientId,
+        to: whatsappPhone.trim(),
+        include,
+        text: whatsappText.trim(),
+      };
+      const res = await API.post('/whatsapp/send-treatment-summary', payload);
+      setResult({ ok: true, message: `Sent on WhatsApp to ${res.data.to}` });
     } catch (err) {
       setResult({ ok: false, message: err.response?.data?.error || err.message });
     } finally {
@@ -122,16 +171,16 @@ export default function SendMailDropdown({ patientId, patient }) {
         className="px-4 py-2 border border-slate-300 text-slate-600 font-medium rounded-lg hover:bg-slate-50 flex items-center gap-2 transition-colors text-sm"
       >
         <Mail size={16} />
-        Send Mail
+        Send
         <ChevronDown size={14} className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
-        <div className="absolute bottom-full mb-2 right-0 w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 overflow-hidden">
+        <div className="absolute bottom-full mb-2 right-0 w-96 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
             <p className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
-              <Mail size={14} className="text-[#137fec]" /> Send to Patient
+              <Mail size={14} className="text-[#137fec]" /> Share with Patient
             </p>
             <button onClick={() => setOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
               <X size={15} />
@@ -146,20 +195,16 @@ export default function SendMailDropdown({ patientId, patient }) {
               </div>
             )}
 
-            {/* Email not configured */}
+            {/* Not configured */}
             {loadState === 'ready' && !emailStatus?.emailEnabled && (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1">
                 <p className="text-xs font-semibold text-amber-700">Email not configured</p>
-                <p className="text-xs text-amber-600">
-                  {emailStatus?.hasSmtp
-                    ? 'Email is configured but not enabled. Enable it in Settings.'
-                    : 'Set up your SMTP credentials in Settings to send emails.'}
-                </p>
+                <p className="text-xs text-amber-600">Set up SMTP credentials in Settings to send emails.</p>
                 <button
                   onClick={() => { setOpen(false); navigate('/settings'); }}
                   className="mt-1 text-xs text-[#137fec] underline flex items-center gap-1 hover:text-blue-700"
                 >
-                  <Settings size={11} /> Go to Settings → Email
+                  <Settings size={11} /> Go to Settings
                 </button>
               </div>
             )}
@@ -175,12 +220,12 @@ export default function SendMailDropdown({ patientId, patient }) {
                   </button>
                 </div>
 
-                {/* Smart Report — always available */}
+                {/* Smart Report */}
                 <ItemRow
                   checked={selected.smart_report}
                   onChange={() => toggle('smart_report')}
                   icon={<FileText size={14} className="text-blue-500" />}
-                  label="Smart Report"
+                  label="Treatment Summary"
                   sub="Treatments, prescriptions & notes"
                   available
                 />
@@ -193,7 +238,7 @@ export default function SendMailDropdown({ patientId, patient }) {
                   label="Invoice"
                   sub={
                     emailStatus.latestInvoice
-                      ? `${emailStatus.latestInvoice.invoice_id} · ₹${emailStatus.latestInvoice.total_amount} · ${emailStatus.latestInvoice.status}`
+                      ? `${emailStatus.latestInvoice.invoice_id} · ₹${emailStatus.latestInvoice.total_amount}`
                       : 'No invoice on file'
                   }
                   available={!!emailStatus.latestInvoice}
@@ -207,102 +252,134 @@ export default function SendMailDropdown({ patientId, patient }) {
                   label="AI Report"
                   sub={
                     emailStatus.latestAiReport
-                      ? `${emailStatus.latestAiReport.templateId} · ${new Date(emailStatus.latestAiReport.createdAt).toLocaleDateString('en-IN')}`
+                      ? `Generated · ${new Date(emailStatus.latestAiReport.createdAt).toLocaleDateString('en-IN')}`
                       : 'Not generated yet'
                   }
                   available={!!emailStatus.latestAiReport}
                 />
 
-                {/* Message composer */}
-                <div className="pt-1 border-t border-slate-100 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Message</p>
-                    <div className="flex items-center gap-2">
-                      {/* Preset picker */}
-                      <div className="relative">
+                {/* Send mode tabs */}
+                <div className="flex gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    onClick={() => setSendMode('email')}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition-colors ${
+                      sendMode === 'email'
+                        ? 'bg-[#137fec] text-white'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    <Mail size={13} /> Email
+                  </button>
+                  <button
+                    onClick={() => setSendMode('whatsapp')}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition-colors ${
+                      sendMode === 'whatsapp'
+                        ? 'bg-[#137fec] text-white'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    <MessageSquare size={13} /> WhatsApp
+                  </button>
+                </div>
+
+                {/* Email Section */}
+                {sendMode === 'email' && (
+                  <div className="space-y-3 pt-3 border-t border-slate-100">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase">Email</label>
                         <button
-                          type="button"
-                          onClick={() => setPresetOpen(p => !p)}
-                          className="flex items-center gap-1 text-[11px] font-semibold text-[#137fec] hover:text-blue-700"
+                          onClick={() => setShowEmailEditor(e => !e)}
+                          className="text-[11px] text-slate-500 hover:text-slate-700 flex items-center gap-0.5"
                         >
-                          <BookOpen size={11} /> Presets
-                          <ChevronDown size={11} className={`transition-transform ${presetOpen ? 'rotate-180' : ''}`} />
+                          <Edit3 size={11} /> {showEmailEditor ? 'Done' : 'Edit'}
                         </button>
-                        {presetOpen && (
-                          <div className="absolute right-0 top-5 w-64 border border-slate-200 rounded-xl shadow-lg bg-white z-20 overflow-hidden">
-                            {SEND_PRESETS.map((p, i) => (
-                              <button
-                                key={i}
-                                type="button"
-                                onClick={() => applyPreset(p)}
-                                className="w-full text-left px-3 py-2.5 hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0"
-                              >
-                                <p className="text-xs font-semibold text-slate-700">{p.name}</p>
-                                <p className="text-[10px] text-slate-400 truncate mt-0.5">{p.subject}</p>
-                              </button>
-                            ))}
-                          </div>
-                        )}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setShowEditor(e => !e)}
-                        className="text-[11px] text-slate-500 hover:text-slate-700 flex items-center gap-0.5"
-                      >
-                        <Edit3 size={11} /> {showEditor ? 'Hide' : 'Edit'}
-                      </button>
+                      <input
+                        type="email"
+                        value={emailTo}
+                        onChange={e => setEmailTo(e.target.value)}
+                        placeholder="patient@example.com"
+                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-[#137fec] outline-none"
+                      />
                     </div>
+
+                    {showEmailEditor && (
+                      <div className="space-y-2 border border-slate-200 rounded-lg p-3 bg-slate-50">
+                        <div>
+                          <label className="text-[11px] text-slate-500 block mb-1">Subject</label>
+                          <input
+                            type="text"
+                            value={emailSubject}
+                            onChange={e => setEmailSubject(e.target.value)}
+                            placeholder="Subject…"
+                            className="w-full px-2 py-1 border border-slate-300 rounded text-xs focus:ring-2 focus:ring-[#137fec] outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] text-slate-500 block mb-1">Message</label>
+                          <textarea
+                            value={emailBody}
+                            onChange={e => setEmailBody(e.target.value)}
+                            rows={4}
+                            className="w-full px-2 py-1 border border-slate-300 rounded text-xs focus:ring-2 focus:ring-[#137fec] outline-none resize-none font-mono"
+                          />
+                        </div>
+                        <p className="text-[10px] text-slate-400">Placeholders: {{patientName}}, {{first_name}}, {{date}}, {{doctor}}, {{clinic}}</p>
+                      </div>
+                    )}
+
+                    {!showEmailEditor && (
+                      <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-[11px] space-y-1 max-h-24 overflow-y-auto">
+                        <p className="font-semibold text-slate-700">{emailSubject}</p>
+                        <p className="text-slate-500 whitespace-pre-line">{emailBody}</p>
+                      </div>
+                    )}
                   </div>
+                )}
 
-                  {!showEditor && !customSubject && !customBody && (
-                    <p className="text-xs text-slate-400 italic">Using built-in default — click Presets or Edit to customise.</p>
-                  )}
-
-                  {!showEditor && (customSubject || customBody) && (
-                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-0.5">
-                      {customSubject && <p className="text-xs font-semibold text-slate-700 truncate">{customSubject}</p>}
-                      {customBody    && <p className="text-xs text-slate-400 line-clamp-2 whitespace-pre-line">{customBody}</p>}
-                    </div>
-                  )}
-
-                  {showEditor && (
-                    <div className="space-y-2 border border-slate-200 rounded-xl p-3 bg-slate-50">
-                      <div>
-                        <label className="text-[11px] text-slate-500 block mb-0.5">Subject</label>
-                        <input
-                          type="text"
-                          value={customSubject}
-                          onChange={e => setCustomSubject(e.target.value)}
-                          placeholder="Subject line… e.g. Thank you for your visit — {{date}}"
-                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-[#137fec] outline-none bg-white"
-                        />
+                {/* WhatsApp Section */}
+                {sendMode === 'whatsapp' && (
+                  <div className="space-y-3 pt-3 border-t border-slate-100">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase">Phone</label>
+                        <button
+                          onClick={() => setShowWhatsappEditor(e => !e)}
+                          className="text-[11px] text-slate-500 hover:text-slate-700 flex items-center gap-0.5"
+                        >
+                          <Edit3 size={11} /> {showWhatsappEditor ? 'Done' : 'Edit'}
+                        </button>
                       </div>
-                      <div>
-                        <label className="text-[11px] text-slate-500 block mb-0.5">Body</label>
+                      <input
+                        type="tel"
+                        value={whatsappPhone}
+                        onChange={e => setWhatsappPhone(e.target.value)}
+                        placeholder="+91 98765 43210"
+                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-[#137fec] outline-none"
+                      />
+                    </div>
+
+                    {showWhatsappEditor && (
+                      <div className="border border-slate-200 rounded-lg p-3 bg-slate-50">
+                        <label className="text-[11px] text-slate-500 block mb-1">Message</label>
                         <textarea
-                          value={customBody}
-                          onChange={e => setCustomBody(e.target.value)}
-                          rows={5}
-                          placeholder="Dear {{first_name}}, … use {{name}}, {{doctor}}, {{date}}, {{treatments}}, {{clinic}}"
-                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-[#137fec] outline-none bg-white resize-none font-mono"
+                          value={whatsappText}
+                          onChange={e => setWhatsappText(e.target.value)}
+                          rows={3}
+                          className="w-full px-2 py-1 border border-slate-300 rounded text-xs focus:ring-2 focus:ring-[#137fec] outline-none resize-none"
                         />
+                        <p className="text-[10px] text-slate-400 mt-1">Placeholders: {{patientName}}, {{first_name}}, {{date}}, {{doctor}}, {{clinic}}</p>
                       </div>
-                      <p className="text-[10px] text-slate-400">Leave blank to use the system default message.</p>
-                    </div>
-                  )}
-                </div>
+                    )}
 
-                {/* Email address */}
-                <div>
-                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wide block mb-1">Send to</label>
-                  <input
-                    type="email"
-                    value={emailTo}
-                    onChange={e => setEmailTo(e.target.value)}
-                    placeholder="patient@example.com"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-[#137fec] outline-none"
-                  />
-                </div>
+                    {!showWhatsappEditor && (
+                      <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-[11px] max-h-20 overflow-y-auto whitespace-pre-line text-slate-500">
+                        {whatsappText}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Result banner */}
                 {result && (
@@ -311,20 +388,23 @@ export default function SendMailDropdown({ patientId, patient }) {
                   }`}>
                     {result.ok
                       ? <CheckCircle size={13} className="flex-shrink-0 mt-0.5" />
-                      : <XCircle    size={13} className="flex-shrink-0 mt-0.5" />}
+                      : <XCircle size={13} className="flex-shrink-0 mt-0.5" />}
                     {result.message}
                   </div>
                 )}
 
                 {/* Send button */}
                 <button
-                  onClick={handleSend}
-                  disabled={sending || !anySelected || !emailTo.trim()}
+                  onClick={sendMode === 'email' ? handleSendEmail : handleSendWhatsApp}
+                  disabled={sending || !anySelected || (sendMode === 'email' ? !emailTo.trim() : !whatsappPhone.trim())}
                   className="w-full flex items-center justify-center gap-2 py-2.5 bg-[#137fec] hover:bg-blue-600 text-white font-semibold rounded-xl text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {sending
-                    ? <><Loader2 size={14} className="animate-spin" /> Sending…</>
-                    : <><Mail size={14} /> Send Email</>}
+                  {sending ? (
+                    <><Loader2 size={14} className="animate-spin" /> Sending…</>
+                  ) : (
+                    <>{sendMode === 'email' ? <Mail size={14} /> : <MessageSquare size={14} />}
+                    Send via {sendMode === 'email' ? 'Email' : 'WhatsApp'}</>
+                  )}
                 </button>
               </>
             )}
