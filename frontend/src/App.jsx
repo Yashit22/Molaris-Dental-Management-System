@@ -31,6 +31,7 @@ import { TreatmentProvider } from './Context/TreatmentContext.jsx';
 import { AuthProvider, useAuth } from './Context/AuthContext.jsx';
 import { UserProvider } from './Context/UserContext.jsx';
 import { SettingsProvider } from './Context/SettingsContext.jsx';
+import { IntegrationProvider } from './Context/IntegrationContext.jsx';
 
 // Redirect to /login if not authenticated
 function ProtectedRoute() {
@@ -107,9 +108,11 @@ function App() {
     <AuthProvider>
       <UserProvider>
         <SettingsProvider>
-          <TreatmentProvider>
-            <RouterProvider router={router} />
-          </TreatmentProvider>
+          <IntegrationProvider>
+            <TreatmentProvider>
+              <RouterProvider router={router} />
+            </TreatmentProvider>
+          </IntegrationProvider>
         </SettingsProvider>
       </UserProvider>
     </AuthProvider>

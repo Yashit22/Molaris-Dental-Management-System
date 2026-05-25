@@ -31,6 +31,7 @@ import feedbackRoutes from './routes/feedback.routes.js';
 import emailRoutes from './routes/email.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
 import bookingRoutes from './routes/booking.routes.js';
+import integrationRoutes from './routes/integration.routes.js';
 import { startAppointmentStatusJob } from './services/appointmentStatusJob.js';
 import { handlePollResponse } from './controllers/whatsapp.controller.js';
 
@@ -85,6 +86,7 @@ app.use('/api/whatsapp',             tenantStack, whatsappRoutes);
 app.use('/api/feedback',             tenantStack, feedbackRoutes);
 app.use('/api/email',                tenantStack, emailRoutes);
 app.use('/api/settings',             tenantStack, settingsRoutes);
+app.use('/api/integrations',         tenantStack, integrationRoutes);
 
 
 // Global error handler

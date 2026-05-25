@@ -805,6 +805,27 @@ export async function sendReportWhatsApp(req, res) {
       return res.status(500).json({ error: errorMessage });
     }
 
+    // Auto-verify WhatsApp integration since message sent successfully
+    try {
+      const IntegrationStatus = req.tenantModels.IntegrationStatus;
+      await IntegrationStatus.findOneAndUpdate(
+        { integration: 'whatsapp' },
+        {
+          isVerified: true,
+          isConfigured: true,
+          lastVerified: new Date(),
+          lastError: null,
+          'testDetails.testStatus': 'success',
+          'testDetails.lastTestDate': new Date(),
+          'testDetails.testMessage': 'Verified: Report sent via WhatsApp successfully',
+        },
+        { upsert: true }
+      );
+    } catch (err) {
+      console.error('[WhatsApp] Error updating integration status:', err.message);
+      // Don't fail the send if status update fails
+    }
+
     res.json({
       status: 'sent',
       to,

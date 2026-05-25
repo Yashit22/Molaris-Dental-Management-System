@@ -3,11 +3,12 @@ import {
   X, Mic, MicOff, Loader2, CheckCircle, ExternalLink,
   FileText, Minimize2, Maximize2, Sparkles, Save, SendHorizonal,
   ChevronDown, Mail, MessageSquare, XCircle, Pause, Play, Edit3,
-  RefreshCw, Headphones, HelpCircle, Settings2,
+  RefreshCw, Headphones, HelpCircle, Settings2, AlertCircle,
 } from 'lucide-react';
 import { openExternal } from '../utils/openExternal';
 import API from '../services/api';
 import { useAuth } from '../Context/AuthContext.jsx';
+import { useIntegration } from '../Context/IntegrationContext.jsx';
 
 // Substitute {{placeholder}} tokens; unknown tokens collapse to ''.
 export function applyVars(str, vars) {
@@ -170,6 +171,7 @@ const DETAIL_LEVELS = [
 
 export default function ClinicalReportModal({ isOpen, onClose, patientId, appointmentId, patient, onSuccess }) {
   const { user } = useAuth();
+  const { integrations } = useIntegration();
   const mediaRecorderRef  = useRef(null);
   const audioChunksRef    = useRef([]);
   const cancelledRef      = useRef(false);
@@ -231,14 +233,31 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
   // Fetch templates + delivery settings on first open
   useEffect(() => {
     if (isOpen && templates.length === 0) {
+      console.log('[ClinicalReportModal] Fetching templates...');
       API.get('/report/templates')
-        .then(r => setTemplates(r.data))
-        .catch(() => {});
+        .then(r => {
+          console.log('[ClinicalReportModal] Templates fetched:', r.data);
+          setTemplates(r.data);
+        })
+        .catch(err => {
+          console.error('[ClinicalReportModal] Failed to fetch templates:', err.response?.data || err.message);
+        });
     }
     if (isOpen && !deliverySettings) {
+      console.log('[ClinicalReportModal] Fetching delivery settings...');
       API.get('/report/delivery-settings')
-        .then(r => setDeliverySettings(r.data))
-        .catch(() => {});
+        .then(r => {
+          console.log('[ClinicalReportModal] Delivery settings fetched:', r.data);
+          setDeliverySettings(r.data);
+        })
+        .catch(err => {
+          console.error('[ClinicalReportModal] Failed to fetch delivery settings:', {
+            status: err.response?.status,
+            statusText: err.response?.statusText,
+            data: err.response?.data,
+            message: err.message
+          });
+        });
     }
   }, [isOpen]);
 
@@ -268,6 +287,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
     API.get('/report/delivery-settings')
       .then(res => {
         const s = res.data || {};
+        console.log('[ClinicalReportModal] Delivery settings loaded in done stage:', s);
         setDeliverySettings(s);
         setEmailForm(f => ({
           ...f,
@@ -284,7 +304,12 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
           whatsapp: s.defaults?.whatsapp ?? false,
         });
       })
-      .catch(() => {
+      .catch(err => {
+        console.warn('[ClinicalReportModal] Failed to load delivery settings in done stage, using defaults:', {
+          status: err.response?.status,
+          data: err.response?.data,
+          message: err.message
+        });
         setEmailForm(f => ({
           ...f,
           subject: applyVars('Your visit summary — {{date}}', vars),
@@ -882,8 +907,18 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
 
   // ── FULL MODAL ──────────────────────────────────────────────────────────────
   return (
-    <div className="fixed inset-0 z-[300] flex items-stretch sm:items-center justify-center bg-black/50 backdrop-blur-sm sm:p-4">
-      <div className="bg-white w-full sm:max-w-3xl shadow-2xl overflow-y-auto overscroll-contain h-[100dvh] sm:max-h-[92vh] sm:rounded-2xl flex flex-col">
+    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-hidden">
+      <div className="bg-white w-full sm:max-w-3xl shadow-2xl h-[95vh] sm:h-[92vh] sm:rounded-2xl flex flex-col">
+
+        {/* Integration Status Banner */}
+        {!integrations.google_drive?.isVerified && (
+          <div className="flex-shrink-0 bg-amber-50 border-b border-amber-200 px-4 sm:px-6 py-2.5 sm:py-3">
+            <div className="flex items-center gap-2 text-amber-700 text-sm">
+              <AlertCircle size={16} className="flex-shrink-0" />
+              <span>⚠️ Connect Cloud integration not verified. <a href="#" className="underline font-semibold hover:text-amber-900">Complete setup</a> to enable report saving.</span>
+            </div>
+          </div>
+        )}
 
         {/* Header */}
         <div className="flex-shrink-0 flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100">
@@ -911,7 +946,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 sm:py-5 flex flex-col gap-4 sm:gap-5">
+        <div className="flex-1 min-h-0 overflow-y-scroll px-3 sm:px-6 py-3 sm:py-5 flex flex-col gap-3 sm:gap-5">
 
           {/* ── IDLE / RECORDING / PAUSED ── */}
           {(stage === 'idle' || stage === 'recording' || stage === 'paused') && (
@@ -1446,19 +1481,19 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
 
               {/* Approve & Send delivery panel */}
               <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <div className="px-4 py-3 bg-slate-50 border-b border-slate-200">
+                <div className="px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-50 border-b border-slate-200">
                   <p className="text-sm font-semibold text-slate-700">Approve &amp; Send</p>
                   <p className="text-xs text-slate-400 mt-0.5">Pick where this report should go, review each message, then approve.</p>
                 </div>
 
-                <div className="p-4 space-y-3">
+                <div className="p-3 sm:p-4 space-y-2.5 sm:space-y-3">
                   {/* Save to Connect Cloud */}
-                  <label className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors">
+                  <label className="flex items-start gap-3 p-2.5 sm:p-3 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors">
                     <input type="checkbox" checked={deliver.cloud}
                       onChange={e => setDeliver(d => ({ ...d, cloud: e.target.checked }))}
-                      className="mt-0.5 w-4 h-4 rounded accent-[#137fec] cursor-pointer" />
-                    <Save size={16} className="text-slate-400 mt-0.5 flex-shrink-0" />
-                    <div className="flex-1">
+                      className="mt-1 sm:mt-0.5 w-4 h-4 rounded accent-[#137fec] cursor-pointer" />
+                    <Save size={16} className="text-slate-400 mt-1 sm:mt-0.5 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-slate-700">Save to Connect Cloud</p>
                       {driveLinks[templateId]
                         ? <button onClick={(e) => { e.preventDefault(); openExternal(driveLinks[templateId]); }}
@@ -1471,31 +1506,31 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
 
                   {/* Email to patient */}
                   <div className="rounded-xl border border-slate-200 overflow-hidden">
-                    <label className="flex items-start gap-3 p-3 cursor-pointer hover:bg-slate-50 transition-colors">
+                    <label className="flex items-start gap-3 p-2.5 sm:p-3 cursor-pointer hover:bg-slate-50 transition-colors">
                       <input type="checkbox" checked={deliver.email}
                         onChange={e => setDeliver(d => ({ ...d, email: e.target.checked }))}
-                        className="mt-0.5 w-4 h-4 rounded accent-[#137fec] cursor-pointer" />
-                      <Mail size={16} className="text-slate-400 mt-0.5 flex-shrink-0" />
-                      <div className="flex-1">
+                        className="mt-1 sm:mt-0.5 w-4 h-4 rounded accent-[#137fec] cursor-pointer" />
+                      <Mail size={16} className="text-slate-400 mt-1 sm:mt-0.5 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-slate-700">Email to patient</p>
                         <p className="text-xs text-slate-400 mt-0.5">PDF attached. Review the message below.</p>
                       </div>
                     </label>
                     {deliver.email && (
-                      <div className="px-4 pb-4 pt-1 space-y-2 bg-slate-50/60 border-t border-slate-100">
+                      <div className="px-3 sm:px-4 pb-3 sm:pb-4 pt-1 space-y-1.5 sm:space-y-2 bg-slate-50/60 border-t border-slate-100">
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 block mb-1">To</label>
+                          <label className="text-xs font-semibold text-slate-500 block mb-0.5">To</label>
                           <input type="email" value={emailForm.to} onChange={e => setEmailForm(f => ({ ...f, to: e.target.value }))}
                             placeholder="patient@example.com"
                             className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#137fec] outline-none" />
                         </div>
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 block mb-1">Subject</label>
+                          <label className="text-xs font-semibold text-slate-500 block mb-0.5">Subject</label>
                           <input type="text" value={emailForm.subject} onChange={e => setEmailForm(f => ({ ...f, subject: e.target.value }))}
                             className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#137fec] outline-none" />
                         </div>
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 block mb-1">Message</label>
+                          <label className="text-xs font-semibold text-slate-500 block mb-0.5">Message</label>
                           <textarea value={emailForm.body} onChange={e => setEmailForm(f => ({ ...f, body: e.target.value }))} rows={2}
                             className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#137fec] outline-none resize-none" />
                         </div>
@@ -1508,26 +1543,26 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
 
                   {/* WhatsApp to patient (text-only) */}
                   <div className="rounded-xl border border-slate-200 overflow-hidden">
-                    <label className="flex items-start gap-3 p-3 cursor-pointer hover:bg-slate-50 transition-colors">
+                    <label className="flex items-start gap-3 p-2.5 sm:p-3 cursor-pointer hover:bg-slate-50 transition-colors">
                       <input type="checkbox" checked={deliver.whatsapp}
                         onChange={e => setDeliver(d => ({ ...d, whatsapp: e.target.checked }))}
-                        className="mt-0.5 w-4 h-4 rounded accent-[#137fec] cursor-pointer" />
-                      <MessageSquare size={16} className="text-slate-400 mt-0.5 flex-shrink-0" />
-                      <div className="flex-1">
+                        className="mt-1 sm:mt-0.5 w-4 h-4 rounded accent-[#137fec] cursor-pointer" />
+                      <MessageSquare size={16} className="text-slate-400 mt-1 sm:mt-0.5 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-slate-700">WhatsApp to patient</p>
                         <p className="text-xs text-slate-400 mt-0.5">Text notification{driveLinks[templateId] ? ' with the Cloud link' : ''}. Review below.</p>
                       </div>
                     </label>
                     {deliver.whatsapp && (
-                      <div className="px-4 pb-4 pt-1 space-y-2 bg-slate-50/60 border-t border-slate-100">
+                      <div className="px-3 sm:px-4 pb-3 sm:pb-4 pt-1 space-y-1.5 sm:space-y-2 bg-slate-50/60 border-t border-slate-100">
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 block mb-1">Phone</label>
+                          <label className="text-xs font-semibold text-slate-500 block mb-0.5">Phone</label>
                           <input type="text" value={waForm.to} onChange={e => setWaForm(f => ({ ...f, to: e.target.value }))}
                             placeholder="+91 98765 43210"
                             className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#137fec] outline-none" />
                         </div>
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 block mb-1">Message</label>
+                          <label className="text-xs font-semibold text-slate-500 block mb-0.5">Message</label>
                           <textarea value={waForm.text} onChange={e => setWaForm(f => ({ ...f, text: e.target.value }))} rows={2}
                             className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#137fec] outline-none resize-none" />
                         </div>
@@ -1557,7 +1592,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
         </div>
 
         {/* Footer */}
-        <div className="flex-shrink-0 flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-t border-slate-100 bg-slate-50">
+        <div className="flex-shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between px-3 sm:px-6 py-2.5 sm:py-4 border-t border-slate-100 bg-slate-50 gap-2.5 sm:gap-0">
           <p className="hidden sm:block text-xs text-slate-400 truncate">
             {stage === 'done'
               ? deliverySucceeded
@@ -1571,13 +1606,13 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
             {stage === 'done' && !deliverySucceeded && (
               <>
                 <button onClick={resetState}
-                  className="px-4 py-2 sm:py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+                  className="px-4 py-2.5 sm:py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors flex-1 sm:flex-none">
                   Record Again
                 </button>
                 <button
                   onClick={handleApproveAndSend}
                   disabled={delivering || (!deliver.cloud && !deliver.email && !deliver.whatsapp)}
-                  className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-[#137fec] rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="flex items-center justify-center gap-2 px-5 py-2.5 sm:py-2 text-sm font-semibold text-white bg-[#137fec] rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-1 sm:flex-none"
                 >
                   {delivering ? <Loader2 size={14} className="animate-spin" /> : <SendHorizonal size={14} />}
                   {delivering ? 'Sending…' : 'Approve & Send'}
@@ -1587,11 +1622,11 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
             {stage === 'done' && deliverySucceeded && (
               <>
                 <button onClick={resetState}
-                  className="px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+                  className="px-4 py-2.5 sm:py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors flex-1 sm:flex-none">
                   Record Again
                 </button>
                 <button onClick={handleClose}
-                  className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors">
+                  className="flex items-center justify-center gap-2 px-5 py-2.5 sm:py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors flex-1 sm:flex-none">
                   <CheckCircle size={14} /> Done
                 </button>
               </>

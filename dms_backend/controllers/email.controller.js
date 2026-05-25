@@ -487,6 +487,27 @@ export async function sendReportEmail(req, res) {
       event: 'manual',
     });
 
+    // Auto-verify Gmail integration since email sent successfully
+    try {
+      const IntegrationStatus = req.tenantModels.IntegrationStatus;
+      await IntegrationStatus.findOneAndUpdate(
+        { integration: 'gmail' },
+        {
+          isVerified: true,
+          isConfigured: true,
+          lastVerified: new Date(),
+          lastError: null,
+          'testDetails.testStatus': 'success',
+          'testDetails.lastTestDate': new Date(),
+          'testDetails.testMessage': 'Verified: Report email sent successfully',
+        },
+        { upsert: true }
+      );
+    } catch (err) {
+      console.error('[Email] Error updating integration status:', err.message);
+      // Don't fail the send if status update fails
+    }
+
     res.json({
       status: 'sent',
       to,

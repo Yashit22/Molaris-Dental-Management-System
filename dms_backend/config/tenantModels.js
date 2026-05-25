@@ -26,6 +26,7 @@ import { InventorySettingsSchema }  from '../models/InventorySettings.model.js';
 import { EmailTemplateSchema }      from '../models/EmailTemplate.model.js';
 import { EmailLogSchema }           from '../models/EmailLog.model.js';
 import { ReportJobSchema }          from '../models/ReportJob.model.js';
+import { ReportDeliverySettingsSchema } from '../models/ReportDeliverySettings.model.js';
 import { ClinicProfileSchema }      from '../models/ClinicProfile.model.js';
 import { BookingSettingsSchema }    from '../models/BookingSettings.model.js';
 import { InvoiceSettingsSchema }    from '../models/InvoiceSettings.model.js';
@@ -69,11 +70,12 @@ export function getTenantModels(conn) {
     InventorySettings:  getOrCreate('InventorySettings',  InventorySettingsSchema),
     EmailTemplate:      getOrCreate('EmailTemplate',      EmailTemplateSchema),
     EmailLog:           getOrCreate('EmailLog',           EmailLogSchema),
-    ReportJob:          getOrCreate('ReportJob',          ReportJobSchema),
-    ClinicProfile:      getOrCreate('ClinicProfile',      ClinicProfileSchema),
-    BookingSettings:      getOrCreate('BookingSettings',      BookingSettingsSchema),
-    InvoiceSettings:      getOrCreate('InvoiceSettings',      InvoiceSettingsSchema),
-    PrescriptionSettings: getOrCreate('PrescriptionSettings', PrescriptionSettingsSchema),
+    ReportJob:                getOrCreate('ReportJob',                ReportJobSchema),
+    ReportDeliverySettings:   getOrCreate('ReportDeliverySettings',   ReportDeliverySettingsSchema),
+    ClinicProfile:            getOrCreate('ClinicProfile',            ClinicProfileSchema),
+    BookingSettings:          getOrCreate('BookingSettings',          BookingSettingsSchema),
+    InvoiceSettings:          getOrCreate('InvoiceSettings',          InvoiceSettingsSchema),
+    PrescriptionSettings:     getOrCreate('PrescriptionSettings',     PrescriptionSettingsSchema),
   };
 
   return conn._dmsModels;

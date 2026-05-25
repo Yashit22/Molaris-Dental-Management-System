@@ -42,13 +42,47 @@ api.interceptors.request.use((config) => {
     config.baseURL      = API_FALLBACK_URL;
     config._usedFallback = true;
   }
+
+  // Log request details for debugging
+  if (config.url.includes('delivery-settings')) {
+    console.log('[API Request]', {
+      method: config.method?.toUpperCase(),
+      url: config.url,
+      baseURL: config.baseURL,
+      fullUrl: new URL(config.url, config.baseURL).toString(),
+      hasToken: !!token,
+    });
+  }
+
   return config;
 });
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if (response.config.url?.includes('delivery-settings')) {
+      console.log('[API Response]', {
+        method: response.config.method?.toUpperCase(),
+        url: response.config.url,
+        status: response.status,
+        data: response.data,
+      });
+    }
+    return response;
+  },
   (error) => {
     const config = error.config;
+
+    // Log error details for delivery-settings requests
+    if (config?.url?.includes('delivery-settings')) {
+      console.error('[API Error]', {
+        method: config.method?.toUpperCase(),
+        url: config.url,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        message: error.message,
+      });
+    }
 
     // 4xx/5xx — server responded, don't retry
     if (error.response) {

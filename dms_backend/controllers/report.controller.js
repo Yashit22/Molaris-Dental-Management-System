@@ -585,12 +585,36 @@ export async function generateReport(req, res) {
           const dateFolderId   = await createSubfolder(credentials, clinicalNotesFolderId, dateFolderName);
           const dateStr  = new Date().toISOString().slice(0, 10);
 
+          // Fetch delivery settings for PDF branding
+          const ds = await fetchDeliverySettings(req.tenantModels);
+          const pdfEnabled = ds.pdf?.enabled ?? false;
+
           // Upload each report to Drive
           for (const template of templates) {
             const reportText = reports[template.id];
             if (!reportText) continue;
-            const filename = `${template.name}_${patientName}_${dateStr}.txt`;
-            const uploaded = await uploadTextToDrive(credentials, dateFolderId, reportText, filename);
+
+            let uploaded;
+            if (pdfEnabled) {
+              // Generate branded PDF
+              const pdfBuffer = await generateReportPdf(reportText, {
+                templateName: template.name,
+                patientName,
+                doctorName: req.user?.name || 'Attending Doctor',
+                clinicName:    ds.pdf?.clinicName    || '',
+                clinicTagline: ds.pdf?.clinicTagline || '',
+                clinicAddress: ds.pdf?.clinicAddress || '',
+                clinicPhone:   ds.pdf?.clinicPhone   || '',
+                clinicEmail:   ds.pdf?.clinicEmail   || '',
+              });
+              const filename = `${template.name}_${patientName}_${dateStr}.pdf`;
+              uploaded = await uploadPdfToDrive(credentials, dateFolderId, pdfBuffer, filename);
+            } else {
+              // Upload as plain text
+              const filename = `${template.name}_${patientName}_${dateStr}.txt`;
+              uploaded = await uploadTextToDrive(credentials, dateFolderId, reportText, filename);
+            }
+
             if (uploaded) {
               drive_links[template.id] = uploaded.webViewLink;
               fileRecords.push({
@@ -598,7 +622,7 @@ export async function generateReport(req, res) {
                 category:      'Clinical Notes',
                 drive_file_id: uploaded.id,
                 web_view_link: uploaded.webViewLink,
-                mime_type:     'text/plain',
+                mime_type:     pdfEnabled ? 'application/pdf' : 'text/plain',
               });
             }
           }
@@ -751,7 +775,11 @@ async function uploadPdfToDrive(credentials, folderId, pdfBuffer, filename) {
 async function fetchDeliverySettings(tenantModels) {
   const { ReportDeliverySettings } = tenantModels;
   let s = await ReportDeliverySettings.findOne();
-  if (!s) s = await ReportDeliverySettings.create({});
+  if (!s) {
+    console.log('[fetchDeliverySettings] No settings found, creating default');
+    s = await ReportDeliverySettings.create({});
+  }
+  console.log('[fetchDeliverySettings] Retrieved:', { pdfEnabled: s.pdf?.enabled, clinicName: s.pdf?.clinicName, clinicPhone: s.pdf?.clinicPhone });
   return s;
 }
 
@@ -784,6 +812,7 @@ export async function getReportDeliverySettings(req, res) {
     if (!settings) settings = await ReportDeliverySettings.create({});
     res.json(settings);
   } catch (err) {
+    console.error('[getReportDeliverySettings]', err.message);
     res.status(500).json({ error: err.message });
   }
 }
@@ -793,13 +822,16 @@ export async function saveReportDeliverySettings(req, res) {
   try {
     const { ReportDeliverySettings } = req.tenantModels;
     const { _id, __v, createdAt, updatedAt, ...body } = req.body;
+    console.log('[saveReportDeliverySettings] Incoming body:', JSON.stringify(body, null, 2));
     const settings = await ReportDeliverySettings.findOneAndUpdate(
       {},
       { $set: body },
       { new: true, upsert: true, runValidators: true },
     );
+    console.log('[saveReportDeliverySettings] Saved settings:', { pdfEnabled: settings.pdf?.enabled, clinicName: settings.pdf?.clinicName });
     res.json(settings);
   } catch (err) {
+    console.error('[saveReportDeliverySettings] Error:', err.message);
     res.status(400).json({ error: err.message });
   }
 }
@@ -822,6 +854,7 @@ export async function saveReportToDrive(req, res) {
     const doctorName   = req.user?.name || 'Attending Doctor';
     const ds = await fetchDeliverySettings(req.tenantModels);
     const pdfEnabled = ds.pdf?.enabled ?? false;
+    console.log('[Report] Delivery Settings:', { pdfEnabled, clinicName: ds.pdf?.clinicName, clinicEmail: ds.pdf?.clinicEmail });
     if (!patient.drive_folders?.root) {
       patient.drive_folders = await createPatientDriveFolders(credentials, patient.patientId, patientName);
       await patient.save();
@@ -847,6 +880,28 @@ export async function saveReportToDrive(req, res) {
       uploaded = await uploadFileToDrive(credentials, dateFolderId, textBuffer, `${templateName}_${patientName}_${dateStr}.txt`, 'text/plain');
     }
     await ReportJob.findByIdAndUpdate(jobId, { $set: { [`driveLinks.${templateName}`]: uploaded.webViewLink } });
+
+    // Auto-verify Google Drive integration since save succeeded
+    try {
+      const IntegrationStatus = req.tenantModels.IntegrationStatus;
+      await IntegrationStatus.findOneAndUpdate(
+        { integration: 'google_drive' },
+        {
+          isVerified: true,
+          isConfigured: true,
+          lastVerified: new Date(),
+          lastError: null,
+          'testDetails.testStatus': 'success',
+          'testDetails.lastTestDate': new Date(),
+          'testDetails.testMessage': 'Verified: Report successfully saved to Drive',
+        },
+        { upsert: true }
+      );
+    } catch (err) {
+      console.error('[Report] Error updating integration status:', err.message);
+      // Don't fail the save if status update fails
+    }
+
     res.json({ success: true, webViewLink: uploaded.webViewLink, pdfEnabled });
   } catch (err) {
     res.status(500).json({ error: err.message });
