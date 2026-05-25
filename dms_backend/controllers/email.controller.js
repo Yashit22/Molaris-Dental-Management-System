@@ -641,38 +641,10 @@ export async function triggerAppointmentCompleted({ tenantModels, patientId, app
 
     const patientName = `${patient.first_name} ${patient.last_name || ''}`.trim();
     const today   = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-    const dateStr = new Date().toISOString().slice(0, 10);
-    const include = eventCfg.include || {};
     const attachments = [];
 
-    if (include.smartReport || include.prescription) {
-      const visit = await Visit.findOne({ patient_id: patientId }).sort({ date: -1 }).lean();
-      if (visit) {
-        const pdf = await generateVisitSummaryPdf(visit, patientName, doctorName || 'Attending Doctor', today);
-        attachments.push({ filename: `VisitSummary_${patientName}_${dateStr}.pdf`, content: pdf, contentType: 'application/pdf' });
-      }
-    }
-
-    if (include.invoice) {
-      const invoice = await Invoice.findOne({ patient_id: patientId }).sort({ createdAt: -1 }).lean();
-      if (invoice) {
-        const pdf = await generateInvoicePdf(invoice, patientName);
-        attachments.push({ filename: `Invoice_${invoice.invoice_id}_${patientName}_${dateStr}.pdf`, content: pdf, contentType: 'application/pdf' });
-      }
-    }
-
-    if (include.aiReport && ReportJob) {
-      let job = appointmentId
-        ? await ReportJob.findOne({ patientId, appointmentId, status: 'done' }).sort({ createdAt: -1 }).lean()
-        : null;
-      if (!job) job = await ReportJob.findOne({ patientId, status: 'done' }).sort({ createdAt: -1 }).lean();
-      if (job?.reportText) {
-        const pdf = await generateReportPdf(job.reportText, { patientName, doctorName: doctorName || 'Attending Doctor', date: today, templateName: job.templateId || 'Clinical Report' });
-        attachments.push({ filename: `AIReport_${patientName}_${dateStr}.pdf`, content: pdf, contentType: 'application/pdf' });
-      }
-    }
-
-    if (!attachments.length) return;
+    // Document sharing is manual only (via Clinical Report Modal or Treatment page)
+    // No automatic attachments for appointment completed automation
 
     // Fetch clinic branding for HTML email
     const clinic = await getClinicVars(tenantModels);
@@ -706,18 +678,16 @@ export async function triggerAppointmentCompleted({ tenantModels, patientId, app
         tenantModels,
         eventType: 'appointmentCompleted',
         data: vars,
-        defaultSubject: `Your appointment summary — ${today}`,
-        defaultBody:    `Dear {{first_name}},\n\nThank you for visiting us. Please find your appointment documents attached.\n\nWarm regards,\n{{doctor}}\n{{clinic}}`,
+        defaultSubject: `Thank you for your visit — ${today}`,
+        defaultBody:    `Dear {{first_name}},\n\nThank you for visiting us today. If you need any documents or reports, please contact our clinic.\n\nWarm regards,\n{{doctor}}\n{{clinic}}`,
       }));
     }
 
     // Build rich HTML version
-    const attachmentInfo = attachments.map(a => a.filename).join(', ');
     const html = buildRichHtml(body, {
       clinicName:  clinic.clinic_name,
       clinicPhone: clinic.clinic_phone,
       clinicEmail: settings.fromEmail || '',
-      attachmentInfo,
     });
 
     const delayMs = (eventCfg.delayMinutes || 0) * 60 * 1000;
