@@ -15,6 +15,11 @@ export function UserProvider({ children }) {
   const loadProfile = async () => {
     try {
       setLoading(true);
+      const token = localStorage.getItem('dms_token');
+      if (!token) {
+        setLoading(false);
+        return;
+      }
       const res = await API.get('/users/profile');
       setUser(res.data.user);
       setTenant(res.data.tenant);
