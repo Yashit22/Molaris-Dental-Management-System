@@ -529,7 +529,7 @@ export async function getPatientEmailStatus(req, res) {
 
 export async function sendTreatmentSummary(req, res) {
   const { EmailSettings, Patient, Visit, Invoice, ReportJob } = req.tenantModels;
-  const { patient_id, to, include = [] } = req.body;
+  const { patient_id, to, include = [], subject: customSubject, body: customBody } = req.body;
 
   if (!patient_id || !to) {
     return res.status(400).json({ error: 'patient_id and to are required' });
@@ -589,22 +589,9 @@ export async function sendTreatmentSummary(req, res) {
       return res.status(400).json({ error: 'No content found for the selected items. Generate a visit, invoice, or AI report first.' });
     }
 
-    // Build subject + body from the appointmentCompleted template (with variable substitution)
-    const templateData = {
-      name:        patientName,
-      first_name:  patient.first_name,
-      doctor:      doctorName,
-      date:        today,
-      treatments:  treatmentNames.join(', ') || 'your recent treatment',
-    };
-
-    const { subject, body } = await buildEmailMessage({
-      tenantModels: req.tenantModels,
-      eventType: 'appointmentCompleted',
-      data: templateData,
-      defaultSubject: `Your visit summary — ${today}`,
-      defaultBody:    `Dear {{first_name}},\n\nThank you for visiting us. Please find your appointment documents attached.\n\nWarm regards,\n{{doctor}}\n{{clinic}}`,
-    });
+    // Use custom subject/body if provided (from user editing), otherwise use defaults
+    const subject = (customSubject || '').trim() || `Your visit summary — ${today}`;
+    const body = (customBody || '').trim() || `Dear {{first_name}},\n\nThank you for visiting us. Please find your appointment documents attached.\n\nWarm regards,\n{{doctor}}`;
 
     const result = await sendEmail({
       tenantModels: req.tenantModels,
@@ -614,7 +601,7 @@ export async function sendTreatmentSummary(req, res) {
       text: body,
       attachments,
       patientId: patient_id,
-      event: 'appointmentCompleted',
+      event: 'manual',
     });
 
     res.json({ status: 'sent', to, messageId: result.messageId, attachments: attachments.map(a => a.filename) });

@@ -241,6 +241,272 @@ function DoctorScheduleModal({ doctor, onClose, onSaved }) {
   );
 }
 
+// ─── Invoice Settings (now part of Share with Patient tab) ──────────────────
+
+function InvoiceSettingsTab() {
+  const inputCls = 'w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 focus:ring-2 focus:ring-[#137fec] outline-none';
+
+  const [form, setForm] = React.useState({
+    clinic: { name: '', addressLines: ['', ''], phone: '', email: '', gstNumber: '', logoUrl: '' },
+    currencySymbol: '₹',
+    tax: { label: 'Tax', defaultRatePct: 0, show: true },
+    invoiceNumber: { prefix: 'INV' },
+    showPaidPending: true,
+    footerText: '',
+    termsText: '',
+  });
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+  const [banner, setBanner] = React.useState(null);
+
+  React.useEffect(() => {
+    API.get('/settings/invoice')
+      .then(r => {
+        if (r.data && Object.keys(r.data).length > 0) {
+          const { _id, __v, createdAt, updatedAt, ...data } = r.data;
+          setForm(prev => ({
+            ...prev,
+            ...data,
+            clinic:        { ...prev.clinic,        ...(data.clinic        || {}) },
+            tax:           { ...prev.tax,           ...(data.tax           || {}) },
+            invoiceNumber: { ...prev.invoiceNumber, ...(data.invoiceNumber || {}) },
+          }));
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    setBanner(null);
+    try {
+      const { _id, __v, createdAt, updatedAt, ...payload } = form;
+      await API.put('/settings/invoice', payload);
+      setBanner({ ok: true, msg: 'Invoice settings saved.' });
+    } catch (err) {
+      setBanner({ ok: false, msg: err.response?.data?.message || err.message });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function setClinic(field, val) {
+    setForm(f => ({ ...f, clinic: { ...f.clinic, [field]: val } }));
+  }
+  function setAddressLine(idx, val) {
+    const lines = [...(form.clinic.addressLines || ['', ''])];
+    lines[idx] = val;
+    setForm(f => ({ ...f, clinic: { ...f.clinic, addressLines: lines } }));
+  }
+
+  if (loading) return <div className="text-center py-12 text-slate-500">Loading…</div>;
+
+  return (
+    <div className="space-y-8">
+      <h3 className="text-lg font-bold text-slate-800 dark:text-white">Invoice Branding & Settings</h3>
+
+      {/* Clinic / Branding */}
+      <section className="space-y-4">
+        <h4 className="text-sm font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wide border-b border-slate-100 dark:border-slate-700 pb-1">
+          Clinic / Branding
+        </h4>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="col-span-2">
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Clinic Name</label>
+            <input type="text" value={form.clinic.name} onChange={e => setClinic('name', e.target.value)} placeholder="City Dental Clinic" className={inputCls} />
+          </div>
+          <div className="col-span-2">
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Address Line 1</label>
+            <input type="text" value={(form.clinic.addressLines || [])[0] || ''} onChange={e => setAddressLine(0, e.target.value)} placeholder="123, Main Street" className={inputCls} />
+          </div>
+          <div className="col-span-2">
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Address Line 2</label>
+            <input type="text" value={(form.clinic.addressLines || [])[1] || ''} onChange={e => setAddressLine(1, e.target.value)} placeholder="Mumbai, Maharashtra 400001" className={inputCls} />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Phone</label>
+            <input type="text" value={form.clinic.phone} onChange={e => setClinic('phone', e.target.value)} placeholder="+91 98765 43210" className={inputCls} />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Email</label>
+            <input type="email" value={form.clinic.email} onChange={e => setClinic('email', e.target.value)} placeholder="clinic@example.com" className={inputCls} />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">GST Number</label>
+            <input type="text" value={form.clinic.gstNumber} onChange={e => setClinic('gstNumber', e.target.value)} placeholder="27AAAAA0000A1Z5" className={inputCls} />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Logo URL (optional)</label>
+            <input type="url" value={form.clinic.logoUrl} onChange={e => setClinic('logoUrl', e.target.value)} placeholder="https://…/logo.png" className={inputCls} />
+          </div>
+        </div>
+      </section>
+
+      {/* Tax */}
+      <section className="space-y-4">
+        <h4 className="text-sm font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wide border-b border-slate-100 dark:border-slate-700 pb-1">
+          Tax
+        </h4>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Tax Label</label>
+            <input type="text" value={form.tax?.label || 'Tax'} onChange={e => setForm(f => ({ ...f, tax: { ...f.tax, label: e.target.value } }))} placeholder="GST / Tax" className={inputCls} />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Default Rate (%)</label>
+            <input type="number" min="0" max="100" step="0.01" value={form.tax?.defaultRatePct ?? 0} onChange={e => setForm(f => ({ ...f, tax: { ...f.tax, defaultRatePct: Number(e.target.value) } }))} className={inputCls} />
+          </div>
+        </div>
+      </section>
+
+      {/* Footer & Terms */}
+      <section className="space-y-4">
+        <h4 className="text-sm font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wide border-b border-slate-100 dark:border-slate-700 pb-1">
+          Footer & Terms
+        </h4>
+        <div>
+          <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Footer Text</label>
+          <textarea rows={2} value={form.footerText} onChange={e => setForm(f => ({ ...f, footerText: e.target.value }))} placeholder="Thank you for choosing us!" className={`${inputCls} resize-none`} />
+        </div>
+      </section>
+
+      <div className="flex items-center gap-4 pt-2">
+        <button onClick={save} disabled={saving} className="px-6 py-2.5 bg-[#137fec] hover:bg-blue-600 text-white font-semibold rounded-xl text-sm transition-colors disabled:opacity-60">
+          {saving ? 'Saving…' : 'Save Invoice Settings'}
+        </button>
+        {banner && (
+          <p className={`text-sm font-medium flex items-center gap-1.5 ${banner.ok ? 'text-green-600' : 'text-red-600'}`}>
+            {banner.ok ? <CheckCircle size={15} /> : <XCircle size={15} />}
+            {banner.msg}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Prescription Settings (now part of Share with Patient tab) ──────────────
+
+function PrescriptionSettingsTab() {
+  const inputCls = 'w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 focus:ring-2 focus:ring-[#137fec] outline-none';
+
+  const [form, setForm] = React.useState({
+    clinic: { name: '', tagline: '', addressLines: ['', ''], phone: '', email: '', logoUrl: '' },
+    footerText: '',
+  });
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+  const [banner, setBanner] = React.useState(null);
+
+  React.useEffect(() => {
+    API.get('/settings/prescription')
+      .then(r => {
+        if (r.data && Object.keys(r.data).length > 0) {
+          const { _id, __v, createdAt, updatedAt, ...data } = r.data;
+          setForm(prev => ({
+            ...prev,
+            ...data,
+            clinic: { ...prev.clinic, ...(data.clinic || {}) },
+          }));
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    setBanner(null);
+    try {
+      const { _id, __v, createdAt, updatedAt, ...payload } = form;
+      await API.put('/settings/prescription', payload);
+      setBanner({ ok: true, msg: 'Prescription settings saved.' });
+    } catch (err) {
+      setBanner({ ok: false, msg: err.response?.data?.message || err.message });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function setClinic(field, val) {
+    setForm(f => ({ ...f, clinic: { ...f.clinic, [field]: val } }));
+  }
+  function setAddressLine(idx, val) {
+    const lines = [...(form.clinic.addressLines || ['', ''])];
+    lines[idx] = val;
+    setForm(f => ({ ...f, clinic: { ...f.clinic, addressLines: lines } }));
+  }
+
+  if (loading) return <div className="text-center py-12 text-slate-500">Loading…</div>;
+
+  return (
+    <div className="space-y-8">
+      <h3 className="text-lg font-bold text-slate-800 dark:text-white">Prescription Branding & Settings</h3>
+
+      {/* Clinic / Branding */}
+      <section className="space-y-4">
+        <h4 className="text-sm font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wide border-b border-slate-100 dark:border-slate-700 pb-1">
+          Clinic / Branding
+        </h4>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="col-span-2">
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Clinic Name</label>
+            <input type="text" value={form.clinic.name} onChange={e => setClinic('name', e.target.value)} placeholder="City Dental Clinic" className={inputCls} />
+          </div>
+          <div className="col-span-2">
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Tagline (optional)</label>
+            <input type="text" value={form.clinic.tagline} onChange={e => setClinic('tagline', e.target.value)} placeholder="Your smile is our priority" className={inputCls} />
+          </div>
+          <div className="col-span-2">
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Address Line 1</label>
+            <input type="text" value={(form.clinic.addressLines || [])[0] || ''} onChange={e => setAddressLine(0, e.target.value)} placeholder="123, Main Street" className={inputCls} />
+          </div>
+          <div className="col-span-2">
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Address Line 2</label>
+            <input type="text" value={(form.clinic.addressLines || [])[1] || ''} onChange={e => setAddressLine(1, e.target.value)} placeholder="Mumbai, Maharashtra 400001" className={inputCls} />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Phone</label>
+            <input type="text" value={form.clinic.phone} onChange={e => setClinic('phone', e.target.value)} placeholder="+91 98765 43210" className={inputCls} />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Email</label>
+            <input type="email" value={form.clinic.email} onChange={e => setClinic('email', e.target.value)} placeholder="clinic@example.com" className={inputCls} />
+          </div>
+          <div className="col-span-2">
+            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Logo URL (optional)</label>
+            <input type="url" value={form.clinic.logoUrl} onChange={e => setClinic('logoUrl', e.target.value)} placeholder="https://…/logo.png" className={inputCls} />
+          </div>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <section className="space-y-4">
+        <h4 className="text-sm font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wide border-b border-slate-100 dark:border-slate-700 pb-1">
+          Footer
+        </h4>
+        <div>
+          <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Footer Text</label>
+          <textarea rows={2} value={form.footerText} onChange={e => setForm(f => ({ ...f, footerText: e.target.value }))} placeholder="This prescription is valid for 7 days." className={`${inputCls} resize-none`} />
+        </div>
+      </section>
+
+      <div className="flex items-center gap-4 pt-2">
+        <button onClick={save} disabled={saving} className="px-6 py-2.5 bg-[#137fec] hover:bg-blue-600 text-white font-semibold rounded-xl text-sm transition-colors disabled:opacity-60">
+          {saving ? 'Saving…' : 'Save Prescription Settings'}
+        </button>
+        {banner && (
+          <p className={`text-sm font-medium flex items-center gap-1.5 ${banner.ok ? 'text-green-600' : 'text-red-600'}`}>
+            {banner.ok ? <CheckCircle size={15} /> : <XCircle size={15} />}
+            {banner.msg}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Inventory Tab ────────────────────────────────────────────────────────────
 
 function ToggleSwitch({ enabled, onChange, disabled }) {
@@ -2045,6 +2311,8 @@ function PatientDocumentsTab() {
     { id: 'ai_report',     label: 'AI Report' },
     { id: 'send_email',    label: 'Send Email' },
     { id: 'send_whatsapp', label: 'Send WhatsApp' },
+    { id: 'invoice',       label: 'Invoice' },
+    { id: 'prescription',  label: 'Prescription' },
   ];
 
   const hasPreview = section !== 'send_whatsapp';
@@ -2101,6 +2369,8 @@ function PatientDocumentsTab() {
               {section === 'ai_report'     && <ReportDeliveryTab />}
               {section === 'send_email'    && <AIReportEmailSection />}
               {section === 'send_whatsapp' && <AIReportWhatsAppSection />}
+              {section === 'invoice'       && <InvoiceSettingsTab />}
+              {section === 'prescription'  && <PrescriptionSettingsTab />}
             </div>
           </div>
 
