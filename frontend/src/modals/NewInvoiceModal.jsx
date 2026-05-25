@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Trash2, Stethoscope, Pill, TestTube, Search, Loader2, Minus, ChevronUp } from 'lucide-react';
 import API from '../services/api';
 import { useInventorySettings } from '../Context/SettingsContext';
+import AddPatientModal from './AddPatientModal';
 
 // ── Patient search (used when no initialPatient is provided) ──────────────────
 const PatientSearchInput = ({ onSelect, onAddNew }) => {
@@ -10,6 +11,7 @@ const PatientSearchInput = ({ onSelect, onAddNew }) => {
   const [results, setResults] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [loading, setLoading] = useState(false);
+  const containerRef = useRef(null);
 
   useEffect(() => {
     const t = setTimeout(async () => {
@@ -25,8 +27,24 @@ const PatientSearchInput = ({ onSelect, onAddNew }) => {
     return () => clearTimeout(t);
   }, [query]);
 
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (containerRef.current && !containerRef.current.contains(event.target)) {
+        setShowDropdown(false);
+      }
+    };
+
+    if (showDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showDropdown]);
+
   return (
-    <div className="relative w-full">
+    <div className="relative w-full" ref={containerRef}>
       <div className="relative">
         <input
           autoFocus
@@ -36,7 +54,6 @@ const PatientSearchInput = ({ onSelect, onAddNew }) => {
           value={query}
           onChange={e => setQuery(e.target.value)}
           onFocus={() => query.length > 1 && setShowDropdown(true)}
-          onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
         />
         <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
           {loading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
@@ -133,49 +150,6 @@ const SearchableSelect = ({ placeholder, type, onSelect, initialValue = '' }) =>
   );
 };
 
-// ── Quick add patient modal ───────────────────────────────────────────────────
-const QuickAddPatientModal = ({ phone, onClose, onSave }) => {
-  const [name, setName] = useState('');
-  const [gender, setGender] = useState('Male');
-
-  const handleSave = async () => {
-    try {
-      const { data } = await API.post('/patients', {
-        first_name: name.split(' ')[0],
-        last_name: name.split(' ').slice(1).join(' ') || '',
-        contact: { mobile: phone },
-        gender,
-      });
-      onSave(data);
-    } catch { alert('Failed to create patient'); }
-  };
-
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/20 backdrop-blur-sm p-4">
-      <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-sm border border-slate-200">
-        <h3 className="font-bold text-lg mb-4 text-slate-800">New Patient</h3>
-        <div className="space-y-3">
-          <div>
-            <label className="text-xs font-bold text-slate-500 uppercase">Phone</label>
-            <input disabled value={phone} className="w-full border p-2 rounded bg-slate-100 text-slate-500 text-sm" />
-          </div>
-          <div>
-            <label className="text-xs font-bold text-slate-500 uppercase">Full Name</label>
-            <input autoFocus value={name} onChange={e => setName(e.target.value)} className="w-full border p-2 rounded text-sm focus:outline-none focus:border-[#137fec]" />
-          </div>
-          <div>
-            <label className="text-xs font-bold text-slate-500 uppercase">Gender</label>
-            <select value={gender} onChange={e => setGender(e.target.value)} className="w-full border p-2 rounded text-sm bg-white focus:outline-none">
-              <option>Male</option><option>Female</option><option>Other</option>
-            </select>
-          </div>
-          <button onClick={handleSave} className="w-full bg-[#137fec] text-white py-2 rounded-lg font-bold hover:bg-blue-600">Create Patient</button>
-          <button onClick={onClose} className="w-full text-slate-400 text-xs hover:text-slate-600">Cancel</button>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // ── Main Modal ────────────────────────────────────────────────────────────────
 /**
@@ -210,7 +184,6 @@ export default function NewInvoiceModal({
   const [submitting, setSubmitting] = useState(false);
   const [attempted, setAttempted] = useState(false);
   const [showAddPatient, setShowAddPatient] = useState(false);
-  const [addPatientQuery, setAddPatientQuery] = useState('');
 
   // Reset & pre-fill when modal opens
   useEffect(() => {
@@ -371,8 +344,8 @@ export default function NewInvoiceModal({
 
   return createPortal(
     <>
-      <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[300] flex justify-end">
-        <div className="w-full max-w-2xl bg-white h-full shadow-2xl flex flex-col">
+      <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[300] flex justify-end" onClick={onClose}>
+        <div className="w-full max-w-2xl bg-white h-full shadow-2xl flex flex-col" onClick={(e) => e.stopPropagation()}>
 
           {/* Header */}
           <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
@@ -407,7 +380,7 @@ export default function NewInvoiceModal({
                     <div className="mt-1">
                       <PatientSearchInput
                         onSelect={p => setPatientInfo({ name: `${p.first_name} ${p.last_name || ''}`.trim(), phone: p.contact?.mobile || p.phone || '', id: p._id })}
-                        onAddNew={q => { setAddPatientQuery(q); setShowAddPatient(true); }}
+                        onAddNew={() => setShowAddPatient(true)}
                       />
                     </div>
                   </div>
@@ -555,16 +528,14 @@ export default function NewInvoiceModal({
         </div>
       </div>
 
-      {showAddPatient && (
-        <QuickAddPatientModal
-          phone={addPatientQuery}
-          onClose={() => setShowAddPatient(false)}
-          onSave={p => {
-            setShowAddPatient(false);
-            setPatientInfo({ name: `${p.first_name} ${p.last_name || ''}`.trim(), phone: p.contact?.mobile || '', id: p._id });
-          }}
-        />
-      )}
+      <AddPatientModal
+        isOpen={showAddPatient}
+        onClose={() => setShowAddPatient(false)}
+        onSave={p => {
+          setShowAddPatient(false);
+          setPatientInfo({ name: `${p.first_name} ${p.last_name || ''}`.trim(), phone: p.contact?.mobile || '', id: p._id });
+        }}
+      />
     </>,
     document.body
   );

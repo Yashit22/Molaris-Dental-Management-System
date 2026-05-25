@@ -1633,8 +1633,8 @@ function EmailTab() {
                       <p className="text-xs text-slate-400 pt-1">Only documents that exist for the patient at the time of completion will be attached. If none exist, the email is skipped.</p>
                     </div>
                   )}
-                  </div>{/* end p-4 space-y-3 */}
-                </div>{/* end card */}
+                  </div>
+                </div>
               );
             })}
           </div>

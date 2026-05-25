@@ -1,16 +1,13 @@
 import { useState, useEffect } from 'react';
 import {
-  Search, Calendar, ChevronDown, Download, FileText,
+  Search, Calendar, Download,
   ArrowUpRight, Wallet, Building2,
   Printer
 } from 'lucide-react';
 import API from '../services/api';
-import { exportSheet } from '../utils/spreadsheet';
 
 const TransactionsPage = () => {
   const [activeTab, setActiveTab] = useState('Statement');
-  const [showExportMenu, setShowExportMenu] = useState(false);
-  const [exportBusy, setExportBusy] = useState(false);
 
   // Filter States
   const [dateFilterLabel, setDateFilterLabel] = useState('This Month'); // Controls the button text
@@ -213,72 +210,7 @@ const TransactionsPage = () => {
     document.body.removeChild(link);
   };
 
-  const exportBaseName = () =>
-    `Transactions_${activeTab}_${dateFilterLabel.replace(/[\s\-]/g, '_')}`;
 
-  const exportHeaders = ['No.', 'Date', 'Party', 'Type', 'Category', 'Mode', 'Amount'];
-  const exportRows = () =>
-    filteredTransactions.map((txn, i) => [
-      i + 1, txn.date, txn.party, txn.type, txn.category, txn.method, txn.amount,
-    ]);
-
-  const guardEmpty = () => {
-    if (filteredTransactions.length === 0) {
-      alert('No transactions to export.');
-      return true;
-    }
-    return false;
-  };
-
-  // Excel (.xlsx) — opens directly in Google Sheets / Excel
-  const handleExportExcel = () => {
-    if (guardEmpty()) return;
-    exportSheet(exportBaseName(), exportHeaders, exportRows(), 'xlsx');
-    setShowExportMenu(false);
-  };
-
-  // "Google Sheets" — download .xlsx and open a blank Sheet to import into
-  const handleExportGoogleSheets = () => {
-    if (guardEmpty()) return;
-    exportSheet(exportBaseName(), exportHeaders, exportRows(), 'xlsx');
-    window.open('https://sheets.new', '_blank', 'noopener');
-    setShowExportMenu(false);
-  };
-
-  const handleExportPDF = async () => {
-    if (guardEmpty()) return;
-    setExportBusy(true);
-    try {
-      const rows = filteredTransactions.map(t => ({
-        date: t.date, party: t.party, type: t.type,
-        category: t.category, method: t.method, amount: t.amount,
-      }));
-      const res = await API.post(
-        '/transactions/export/pdf',
-        { rows, title: `Transactions — ${activeTab} (${dateFilterLabel})` },
-        { responseType: 'blob' }
-      );
-      const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `${exportBaseName()}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('PDF export failed:', err);
-      alert('Could not generate PDF. Please try again.');
-    } finally {
-      setExportBusy(false);
-      setShowExportMenu(false);
-    }
-  };
-
-  const handleExportCSVMenu = () => {
-    handleExportCSV();
-    setShowExportMenu(false);
-  };
 
   return (
       <div className="flex flex-col min-h-full md:h-full relative">
@@ -304,7 +236,7 @@ const TransactionsPage = () => {
               </div>
             </div>
             <div className="p-4 bg-white dark:bg-card-dark rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4">
-              <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-xl text-purple-600"><FileText size={28} /></div>
+              <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-xl text-purple-600"><Wallet size={28} /></div>
               <div>
                 <p className="text-slate-500 text-sm font-medium">Cash</p>
                 <h3 className="text-2xl font-bold text-slate-900 dark:text-white">₹{cashAmount.toLocaleString()}</h3>
@@ -351,10 +283,9 @@ const TransactionsPage = () => {
                 className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-300 text-sm hover:border-[#137fec] transition-colors w-full sm:w-auto sm:min-w-[180px] justify-between shadow-sm"
               >
                 <span className="flex items-center gap-2 text-nowrap">
-                  <Calendar size={18} className="text-[#137fec]" /> 
+                  <Calendar size={18} className="text-[#137fec]" />
                   {dateFilterLabel.length > 25 ? dateFilterLabel.substring(0, 22) + '...' : dateFilterLabel}
                 </span>
-                <ChevronDown size={16} />
               </button>
 
               {showDateMenu && (
@@ -501,43 +432,15 @@ const TransactionsPage = () => {
           </div>
         </div>
 
-        {/* Export FAB + menu */}
-        <div className="fixed bottom-8 right-8 z-30 md:absolute">
-          {showExportMenu && (
-            <>
-              <div
-                className="fixed inset-0 z-0"
-                onClick={() => setShowExportMenu(false)}
-              />
-              <div className="relative z-10 mb-3 w-48 bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-                {[
-                  { label: 'CSV (.csv)', fn: handleExportCSVMenu },
-                  { label: 'Excel (.xlsx)', fn: handleExportExcel },
-                  { label: 'PDF (.pdf)', fn: handleExportPDF },
-                  { label: 'Google Sheets', fn: handleExportGoogleSheets },
-                ].map(opt => (
-                  <button
-                    key={opt.label}
-                    onClick={opt.fn}
-                    disabled={exportBusy}
-                    className="w-full text-left px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 flex items-center gap-2"
-                  >
-                    <FileText size={16} className="text-[#137fec]" />
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-          <div className="relative z-10 flex justify-end">
+        {/* Export CSV FAB */}
+        <div className="fixed bottom-8 right-8 flex flex-col gap-4 z-30 items-end md:absolute">
+          <div className="group flex items-center justify-end">
             <button
-              onClick={() => setShowExportMenu(v => !v)}
-              disabled={exportBusy}
-              className="flex items-center justify-center gap-2 bg-[#137fec] hover:bg-blue-700 text-white h-12 px-5 rounded-full transition-all duration-300 shadow-lg whitespace-nowrap disabled:opacity-70"
+              onClick={handleExportCSV}
+              className="flex items-center justify-center bg-[#137fec] hover:bg-blue-700 text-white h-12 w-12 group-hover:w-auto group-hover:px-4 rounded-full transition-all duration-300 shadow-lg overflow-hidden whitespace-nowrap"
             >
               <Download size={20} className="flex-shrink-0" />
-              <span className="font-medium text-sm">{exportBusy ? 'Exporting…' : 'Export'}</span>
-              <ChevronDown size={16} className={`transition-transform ${showExportMenu ? 'rotate-180' : ''}`} />
+              <span className="w-0 group-hover:w-auto opacity-0 group-hover:opacity-100 group-hover:ml-2 transition-all duration-300 font-medium text-sm">Export CSV</span>
             </button>
           </div>
         </div>

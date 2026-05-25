@@ -9,10 +9,12 @@ const AddPatientModal = ({ isOpen, onClose, onSave }) => {
   const [formData, setFormData] = useState({
     name: '',
     mobile: '',
+    email: '',
     gender: '',
     bloodGroup: '',
     dob: '',
-    location: '',
+    address: '',
+    city: '',
     reference: '',
     history: '', // Comma separated string
     notes: ''
@@ -53,7 +55,9 @@ const AddPatientModal = ({ isOpen, onClose, onSave }) => {
         blood_group: formData.bloodGroup,
         contact: {
           mobile: fullMobile,
-          city: formData.location
+          email: formData.email,
+          address: formData.address,
+          city: formData.city
         },
         reference_source: formData.reference,
         general_notes: formData.notes,
@@ -69,8 +73,8 @@ const AddPatientModal = ({ isOpen, onClose, onSave }) => {
       
       // Reset & Close
       setFormData({
-        name: '', mobile: '', gender: '', bloodGroup: '', dob: '',
-        location: '', reference: '', history: '', notes: ''
+        name: '', mobile: '', email: '', gender: '', bloodGroup: '', dob: '',
+        address: '', city: '', reference: '', history: '', notes: ''
       });
       onClose();
 
@@ -84,7 +88,7 @@ const AddPatientModal = ({ isOpen, onClose, onSave }) => {
 
   return (
     // Overlay
-    <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/20 backdrop-blur-sm transition-opacity" onClick={onClose}>
+    <div className="fixed inset-0 z-[500] flex justify-end bg-slate-900/20 backdrop-blur-sm transition-opacity" onClick={onClose}>
       
       {/* Modal / Slide-over Container */}
       <div 
