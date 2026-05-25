@@ -433,14 +433,14 @@ const TransactionsPage = () => {
         </div>
 
         {/* Export CSV FAB */}
-        <div className="fixed bottom-8 right-8 flex flex-col gap-4 z-30 items-end md:absolute">
+        <div className="fixed bottom-24 right-4 sm:bottom-8 sm:right-8 flex flex-col gap-4 z-30 items-end md:absolute md:bottom-8 md:right-8">
           <div className="group flex items-center justify-end">
             <button
               onClick={handleExportCSV}
-              className="flex items-center justify-center bg-[#137fec] hover:bg-blue-700 text-white h-12 w-12 group-hover:w-auto group-hover:px-4 rounded-full transition-all duration-300 shadow-lg overflow-hidden whitespace-nowrap"
+              className="flex items-center gap-2 px-4 py-3 bg-[#137fec] hover:bg-blue-700 text-white rounded-full transition-all duration-300 shadow-lg whitespace-nowrap"
             >
-              <Download size={20} className="flex-shrink-0" />
-              <span className="w-0 group-hover:w-auto opacity-0 group-hover:opacity-100 group-hover:ml-2 transition-all duration-300 font-medium text-sm">Export CSV</span>
+              <Download size={18} className="flex-shrink-0" />
+              <span className="text-sm font-medium">Export CSV</span>
             </button>
           </div>
         </div>
