@@ -6,12 +6,26 @@ import { getTenantModels } from '../config/tenantModels.js';
 // Helper: Load tenant DB models
 async function loadTenantModels(tenantId) {
   const analyticsDb = getAnalyticsDb();
-  const tenant = await analyticsDb.collection('tenants').findOne({
-    _id: new mongoose.Types.ObjectId(tenantId),
-  });
 
-  if (!tenant) throw new Error('Clinic not found');
+  let tenant;
+  try {
+    tenant = await analyticsDb.collection('tenants').findOne({
+      _id: new mongoose.Types.ObjectId(tenantId),
+    });
+  } catch (err) {
+    console.error(`[loadTenantModels] Invalid tenantId format: ${tenantId}`, err.message);
+    throw new Error('Invalid clinic ID format');
+  }
+
+  if (!tenant) {
+    console.error(`[loadTenantModels] Tenant not found with ID: ${tenantId}`);
+    throw new Error('Clinic not found');
+  }
+
+  console.log(`[loadTenantModels] Found tenant:`, { _id: tenant._id, mongoUri: !!tenant.mongoUri, mongoDbName: tenant.mongoDbName });
+
   if (!tenant.mongoUri || !tenant.mongoDbName) {
+    console.error(`[loadTenantModels] Tenant missing database config:`, { mongoUri: !!tenant.mongoUri, mongoDbName: tenant.mongoDbName });
     throw new Error('Clinic database not configured');
   }
 
