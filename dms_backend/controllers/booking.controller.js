@@ -95,15 +95,18 @@ export async function getAvailability(req, res) {
     const { tenantId } = req.params;
     const { doctorId, date } = req.query;
 
-    if (!doctorId || !date) {
-      return res.status(400).json({ error: 'doctorId and date are required' });
+    if (!date) {
+      return res.status(400).json({ error: 'date is required' });
     }
 
     const { tenantModels } = await loadTenantModels(tenantId);
     const { Doctor, Appointment, BookingSettings } = tenantModels;
 
-    const doctor = await Doctor.findById(doctorId).lean();
-    if (!doctor) return res.status(404).json({ error: 'Doctor not found' });
+    const doctor = doctorId
+      ? await Doctor.findById(doctorId).lean()
+      : await Doctor.findOne({ is_active: true, isBookable: true }).lean();
+
+    if (!doctor) return res.status(404).json({ error: 'No available doctors found' });
 
     const settings = await BookingSettings.findOne({}).lean();
     const slotDuration = settings?.slotDurationMinutes || 30;
@@ -140,7 +143,18 @@ export async function getAvailability(req, res) {
 
       while (current < end) {
         if (!bookedTimes.includes(current.getTime())) {
-          slots.push(current.toISOString());
+          const isoString = current.toISOString();
+          const displayTime = current.toLocaleTimeString('en-IN', {
+            timeZone: 'Asia/Kolkata',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true,
+          });
+          slots.push({
+            time: isoString,
+            display_time: displayTime,
+            doctor_ids: [doctor._id.toString()],
+          });
         }
         current = new Date(current.getTime() + slotDuration * 60000);
       }
