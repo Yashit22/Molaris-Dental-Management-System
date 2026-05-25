@@ -209,27 +209,53 @@ const AddPatientModal = ({ isOpen, onClose, onSave }) => {
               />
             </div>
 
-            {/* Row 3: Location & Reference */}
+            {/* Row 3: Email */}
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Email</label>
+              <input
+                name="email"
+                value={formData.email}
+                onChange={handleChange}
+                type="email"
+                placeholder="Enter email address"
+                className="w-full px-4 py-2.5 bg-[#F7F2F2] dark:bg-slate-800 border-none rounded-lg text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-[#137fec] focus:outline-none transition-all"
+              />
+            </div>
+
+            {/* Row 4: Address */}
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Address</label>
+              <input
+                name="address"
+                value={formData.address}
+                onChange={handleChange}
+                type="text"
+                placeholder="Enter street address"
+                className="w-full px-4 py-2.5 bg-[#F7F2F2] dark:bg-slate-800 border-none rounded-lg text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-[#137fec] focus:outline-none transition-all"
+              />
+            </div>
+
+            {/* Row 5: City & Reference */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 xl:gap-6">
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Patient Location</label>
-                <input 
-                  name="location"
-                  value={formData.location}
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">City</label>
+                <input
+                  name="city"
+                  value={formData.city}
                   onChange={handleChange}
-                  type="text" 
-                  placeholder="Enter location" 
+                  type="text"
+                  placeholder="Enter city"
                   className="w-full px-4 py-2.5 bg-[#F7F2F2] dark:bg-slate-800 border-none rounded-lg text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-[#137fec] focus:outline-none transition-all"
                 />
               </div>
               <div className="flex flex-col gap-2">
                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Reference Source</label>
-                <input 
+                <input
                   name="reference"
                   value={formData.reference}
                   onChange={handleChange}
-                  type="text" 
-                  placeholder="Who referred them?" 
+                  type="text"
+                  placeholder="Who referred them?"
                   className="w-full px-4 py-2.5 bg-[#F7F2F2] dark:bg-slate-800 border-none rounded-lg text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-[#137fec] focus:outline-none transition-all"
                 />
               </div>
