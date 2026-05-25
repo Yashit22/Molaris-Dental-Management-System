@@ -1,17 +1,13 @@
-import express from 'express';
-import {
-  getClinicInfo,
-  getServices,
-  getAvailability,
-  requestBooking,
-} from '../controllers/booking.controller.js';
+import { Router } from 'express';
+import { resolvePublicTenant } from '../middleware/resolvePublicTenant.js';
+import { getBookingConfig, getAvailableSlots, submitBooking } from '../controllers/booking.controller.js';
 
-const router = express.Router();
+const router = Router({ mergeParams: true });
 
-// All routes are public — no JWT auth required
-router.get('/:tenantId/clinic-info',  getClinicInfo);
-router.get('/:tenantId/services',     getServices);
-router.get('/:tenantId/availability', getAvailability);
-router.post('/:tenantId/request',     requestBooking);
+router.use(resolvePublicTenant);
+
+router.get('/config',  getBookingConfig);
+router.get('/slots',   getAvailableSlots);
+router.post('/',       submitBooking);
 
 export default router;

@@ -1,222 +1,218 @@
-import mongoose from 'mongoose';
-import { getAnalyticsDb } from '../config/analyticsDb.js';
-import { getTenantConnection } from '../config/tenantDb.js';
-import { getTenantModels } from '../config/tenantModels.js';
-
-// Helper: Load tenant DB models
-async function loadTenantModels(tenantId) {
-  const analyticsDb = getAnalyticsDb();
-
-  let tenant;
-  try {
-    tenant = await analyticsDb.collection('tenants').findOne({
-      _id: new mongoose.Types.ObjectId(tenantId),
-    });
-  } catch (err) {
-    console.error(`[loadTenantModels] Invalid tenantId format: ${tenantId}`, err.message);
-    throw new Error('Invalid clinic ID format');
-  }
-
-  if (!tenant) {
-    console.error(`[loadTenantModels] Tenant not found with ID: ${tenantId}`);
-    throw new Error('Clinic not found');
-  }
-
-  console.log(`[loadTenantModels] Found tenant:`, { _id: tenant._id, mongoUri: !!tenant.mongoUri, mongoDbName: tenant.mongoDbName });
-
-  if (!tenant.mongoUri || !tenant.mongoDbName) {
-    console.error(`[loadTenantModels] Tenant missing database config:`, { mongoUri: !!tenant.mongoUri, mongoDbName: tenant.mongoDbName });
-    throw new Error('Clinic database not configured');
-  }
-
-  const tenantConn = await getTenantConnection(tenant.mongoUri, tenant.mongoDbName);
-  return { tenantModels: getTenantModels(tenantConn), tenant };
+function timeToMinutes(str) {
+  if (!str) return 0;
+  const [h, m] = str.split(':').map(Number);
+  return h * 60 + (m || 0);
 }
 
-// ─── GET clinic info ────────────────────────────────────────────────────────
+function minutesToTime(mins) {
+  return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+}
 
-export async function getClinicInfo(req, res) {
+function isSameDay(a, b) {
+  return a.getFullYear() === b.getFullYear() &&
+         a.getMonth()    === b.getMonth()    &&
+         a.getDate()     === b.getDate();
+}
+
+function parseLocalDate(str) {
+  const [y, m, d] = str.split('-').map(Number);
+  return new Date(y, m - 1, d, 0, 0, 0, 0);
+}
+
+const DAY_NAMES = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+
+function generateSlots({ daySchedule, slotDuration, date, existingAppointments, blockedSlots, holidays }) {
+  if (!daySchedule?.isOpen) return [];
+
+  if ((holidays || []).some(h => {
+    const hd = new Date(h.date);
+    return isSameDay(new Date(hd.getUTCFullYear(), hd.getUTCMonth(), hd.getUTCDate()), date);
+  })) return [];
+
+  const start = timeToMinutes(daySchedule.start);
+  const end   = timeToMinutes(daySchedule.end);
+  const now   = new Date();
+  const isToday = isSameDay(date, now);
+  const nowMins = now.getHours() * 60 + now.getMinutes() + 30;
+
+  const slots = [];
+  for (let cur = start; cur + slotDuration <= end; cur += slotDuration) {
+    if (isToday && cur <= nowMins) continue;
+
+    const inBreak = (daySchedule.breaks || []).some(b =>
+      cur >= timeToMinutes(b.start) && cur < timeToMinutes(b.end)
+    );
+    if (inBreak) continue;
+
+    const timeStr  = minutesToTime(cur);
+    const slotStart = new Date(date); slotStart.setHours(Math.floor(cur / 60), cur % 60, 0, 0);
+    const slotEnd   = new Date(slotStart.getTime() + slotDuration * 60_000);
+
+    const isBlocked = (blockedSlots || []).some(bs =>
+      isSameDay(new Date(bs.date), date) && bs.startTime === timeStr
+    );
+    if (isBlocked) continue;
+
+    const booked = (existingAppointments || []).some(a => {
+      const as = new Date(a.start_time), ae = new Date(a.end_time);
+      return as < slotEnd && ae > slotStart;
+    });
+    if (booked) continue;
+
+    slots.push(timeStr);
+  }
+  return slots;
+}
+
+export async function getBookingConfig(req, res) {
   try {
-    const { tenantId } = req.params;
-    const { tenantModels } = await loadTenantModels(tenantId);
-    const { BookingSettings, Doctor } = tenantModels;
+    const { BookingSettings, Doctor } = req.tenantModels;
 
-    const bookingSettings = await BookingSettings.findOne({}).lean();
-    if (!bookingSettings || !bookingSettings.isBookingEnabled) {
-      return res.status(403).json({ error: 'Booking is not enabled' });
+    const [settings, doctors] = await Promise.all([
+      BookingSettings.findOne().lean(),
+      Doctor.find({ isBookable: true, is_active: true })
+        .select('name specialization qualification experience_years bookingWorkingHours holidays')
+        .lean(),
+    ]);
+
+    if (settings && !settings.isBookingEnabled) {
+      return res.json({ bookingEnabled: false });
     }
-
-    const doctors = await Doctor.find({ is_active: true, isBookable: true })
-      .select('name specialization bookingWorkingHours')
-      .lean();
 
     res.json({
-      clinicName: bookingSettings.clinicDisplayName || 'Clinic',
-      tagline: bookingSettings.clinicTagline || '',
-      logo: bookingSettings.clinicLogoUrl || '',
-      slotDuration: bookingSettings.slotDurationMinutes || 30,
-      workingHours: bookingSettings.workingHours || {},
-      doctors: doctors.map(d => ({
-        id: d._id.toString(),
-        name: d.name,
-        specialization: d.specialization,
-        schedule: d.bookingWorkingHours || {},
-      })),
+      bookingEnabled:  true,
+      clinicName:      settings?.clinicDisplayName || req.tenantName,
+      clinicTagline:   settings?.clinicTagline || '',
+      clinicLogoUrl:   settings?.clinicLogoUrl || '',
+      slotDuration:    settings?.slotDurationMinutes || 30,
+      blockedDates:    settings?.blockedDates || [],
+      doctors,
     });
   } catch (err) {
-    console.error('[Booking Clinic Info] Error:', err.message);
-    res.status(400).json({ error: err.message });
+    res.status(500).json({ message: err.message });
   }
 }
 
-// ─── GET services ────────────────────────────────────────────────────────
-
-export async function getServices(req, res) {
+export async function getAvailableSlots(req, res) {
   try {
-    const { tenantId } = req.params;
-    const { tenantModels } = await loadTenantModels(tenantId);
-    const { SuggestedTreatment } = tenantModels;
+    const { BookingSettings, Doctor, Appointment } = req.tenantModels;
+    const { doctorId, date: dateStr } = req.query;
 
-    const services = await SuggestedTreatment.find({ is_active: true })
-      .select('name cost category description')
-      .lean();
+    if (!doctorId || !dateStr) return res.status(400).json({ message: 'doctorId and date are required' });
 
-    res.json(services || []);
-  } catch (err) {
-    console.error('[Booking Services] Error:', err.message);
-    res.status(400).json({ error: err.message });
-  }
-}
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return res.status(400).json({ message: 'Invalid date' });
+    const date = parseLocalDate(dateStr);
 
-// ─── GET availability ────────────────────────────────────────────────────────
+    const [settings, doctor] = await Promise.all([
+      BookingSettings.findOne().lean(),
+      Doctor.findById(doctorId).lean(),
+    ]);
 
-export async function getAvailability(req, res) {
-  try {
-    const { tenantId } = req.params;
-    const { doctorId, date } = req.query;
+    if (!doctor?.isBookable) return res.json({ slots: [] });
 
-    if (!date) {
-      return res.status(400).json({ error: 'date is required' });
-    }
-
-    const { tenantModels } = await loadTenantModels(tenantId);
-    const { Doctor, Appointment, BookingSettings } = tenantModels;
-
-    const doctor = doctorId
-      ? await Doctor.findById(doctorId).lean()
-      : await Doctor.findOne({ is_active: true, isBookable: true }).lean();
-
-    if (!doctor) return res.status(404).json({ error: 'No available doctors found' });
-
-    const settings = await BookingSettings.findOne({}).lean();
     const slotDuration = settings?.slotDurationMinutes || 30;
+    const dayName = DAY_NAMES[date.getDay()];
+    const daySchedule = doctor.bookingWorkingHours?.[dayName] || {};
 
-    // Get existing appointments for this doctor on this date
-    const dayStart = new Date(date);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(dayStart);
-    dayEnd.setDate(dayEnd.getDate() + 1);
+    const clinicBlocked = (settings?.blockedDates || []).some(b => {
+      const bd = new Date(b.date);
+      return isSameDay(parseLocalDate(`${bd.getUTCFullYear()}-${String(bd.getUTCMonth()+1).padStart(2,'0')}-${String(bd.getUTCDate()).padStart(2,'0')}`), date);
+    });
+    if (clinicBlocked) return res.json({ slots: [] });
 
-    const booked = await Appointment.find({
+    const dayStart = new Date(date); dayStart.setHours(0, 0, 0, 0);
+    const dayEnd   = new Date(date); dayEnd.setHours(23, 59, 59, 999);
+
+    const existingAppointments = await Appointment.find({
       doctor_id: doctorId,
-      start_time: { $gte: dayStart, $lt: dayEnd },
-      status: { $in: ['Scheduled', 'Confirmed', 'Checked In', 'In Progress'] },
-    }).lean();
+      start_time: { $gte: dayStart, $lte: dayEnd },
+      status: { $nin: ['Cancelled', 'No Show'] },
+    }).select('start_time end_time').lean();
 
-    const bookedTimes = booked.map(a => a.start_time.getTime());
-
-    // Calculate available slots based on doctor schedule
-    const dayOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][
-      dayStart.getDay()
-    ];
-    const daySchedule = doctor.bookingWorkingHours?.[dayOfWeek] || { isOpen: false };
-
-    const slots = [];
-    if (daySchedule.isOpen) {
-      const [startHour, startMin] = (daySchedule.start || '09:00').split(':').map(Number);
-      const [endHour, endMin] = (daySchedule.end || '17:00').split(':').map(Number);
-
-      let current = new Date(dayStart);
-      current.setHours(startHour, startMin, 0, 0);
-      const end = new Date(dayStart);
-      end.setHours(endHour, endMin, 0, 0);
-
-      while (current < end) {
-        if (!bookedTimes.includes(current.getTime())) {
-          const isoString = current.toISOString();
-          const displayTime = current.toLocaleTimeString('en-IN', {
-            timeZone: 'Asia/Kolkata',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true,
-          });
-          slots.push({
-            time: isoString,
-            display_time: displayTime,
-            doctor_ids: [doctor._id.toString()],
-          });
-        }
-        current = new Date(current.getTime() + slotDuration * 60000);
-      }
-    }
+    const slots = generateSlots({
+      daySchedule,
+      slotDuration,
+      date,
+      existingAppointments,
+      blockedSlots: doctor.blockedSlots || [],
+      holidays:     doctor.holidays     || [],
+    });
 
     res.json({ slots });
   } catch (err) {
-    console.error('[Booking Availability] Error:', err.message);
-    res.status(400).json({ error: err.message });
+    res.status(500).json({ message: err.message });
   }
 }
 
-// ─── POST request booking ────────────────────────────────────────────────────
-
-export async function requestBooking(req, res) {
+export async function submitBooking(req, res) {
   try {
-    const { tenantId } = req.params;
-    const { doctorId, startTime, patientName, patientPhone, patientEmail, notes } = req.body;
+    const { BookingSettings, Doctor, Patient, Appointment } = req.tenantModels;
+    const { doctorId, date: dateStr, time, patient: patientData = {} } = req.body;
 
-    if (!doctorId || !startTime || !patientName || !patientPhone) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    if (!doctorId || !dateStr || !time || !patientData.phone || !patientData.name?.trim()) {
+      return res.status(400).json({ message: 'doctorId, date, time, patient name and phone are required' });
     }
 
-    const { tenantModels } = await loadTenantModels(tenantId);
-    const { Appointment, Patient, Doctor } = tenantModels;
-
-    const doctor = await Doctor.findById(doctorId);
-    if (!doctor) return res.status(404).json({ error: 'Doctor not found' });
-
-    // Find or create patient
-    let patient = await Patient.findOne({ 'contact.mobile': patientPhone });
-    if (!patient) {
-      const [firstName, ...lastNameParts] = patientName.split(' ');
-      patient = await Patient.create({
-        first_name: firstName,
-        last_name: lastNameParts.join(' '),
-        contact: { mobile: patientPhone, email: patientEmail },
-      });
+    const settings = await BookingSettings.findOne().lean();
+    if (settings && !settings.isBookingEnabled) {
+      return res.status(403).json({ message: 'Online booking is currently disabled' });
     }
 
-    // Create appointment
-    const start = new Date(startTime);
-    const end = new Date(start.getTime() + 30 * 60000); // 30 min default
+    const doctor = await Doctor.findById(doctorId).lean();
+    if (!doctor?.isBookable) return res.status(400).json({ message: 'Doctor not available for online booking' });
 
-    const appointment = await Appointment.create({
-      patient_id: patient._id,
+    const [h, m] = time.split(':').map(Number);
+    const slotDuration = settings?.slotDurationMinutes || 30;
+    const start_time = parseLocalDate(dateStr);
+    start_time.setHours(h, m, 0, 0);
+    const end_time = new Date(start_time.getTime() + slotDuration * 60_000);
+
+    const conflict = await Appointment.findOne({
       doctor_id: doctorId,
-      start_time: start,
-      end_time: end,
-      title: `${patientName} - Booking`,
-      type: 'Consultation',
-      status: 'Scheduled',
-      notes: notes || 'Online booking request',
+      status: { $nin: ['Cancelled', 'No Show'] },
+      start_time: { $lt: end_time },
+      end_time:   { $gt: start_time },
+    });
+    if (conflict) return res.status(409).json({ message: 'This slot was just taken. Please choose another.' });
+
+    const normalizedPhone = patientData.phone.replace(/\D/g, '');
+    let patient = await Patient.findOne({ 'contact.mobile': { $regex: normalizedPhone.slice(-10) } });
+    if (!patient) {
+      const count = await Patient.countDocuments();
+      const patientId = `PID-${String(count + 1).padStart(3, '0')}`;
+      const nameParts = (patientData.name || 'Online Patient').trim().split(/\s+/);
+      patient = await Patient.create({
+        patientId,
+        first_name: nameParts[0],
+        last_name:  nameParts.slice(1).join(' ') || '',
+        contact: {
+          mobile: patientData.phone,
+          email:  patientData.email || '',
+        },
+        dob:    patientData.dob    || undefined,
+        gender: patientData.gender || undefined,
+      });
+    } else if (patientData.name && !patient.first_name) {
+      const nameParts = patientData.name.trim().split(/\s+/);
+      patient.first_name = nameParts[0];
+      patient.last_name  = nameParts.slice(1).join(' ') || '';
+      await patient.save();
+    }
+
+    const appt = await Appointment.create({
+      patient_id: patient._id,
+      doctor_id:  doctorId,
+      start_time,
+      end_time,
+      title:  `Online Booking — ${patientData.name || 'Patient'}`,
+      type:   'Consultation',
+      status: 'Pending',
+      source: 'online',
+      notes:  patientData.chiefComplaint || '',
     });
 
-    res.status(201).json({
-      success: true,
-      appointmentId: appointment._id,
-      message: 'Booking request submitted',
-    });
+    res.status(201).json({ appointmentId: appt._id, message: 'Booking received! The clinic will confirm shortly.' });
   } catch (err) {
-    console.error('[Booking Request] Error:', err.message);
-    res.status(400).json({ error: err.message });
+    res.status(500).json({ message: err.message });
   }
 }
