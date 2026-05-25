@@ -28,12 +28,12 @@ function classifyError(err, source) {
     return { source, code: 'unknown',      userMessage: 'Transcription service error. Please try again.',       detail: raw };
   }
 
-  if (source === 'nvidia') {
-    if (/401|403|Unauthorized|Forbidden|Bearer/i.test(raw))
+  if (source === 'openrouter') {
+    if (/401|403|Unauthorized|Forbidden|Bearer|invalid.*api/i.test(raw))
       return { source, code: 'auth',       userMessage: 'Report generation failed — invalid API key.',          detail: raw };
     if (/429|rate.limit|quota/i.test(raw))
       return { source, code: 'rate_limit', userMessage: 'Report generation failed — rate limit reached. Try again shortly.', detail: raw };
-    if (/timed out|timeout|210/i.test(raw))
+    if (/timed out|timeout/i.test(raw))
       return { source, code: 'timeout',    userMessage: 'Report generation timed out. Try again or use a shorter recording.', detail: raw };
     if (/not configured/i.test(raw))
       return { source, code: 'config',     userMessage: 'AI API key is not configured. Add it in Settings → API Keys.', detail: raw };
@@ -146,7 +146,7 @@ async function pollSarvamJob(apiKey, sarvamJobId) {
 
 // ─── LLM: Generate a single document (non-streaming) ──────────────────────────
 async function generateFromTemplate(apiKey, transcript, patientName, patientGender, doctorName, date, template, detailLevel) {
-  if (!apiKey) throw new Error('NVIDIA API Key not configured for this tenant.');
+  if (!apiKey) throw new Error('OpenRouter API Key not configured for this tenant.');
 
   const salutation = patientGender === 'Female' ? 'Ms' : patientGender === 'Male' ? 'Mr' : 'Mx';
 
@@ -176,14 +176,16 @@ ${transcript}
 
 Generate the document now following the structure and detail level above. Return plain text only — no JSON, no markdown code blocks.`;
 
-  const res = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
+      'HTTP-Referer': 'http://localhost:3005',
+      'X-Title': 'Dental DMS',
     },
     body: JSON.stringify({
-      model: 'minimaxai/minimax-m2.7',
+      model: 'google/gemma-2-27b-it',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user',   content: userPrompt   },
@@ -200,7 +202,7 @@ Generate the document now following the structure and detail level above. Return
 
 // ─── LLM: Stream response to frontend via SSE ─────────────────────────────────
 async function streamFromTemplate(apiKey, transcript, patientName, patientGender, doctorName, date, template, detailLevel, res) {
-  if (!apiKey) throw new Error('NVIDIA API Key not configured for this tenant.');
+  if (!apiKey) throw new Error('OpenRouter API Key not configured for this tenant.');
 
   const salutation = patientGender === 'Female' ? 'Ms' : patientGender === 'Male' ? 'Mr' : 'Mx';
 
@@ -230,14 +232,16 @@ ${transcript}
 
 Generate the document now following the structure and detail level above. Return plain text only — no JSON, no markdown code blocks.`;
 
-  const upstream = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+  const upstream = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
+      'HTTP-Referer': 'http://localhost:3005',
+      'X-Title': 'Dental DMS',
     },
     body: JSON.stringify({
-      model: 'minimaxai/minimax-m2.7',
+      model: 'google/gemma-2-27b-it',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user',   content: userPrompt   },
@@ -295,19 +299,20 @@ Return JSON:
   "recall": { "days_later": 0, "notes": "" }
 }`;
 
-  const res = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
+      'HTTP-Referer': 'http://localhost:3005',
+      'X-Title': 'Dental DMS',
     },
     body: JSON.stringify({
-      model: 'minimaxai/minimax-m2.7',
+      model: 'google/gemma-2-27b-it',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user',   content: userPrompt   },
       ],
-      response_format: { type: 'json_object' },
       max_tokens:  4096,
       temperature: 0.1,
     }),
@@ -547,13 +552,13 @@ export async function generateReport(req, res) {
         try {
           res.write(`data: ${JSON.stringify({ progress: `Generating ${template.name}...` })}\n\n`);
           const reportText = await streamFromTemplate(
-            credentials.nvidiaApiKey, transcript, patientName, patient.gender,
+            credentials.openrouterApiKey, transcript, patientName, patient.gender,
             doctorName, today, template, detailLevel, res,
           );
           reports[template.id] = reportText;
           res.write(`data: ${JSON.stringify({ completed: template.id })}\n\n`);
         } catch (err) {
-          const classified = classifyError(err, 'nvidia');
+          const classified = classifyError(err, 'openrouter');
           res.write(`data: ${JSON.stringify({ error: serializeError(classified) })}\n\n`);
           await ReportJob.findByIdAndUpdate(jobId, { status: 'failed', errorMessage: serializeError(classified) });
           res.end();
@@ -567,7 +572,7 @@ export async function generateReport(req, res) {
       const fileRecords = [];
 
       const [autofillResult, driveResult] = await Promise.allSettled([
-        runAutofill ? parseAutofillWithLLM(credentials.nvidiaApiKey, transcript) : Promise.resolve(null),
+        runAutofill ? parseAutofillWithLLM(credentials.openrouterApiKey, transcript) : Promise.resolve(null),
         (async () => {
           if (!saveReport) return;
           if (!patient.drive_folders?.root) {
@@ -671,11 +676,11 @@ export async function generateReport(req, res) {
     for (const template of templates) {
       try {
         res.write(`data: ${JSON.stringify({ progress: `Generating ${template.name}...` })}\n\n`);
-        const reportText = await streamFromTemplate(credentials.nvidiaApiKey, transcript, patientName, patient.gender, doctorName, today, template, detailLevel, res);
+        const reportText = await streamFromTemplate(credentials.openrouterApiKey, transcript, patientName, patient.gender, doctorName, today, template, detailLevel, res);
         reports[template.id] = reportText;
         res.write(`data: ${JSON.stringify({ completed: template.id })}\n\n`);
       } catch (err) {
-        const classified = classifyError(err, 'nvidia');
+        const classified = classifyError(err, 'openrouter');
         res.write(`data: ${JSON.stringify({ error: serializeError(classified) })}\n\n`);
         res.end();
         return;
@@ -687,7 +692,7 @@ export async function generateReport(req, res) {
     const fileRecords = [];
 
     const [afResult, drResult] = await Promise.allSettled([
-      runAuto ? parseAutofillWithLLM(credentials.nvidiaApiKey, transcript) : Promise.resolve(null),
+      runAuto ? parseAutofillWithLLM(credentials.openrouterApiKey, transcript) : Promise.resolve(null),
       (async () => {
         if (!saveRep) return;
         if (!patient.drive_folders?.root) {

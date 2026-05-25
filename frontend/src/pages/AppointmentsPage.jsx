@@ -101,6 +101,7 @@ const AppointmentsPage = () => {
   const [error, setError] = useState(null);
   const [currentTimeTop, setCurrentTimeTop] = useState(null);
   const calendarRef = useRef(null);
+  const [selectedDoctorId, setSelectedDoctorId] = useState(null);
   // Get today's date in IST (UTC+5:30), not UTC
   const getIndiaDate = () => {
     const now = new Date();
@@ -162,6 +163,10 @@ const AppointmentsPage = () => {
 
       const doctorsMap = doctorsRes.data.slice(0, 10);
       setDoctors(doctorsMap);
+      // Initialize selectedDoctorId to first doctor on mobile
+      if (!selectedDoctorId && doctorsMap.length > 0) {
+        setSelectedDoctorId(doctorsMap[0]._id);
+      }
       setDashStats(statsRes.data);
 
       const mappedAppts = appointmentsRes.data.map(apt => {
@@ -458,22 +463,27 @@ const AppointmentsPage = () => {
                           </span>
                           <div className="relative">
                             <button
+                              onTouchStart={() => {}}
+                              onTouchEnd={(e) => { e.preventDefault(); setActiveDropdown(activeDropdown === apt.id ? null : apt.id); }}
                               onClick={(e) => { e.stopPropagation(); setActiveDropdown(activeDropdown === apt.id ? null : apt.id); }}
-                              className={`p-1.5 rounded-lg transition-colors ${activeDropdown === apt.id ? 'bg-blue-50 text-[#137fec]' : 'text-slate-400 hover:bg-slate-100'}`}
+                              className={`p-1.5 rounded-lg transition-colors pointer-events-auto active:bg-slate-100 ${activeDropdown === apt.id ? 'bg-blue-50 text-[#137fec]' : 'text-slate-400 hover:bg-slate-100'}`}
                             >
                               <MoreVertical size={18} />
                             </button>
                             {activeDropdown === apt.id && (
                               <div
                                 ref={dropdownRef}
-                                className="absolute right-0 top-full mt-1 w-56 max-h-96 bg-white border border-slate-200 rounded-lg shadow-xl z-[60] overflow-y-auto text-left"
+                                className="absolute right-0 top-full mt-1 w-56 max-h-96 bg-white border border-slate-200 rounded-lg shadow-xl z-[60] overflow-y-auto text-left pointer-events-auto"
+                                onTouchEnd={(e) => e.preventDefault()}
                                 onMouseDown={e => e.stopPropagation()}
                               >
                                 {!['Completed', 'Cancelled', 'No Show'].includes(apt.status) && (
                                   <div className="sticky top-0 bg-white p-1 border-b border-slate-100 z-10">
                                     <button
+                                      onTouchStart={() => {}}
+                                      onTouchEnd={(e) => { e.preventDefault(); handleStartVisit(apt); }}
                                       onClick={() => handleStartVisit(apt)}
-                                      className={`w-full text-left px-3 py-2.5 text-sm font-bold text-white rounded-md flex items-center gap-2 transition-colors shadow-sm ${apt.status === 'In Progress' ? 'bg-orange-500 hover:bg-orange-600' : 'bg-[#137fec] hover:bg-blue-600'}`}
+                                      className={`w-full text-left px-3 py-2.5 text-sm font-bold text-white rounded-md flex items-center gap-2 transition-colors shadow-sm active:opacity-80 ${apt.status === 'In Progress' ? 'bg-orange-500 hover:bg-orange-600' : 'bg-[#137fec] hover:bg-blue-600'}`}
                                     >
                                       <PlayCircle size={16} fill="currentColor" className="opacity-80" />
                                       {apt.status === 'In Progress' ? 'Continue Visit' : 'Start Visit'}
@@ -482,14 +492,14 @@ const AppointmentsPage = () => {
                                 )}
                                 <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 text-[10px] font-bold uppercase text-slate-400 tracking-wider">Change Status</div>
                                 {ALL_STATUSES.filter(s => s !== apt.status && s !== 'In Progress').map(status => (
-                                  <button key={status} onClick={() => handleStatusChange(apt.id, status)} className="w-full text-left px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 flex items-center gap-2 whitespace-nowrap">
+                                  <button key={status} onTouchStart={() => {}} onTouchEnd={(e) => { e.preventDefault(); handleStatusChange(apt.id, status); }} onClick={() => handleStatusChange(apt.id, status)} className="w-full text-left px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 active:bg-slate-50 flex items-center gap-2 whitespace-nowrap">
                                     <div className={`size-1.5 rounded-full flex-shrink-0 ${getDotColor(getStatusColor(status))}`} /><span>{status}</span>
                                   </button>
                                 ))}
                                 <div className="sticky bottom-0 bg-white border-t border-slate-100 p-1">
-                                  <button onClick={() => handleViewProfile(apt)} className="w-full text-left px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded-md flex items-center gap-2"><Users size={14} className="text-[#137fec]" /> Patient Profile</button>
-                                  <button onClick={() => handleEditPatient(apt)} className="w-full text-left px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded-md flex items-center gap-2"><User size={14} className="text-[#137fec]" /> Edit Patient Details</button>
-                                  <button onClick={() => handleEdit(apt)} className="w-full text-left px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded-md flex items-center gap-2"><Edit size={14} className="text-[#137fec]" /> Edit Appointment</button>
+                                  <button onTouchStart={() => {}} onTouchEnd={(e) => { e.preventDefault(); handleViewProfile(apt); }} onClick={() => handleViewProfile(apt)} className="w-full text-left px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 active:bg-slate-50 rounded-md flex items-center gap-2"><Users size={14} className="text-[#137fec]" /> Patient Profile</button>
+                                  <button onTouchStart={() => {}} onTouchEnd={(e) => { e.preventDefault(); handleEditPatient(apt); }} onClick={() => handleEditPatient(apt)} className="w-full text-left px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 active:bg-slate-50 rounded-md flex items-center gap-2"><User size={14} className="text-[#137fec]" /> Edit Patient Details</button>
+                                  <button onTouchStart={() => {}} onTouchEnd={(e) => { e.preventDefault(); handleEdit(apt); }} onClick={() => handleEdit(apt)} className="w-full text-left px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 active:bg-slate-50 rounded-md flex items-center gap-2"><Edit size={14} className="text-[#137fec]" /> Edit Appointment</button>
                                 </div>
                               </div>
                             )}
@@ -587,7 +597,7 @@ const AppointmentsPage = () => {
                   </div>
                 )}
 
-                {/* --- DESKTOP: CALENDAR / TIMELINE VIEW --- */}
+                {/* --- CALENDAR / TIMELINE VIEW --- */}
                 {viewMode === 'calendar' && (() => {
                   const dayName = new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
 
@@ -646,21 +656,40 @@ const AppointmentsPage = () => {
                   );
 
                   return (
-                    <div className="hidden md:block bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                    <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                      {/* Mobile Doctor Selector */}
+                      <div className="md:hidden p-4 border-b border-slate-200 bg-slate-50">
+                        <label className="text-xs font-bold text-slate-600 uppercase block mb-2">Select Doctor</label>
+                        <select
+                          value={selectedDoctorId || ''}
+                          onChange={(e) => setSelectedDoctorId(e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-[#137fec] outline-none"
+                        >
+                          <option value="">All Doctors</option>
+                          {doctors.map((doc) => (
+                            <option key={doc._id} value={doc._id}>{doc.name}</option>
+                          ))}
+                        </select>
+                      </div>
+
                       {/* Sticky header row: time gutter + one cell per doctor */}
                       <div className="flex border-b border-slate-200 bg-slate-50 sticky top-0 z-30">
-                        <div className="w-14 shrink-0 border-r border-slate-200" />
-                        {doctors.map((doc, i) => (
-                          <div key={doc._id} className={`flex-1 min-w-[140px] px-3 py-2.5 text-center ${i > 0 ? 'border-l border-slate-200' : ''}`}>
-                            <p className="text-xs font-bold text-slate-800 truncate">{doc.name}</p>
-                            <p className="text-[10px] text-slate-400 truncate">{doc.specialization || 'Dentist'}</p>
-                          </div>
-                        ))}
+                        <div className="w-14 md:w-14 shrink-0 border-r border-slate-200" />
+                        {doctors.map((doc, i) => {
+                          const isVisible = !selectedDoctorId || selectedDoctorId === doc._id;
+                          const isHiddenOnMobile = selectedDoctorId && selectedDoctorId !== doc._id;
+                          return (
+                            <div key={doc._id} className={`${isHiddenOnMobile ? 'hidden' : ''} flex-1 min-w-[100px] md:min-w-[140px] px-3 py-2.5 text-center ${i > 0 ? 'border-l border-slate-200' : ''}`}>
+                              <p className="text-xs font-bold text-slate-800 truncate">{doc.name}</p>
+                              <p className="text-[10px] text-slate-400 truncate">{doc.specialization || 'Dentist'}</p>
+                            </div>
+                          );
+                        })}
                       </div>
 
                       {/* Scrollable body */}
-                      <div className="overflow-x-auto overflow-y-auto max-h-[640px]" ref={calendarRef}>
-                        <div className="flex" style={{ minWidth: `${56 + doctors.length * 140}px` }}>
+                      <div className="overflow-x-auto overflow-y-auto max-h-[400px] md:max-h-[640px]" ref={calendarRef}>
+                        <div style={{ minWidth: selectedDoctorId ? `${56 + 100}px` : `${56 + doctors.length * 140}px` }} className="flex">
 
                           {/* Hour gutter */}
                           <div className="w-14 shrink-0 border-r border-slate-100 bg-slate-50/70 select-none relative" style={{ height: `${TOTAL_HEIGHT}px` }}>
@@ -677,13 +706,14 @@ const AppointmentsPage = () => {
 
                           {/* Doctor columns */}
                           {doctors.map((doc, colIdx) => {
+                            const isHiddenOnMobile = selectedDoctorId && selectedDoctorId !== doc._id;
                             const shiftBands = getShiftBands(doc);
                             const colApts = appointments.filter(a => a.doctorId === doc._id);
 
                             return (
                               <div
                                 key={doc._id}
-                                className={`flex-1 min-w-[140px] relative ${colIdx > 0 ? 'border-l border-slate-200' : ''}`}
+                                className={`${isHiddenOnMobile ? 'hidden' : ''} flex-1 min-w-[100px] md:min-w-[140px] relative ${colIdx > 0 ? 'border-l border-slate-200' : ''}`}
                                 style={{ height: `${TOTAL_HEIGHT}px`, background: '#f8fafc' }}
                               >
                                 {/* Gray base (off-shift) is the column background */}
