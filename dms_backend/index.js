@@ -58,6 +58,10 @@ app.use('/api/users', userRoutes);
 import { handlePollResponse } from './controllers/whatsapp.controller.js';
 app.post('/api/whatsapp/feedback/webhook', handlePollResponse);
 
+// Public booking info endpoint
+import { getPublicBookingInfo } from './controllers/booking.controller.js';
+app.get('/api/public/booking/:tenantId', getPublicBookingInfo);
+
 // Multi-Tenant Aware Routes
 // resolveTenant must come AFTER authenticate because it relies on req.user.tenantId
 const tenantStack = [authenticate, resolveTenant];
