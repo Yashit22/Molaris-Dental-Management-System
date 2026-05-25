@@ -75,9 +75,9 @@ export async function getServices(req, res) {
   try {
     const { tenantId } = req.params;
     const { tenantModels } = await loadTenantModels(tenantId);
-    const { Services } = tenantModels;
+    const { SuggestedTreatment } = tenantModels;
 
-    const services = await Services.find({ isActive: true })
+    const services = await SuggestedTreatment.find({ is_active: true })
       .select('name cost category description')
       .lean();
 
