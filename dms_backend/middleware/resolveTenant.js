@@ -34,13 +34,13 @@ export async function resolveTenant(req, res, next) {
     req.tenantModels = getTenantModels(tenantConn);
 
     // Inject sensitive credentials (Google, API Keys)
+    // Fallback to environment variable if tenant-level config not set
     req.tenantConfig = {
       clientId:             tenant.googleClientId,
       clientSecret:         tenant.googleClientSecret,
       refreshToken:         tenant.googleRefreshToken,
       driveFolderId:        tenant.googleDriveFolderId,
-      sarvamApiKey:         tenant.sarvamApiKey,
-      openrouterApiKey:     tenant.nvidiaApiKey,
+      sarvamApiKey:         tenant.sarvamApiKey || process.env.SARVAM_API_KEY,
       cloudinaryCloudName:  tenant.cloudinaryCloudName,
       cloudinaryApiKey:     tenant.cloudinaryApiKey,
       cloudinaryApiSecret:  tenant.cloudinaryApiSecret,

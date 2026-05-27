@@ -39,7 +39,7 @@ function parseError(raw) {
   return { source: 'unknown', code: 'unknown', userMessage: raw, detail: raw };
 }
 
-const SOURCE_LABEL = { sarvam: 'Connect Transcribe', openrouter: 'OpenRouter', unknown: 'Error' };
+const SOURCE_LABEL = { sarvam: 'Sarvam-105B', unknown: 'Error' };
 const CODE_COLOR   = {
   auth:       'bg-amber-50 border-amber-200 text-amber-800',
   rate_limit: 'bg-orange-50 border-orange-200 text-orange-800',
@@ -907,8 +907,8 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
 
   // ── FULL MODAL ──────────────────────────────────────────────────────────────
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-hidden">
-      <div className="bg-white w-full sm:max-w-3xl shadow-2xl h-[95vh] sm:h-[92vh] sm:rounded-2xl flex flex-col">
+    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 backdrop-blur-sm p-2 sm:p-4 overflow-hidden">
+      <div className="bg-white w-full sm:max-w-3xl shadow-2xl h-[96vh] sm:h-[92vh] rounded-lg sm:rounded-2xl flex flex-col">
 
         {/* Integration Status Banner */}
         {!integrations.google_drive?.isVerified && (
@@ -950,7 +950,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
 
           {/* ── IDLE / RECORDING / PAUSED ── */}
           {(stage === 'idle' || stage === 'recording' || stage === 'paused') && (
-            <div className="flex flex-col items-center gap-5">
+            <div className="flex flex-col items-center gap-3 sm:gap-5">
 
               {/* Template selector (idle only) */}
               {stage === 'idle' && (
@@ -1127,7 +1127,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
               )}
 
               {/* Mic / Pause / Resume buttons */}
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3 sm:gap-4 justify-center">
                 <button
                   onClick={stage === 'recording' || stage === 'paused' ? stopRecording : startRecording}
                   disabled={stage === 'idle' && !canRecord}
@@ -1427,12 +1427,12 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
                     <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Default Channels</p>
                     <div className="flex flex-wrap gap-3">
                       {[['cloud','Save to Drive'],['email','Email'],['whatsapp','WhatsApp']].map(([key, label]) => (
-                        <label key={key} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <label key={key} className="flex items-center gap-2.5 text-sm cursor-pointer select-none">
                           <input type="checkbox"
                             checked={deliverySettings.defaults?.[key] ?? false}
                             onChange={() => setDeliverySettings(s => ({ ...s, defaults: { ...s.defaults, [key]: !(s.defaults?.[key]) } }))}
-                            className="accent-[#137fec] w-4 h-4" />
-                          {label}
+                            className="accent-[#137fec] w-5 h-5 cursor-pointer" />
+                          <span className="text-slate-700">{label}</span>
                         </label>
                       ))}
                     </div>
@@ -1488,11 +1488,11 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
 
                 <div className="p-3 sm:p-4 space-y-2.5 sm:space-y-3">
                   {/* Save to Connect Cloud */}
-                  <label className="flex items-start gap-3 p-2.5 sm:p-3 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors">
+                  <label className="flex items-start gap-3 sm:gap-4 p-3 sm:p-3 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors select-none">
                     <input type="checkbox" checked={deliver.cloud}
                       onChange={e => setDeliver(d => ({ ...d, cloud: e.target.checked }))}
-                      className="mt-1 sm:mt-0.5 w-4 h-4 rounded accent-[#137fec] cursor-pointer" />
-                    <Save size={16} className="text-slate-400 mt-1 sm:mt-0.5 flex-shrink-0" />
+                      className="mt-0.5 sm:mt-0.5 w-5 h-5 rounded accent-[#137fec] cursor-pointer flex-shrink-0" />
+                    <Save size={16} className="text-slate-400 mt-0.5 flex-shrink-0 hidden sm:block" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-slate-700">Save to Connect Cloud</p>
                       {driveLinks[templateId]
@@ -1506,11 +1506,11 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
 
                   {/* Email to patient */}
                   <div className="rounded-xl border border-slate-200 overflow-hidden">
-                    <label className="flex items-start gap-3 p-2.5 sm:p-3 cursor-pointer hover:bg-slate-50 transition-colors">
+                    <label className="flex items-start gap-3 sm:gap-4 p-3 sm:p-3 cursor-pointer hover:bg-slate-50 transition-colors select-none">
                       <input type="checkbox" checked={deliver.email}
                         onChange={e => setDeliver(d => ({ ...d, email: e.target.checked }))}
-                        className="mt-1 sm:mt-0.5 w-4 h-4 rounded accent-[#137fec] cursor-pointer" />
-                      <Mail size={16} className="text-slate-400 mt-1 sm:mt-0.5 flex-shrink-0" />
+                        className="mt-0.5 sm:mt-0.5 w-5 h-5 rounded accent-[#137fec] cursor-pointer flex-shrink-0" />
+                      <Mail size={16} className="text-slate-400 mt-0.5 flex-shrink-0 hidden sm:block" />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-slate-700">Email to patient</p>
                         <p className="text-xs text-slate-400 mt-0.5">PDF attached. Review the message below.</p>
@@ -1543,11 +1543,11 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
 
                   {/* WhatsApp to patient (text-only) */}
                   <div className="rounded-xl border border-slate-200 overflow-hidden">
-                    <label className="flex items-start gap-3 p-2.5 sm:p-3 cursor-pointer hover:bg-slate-50 transition-colors">
+                    <label className="flex items-start gap-3 sm:gap-4 p-3 sm:p-3 cursor-pointer hover:bg-slate-50 transition-colors select-none">
                       <input type="checkbox" checked={deliver.whatsapp}
                         onChange={e => setDeliver(d => ({ ...d, whatsapp: e.target.checked }))}
-                        className="mt-1 sm:mt-0.5 w-4 h-4 rounded accent-[#137fec] cursor-pointer" />
-                      <MessageSquare size={16} className="text-slate-400 mt-1 sm:mt-0.5 flex-shrink-0" />
+                        className="mt-0.5 sm:mt-0.5 w-5 h-5 rounded accent-[#137fec] cursor-pointer flex-shrink-0" />
+                      <MessageSquare size={16} className="text-slate-400 mt-0.5 flex-shrink-0 hidden sm:block" />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-slate-700">WhatsApp to patient</p>
                         <p className="text-xs text-slate-400 mt-0.5">Text notification{driveLinks[templateId] ? ' with the Cloud link' : ''}. Review below.</p>

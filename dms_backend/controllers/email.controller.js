@@ -429,7 +429,7 @@ export async function deleteTemplate(req, res) {
 // ─── Send Report Email ─────────────────────────────────────────────────────
 
 export async function sendReportEmail(req, res) {
-  const { EmailSettings, Patient } = req.tenantModels;
+  const { EmailSettings, Patient, ReportDeliverySettings } = req.tenantModels;
   const { patient_id, to, subject, body, report_text, template_name } = req.body;
 
   if (!patient_id || !to || !report_text) {
@@ -457,13 +457,28 @@ export async function sendReportEmail(req, res) {
       year: 'numeric',
     });
 
-    // Generate PDF
+    // Generate PDF with branding
     const patientName = `${patient.first_name} ${patient.last_name || ''}`.trim();
+
+    // Fetch delivery settings for PDF branding
+    let ds = await ReportDeliverySettings.findOne();
+    if (!ds) {
+      ds = await ReportDeliverySettings.create({});
+    }
+    const pdfEnabled = ds.pdf?.enabled ?? false;
+
     const pdfBuffer = await generateReportPdf(report_text, {
       patientName,
       doctorName,
       date: today,
       templateName: template_name || 'Clinical Report',
+      ...(pdfEnabled && {
+        clinicName:    ds.pdf?.clinicName    || '',
+        clinicTagline: ds.pdf?.clinicTagline || '',
+        clinicAddress: ds.pdf?.clinicAddress || '',
+        clinicPhone:   ds.pdf?.clinicPhone   || '',
+        clinicEmail:   ds.pdf?.clinicEmail   || '',
+      }),
     });
 
     const dateStr = new Date().toISOString().slice(0, 10);
@@ -549,7 +564,7 @@ export async function getPatientEmailStatus(req, res) {
 // ─── Send Treatment Summary (smart report + invoice + AI report) ───────────
 
 export async function sendTreatmentSummary(req, res) {
-  const { EmailSettings, Patient, Visit, Invoice, ReportJob } = req.tenantModels;
+  const { EmailSettings, Patient, Visit, Invoice, ReportJob, ReportDeliverySettings } = req.tenantModels;
   const { patient_id, to, include = [], subject: customSubject, body: customBody } = req.body;
 
   if (!patient_id || !to) {
@@ -601,7 +616,24 @@ export async function sendTreatmentSummary(req, res) {
         ? await ReportJob.findOne({ patientId: patient_id, status: 'done' }).sort({ createdAt: -1 }).lean()
         : null;
       if (job?.reportText) {
-        const pdf = await generateReportPdf(job.reportText, { patientName, doctorName, date: today, templateName: job.templateId || 'Clinical Report' });
+        // Fetch delivery settings for PDF branding (if not already fetched)
+        let ds = settings.ReportDeliverySettings || await ReportDeliverySettings.findOne();
+        if (!ds) ds = await ReportDeliverySettings.create({});
+        const pdfEnabled = ds.pdf?.enabled ?? false;
+
+        const pdf = await generateReportPdf(job.reportText, {
+          patientName,
+          doctorName,
+          date: today,
+          templateName: job.templateId || 'Clinical Report',
+          ...(pdfEnabled && {
+            clinicName:    ds.pdf?.clinicName    || '',
+            clinicTagline: ds.pdf?.clinicTagline || '',
+            clinicAddress: ds.pdf?.clinicAddress || '',
+            clinicPhone:   ds.pdf?.clinicPhone   || '',
+            clinicEmail:   ds.pdf?.clinicEmail   || '',
+          }),
+        });
         attachments.push({ filename: `AIReport_${patientName}_${dateStr}.pdf`, content: pdf, contentType: 'application/pdf' });
       }
     }

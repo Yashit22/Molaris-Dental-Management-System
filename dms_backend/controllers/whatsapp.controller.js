@@ -713,7 +713,7 @@ export async function sendFeedbackPoll(req, res) {
 // ─── Send AI Report via WhatsApp ──────────────────────────────────────────
 
 export async function sendReportWhatsApp(req, res) {
-  const { Patient, WhatsAppLog } = req.tenantModels;
+  const { Patient, WhatsAppLog, ReportDeliverySettings } = req.tenantModels;
   const { patient_id, to, caption, report_text, template_name } = req.body;
 
   if (!patient_id || !to || !report_text) {
@@ -736,13 +736,28 @@ export async function sendReportWhatsApp(req, res) {
       year: 'numeric',
     });
 
-    // Generate PDF
+    // Generate PDF with branding
     const patientName = `${patient.first_name} ${patient.last_name || ''}`.trim();
+
+    // Fetch delivery settings for PDF branding
+    let ds = await ReportDeliverySettings.findOne();
+    if (!ds) {
+      ds = await ReportDeliverySettings.create({});
+    }
+    const pdfEnabled = ds.pdf?.enabled ?? false;
+
     const pdfBuffer = await generateReportPdf(report_text, {
       patientName,
       doctorName,
       date: today,
       templateName: template_name || 'Clinical Report',
+      ...(pdfEnabled && {
+        clinicName:    ds.pdf?.clinicName    || '',
+        clinicTagline: ds.pdf?.clinicTagline || '',
+        clinicAddress: ds.pdf?.clinicAddress || '',
+        clinicPhone:   ds.pdf?.clinicPhone   || '',
+        clinicEmail:   ds.pdf?.clinicEmail   || '',
+      }),
     });
 
     const dateStr = new Date().toISOString().slice(0, 10);
@@ -841,7 +856,7 @@ export async function sendReportWhatsApp(req, res) {
 // ─── Send Treatment Summary via WhatsApp ──────────────────────────────────────
 
 export async function sendTreatmentSummaryWhatsApp(req, res) {
-  const { Patient, Visit, Invoice, ReportJob, WhatsAppLog } = req.tenantModels;
+  const { Patient, Visit, Invoice, ReportJob, WhatsAppLog, ReportDeliverySettings } = req.tenantModels;
   const { patient_id, to, include = [], text } = req.body;
 
   if (!patient_id || !to) {
@@ -906,11 +921,23 @@ export async function sendTreatmentSummaryWhatsApp(req, res) {
         ? await ReportJob.findOne({ patientId: patient_id, status: 'done' }).sort({ createdAt: -1 }).lean()
         : null;
       if (job?.reportText) {
+        // Fetch delivery settings for PDF branding
+        let ds = await ReportDeliverySettings.findOne();
+        if (!ds) ds = await ReportDeliverySettings.create({});
+        const pdfEnabled = ds.pdf?.enabled ?? false;
+
         const pdf = await generateReportPdf(job.reportText, {
           patientName,
           doctorName,
           date: today,
           templateName: job.templateId || 'Clinical Report',
+          ...(pdfEnabled && {
+            clinicName:    ds.pdf?.clinicName    || '',
+            clinicTagline: ds.pdf?.clinicTagline || '',
+            clinicAddress: ds.pdf?.clinicAddress || '',
+            clinicPhone:   ds.pdf?.clinicPhone   || '',
+            clinicEmail:   ds.pdf?.clinicEmail   || '',
+          }),
         });
         if (cloudinaryConfig) {
           const uploaded = await uploadFile(
