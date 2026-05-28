@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Banknote, Receipt, Stethoscope,
   Store, Users, Calendar, Microscope, Pill,
   RotateCcw, ShoppingCart, Download, Calendar as CalendarIcon,
-  ChevronDown, TrendingUp
+  ChevronDown, TrendingUp, Menu, X
 } from 'lucide-react';
 
 import ReportSummary from '../components/ReportSummary.jsx';
@@ -74,6 +74,7 @@ const ReportsPage = () => {
     return { from: p.from, to: p.to };
   });
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const pickerRef = useRef(null);
 
   // Close picker on outside click
@@ -87,10 +88,25 @@ const ReportsPage = () => {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
+  // Close sidebar on outside click (mobile)
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    function handleClick(e) {
+      if (!e.target.closest('[data-sidebar]')) setSidebarOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [sidebarOpen]);
+
   function selectPreset(preset) {
     setDateLabel(preset.label);
     setDateRange({ from: preset.from, to: preset.to });
     setPickerOpen(false);
+  }
+
+  function selectReport(id) {
+    setActiveReport(id);
+    setSidebarOpen(false);
   }
 
   const activeItem = REPORTS_NAV.find(item => item.id === activeReport);
@@ -98,117 +114,154 @@ const ReportsPage = () => {
 
   const handleExport = () => {
     const filename = `${activeReport}_report_${dateRange.from}_to_${dateRange.to}.csv`;
-
-    // Create CSV content based on report type
     let csvContent = `Report: ${activeItem?.label}\nPeriod: ${dateLabel} (${dateRange.from} to ${dateRange.to})\n\n`;
-
-    // Add basic content with date and report info
     csvContent += `Generated on: ${new Date().toLocaleString('en-IN')}\n`;
-
-    // Create a Blob and download
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
-
     link.setAttribute('href', url);
     link.setAttribute('download', filename);
     link.style.visibility = 'hidden';
-
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
-  return (
-    <div className="flex h-full bg-slate-50 overflow-hidden">
-
-      {/* Sidebar */}
-      <aside className="w-64 flex-shrink-0 bg-white border-r border-slate-200 overflow-y-auto flex flex-col">
-        <div className="p-5 border-b border-slate-100">
+  const SidebarContent = () => (
+    <>
+      <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+        <div>
           <h2 className="text-xl font-bold text-slate-800">Reports</h2>
           <p className="text-xs text-slate-500 mt-1">Analytics & Performance</p>
         </div>
-        <nav className="p-3 space-y-1">
-          {REPORTS_NAV.map((item, idx) => {
-            if (item.type === 'divider') {
-              return (
-                <div key={idx} className="px-3 pt-5 pb-2 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  {item.label}
-                </div>
-              );
-            }
-            const Icon = item.icon;
+        <button
+          onClick={() => setSidebarOpen(false)}
+          className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+        >
+          <X size={18} />
+        </button>
+      </div>
+      <nav className="p-3 space-y-1 overflow-y-auto flex-1">
+        {REPORTS_NAV.map((item, idx) => {
+          if (item.type === 'divider') {
             return (
-              <button
-                key={item.id}
-                onClick={() => setActiveReport(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-all ${
-                  activeReport === item.id
-                    ? 'bg-blue-50 text-[#137fec]'
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                }`}
-              >
-                <Icon size={18} className={activeReport === item.id ? 'text-[#137fec]' : 'text-slate-400'} />
+              <div key={idx} className="px-3 pt-5 pb-2 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
                 {item.label}
-              </button>
+              </div>
             );
-          })}
-        </nav>
+          }
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.id}
+              onClick={() => selectReport(item.id)}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-all ${
+                activeReport === item.id
+                  ? 'bg-blue-50 text-[#137fec]'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              }`}
+            >
+              <Icon size={18} className={activeReport === item.id ? 'text-[#137fec]' : 'text-slate-400'} />
+              {item.label}
+            </button>
+          );
+        })}
+      </nav>
+    </>
+  );
+
+  return (
+    <div className="flex h-full bg-slate-50 overflow-hidden">
+
+      {/* Mobile sidebar overlay */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
+
+      {/* Sidebar — desktop: static, mobile: drawer */}
+      <aside
+        data-sidebar
+        className={`
+          fixed md:static top-0 left-0 h-full z-50 md:z-auto
+          w-72 md:w-64 flex-shrink-0 bg-white border-r border-slate-200 flex flex-col
+          transition-transform duration-300 ease-in-out
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+        `}
+      >
+        <SidebarContent />
       </aside>
 
       {/* Right content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
         {/* Header */}
-        <header className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 z-10">
-          <div>
-            <h1 className="text-xl font-bold text-slate-800">{activeItem?.label}</h1>
-            <p className="text-sm text-slate-500">
-              Overview for <span className="font-medium text-slate-700">{dateLabel}</span>
-              <span className="ml-2 text-slate-400 text-xs">({dateRange.from} → {dateRange.to})</span>
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* Date preset picker */}
-            <div className="relative" ref={pickerRef}>
+        <header className="bg-white border-b border-slate-200 px-4 md:px-6 py-3 md:py-4 flex flex-col gap-3 z-10">
+          <div className="flex items-center justify-between gap-3">
+            {/* Mobile hamburger + title */}
+            <div className="flex items-center gap-3 min-w-0">
               <button
-                onClick={() => setPickerOpen(o => !o)}
-                className="flex items-center gap-2 bg-white border border-slate-200 hover:border-slate-300 text-slate-700 px-4 py-2 rounded-xl text-sm font-medium shadow-sm transition-all"
+                onClick={() => setSidebarOpen(true)}
+                className="md:hidden p-2 rounded-lg text-slate-500 hover:bg-slate-100 flex-shrink-0"
               >
-                <CalendarIcon size={16} className="text-slate-500" />
-                {dateLabel}
-                <ChevronDown size={14} className="text-slate-400 ml-1" />
+                <Menu size={20} />
               </button>
-
-              {pickerOpen && (
-                <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-200 rounded-xl shadow-lg py-1 z-50">
-                  {PRESETS.map(preset => (
-                    <button
-                      key={preset.label}
-                      onClick={() => selectPreset(preset)}
-                      className={`w-full text-left px-4 py-2 text-sm transition-colors ${
-                        dateLabel === preset.label
-                          ? 'bg-blue-50 text-[#137fec] font-medium'
-                          : 'text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-              )}
+              <div className="min-w-0">
+                <h1 className="text-base md:text-xl font-bold text-slate-800 truncate">{activeItem?.label}</h1>
+                <p className="text-xs md:text-sm text-slate-500 hidden sm:block">
+                  Overview for <span className="font-medium text-slate-700">{dateLabel}</span>
+                  <span className="ml-2 text-slate-400 text-xs">({dateRange.from} → {dateRange.to})</span>
+                </p>
+              </div>
             </div>
 
-            {/* Export button */}
-            <button onClick={handleExport} className="flex items-center gap-2 bg-[#137fec] hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-medium shadow-sm transition-all">
-              <Download size={16} /> Export
-            </button>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {/* Date preset picker */}
+              <div className="relative" ref={pickerRef}>
+                <button
+                  onClick={() => setPickerOpen(o => !o)}
+                  className="flex items-center gap-1.5 bg-white border border-slate-200 hover:border-slate-300 text-slate-700 px-2.5 md:px-4 py-2 rounded-xl text-xs md:text-sm font-medium shadow-sm transition-all"
+                >
+                  <CalendarIcon size={14} className="text-slate-500" />
+                  <span className="hidden xs:inline">{dateLabel}</span>
+                  <ChevronDown size={12} className="text-slate-400" />
+                </button>
+
+                {pickerOpen && (
+                  <div className="absolute right-0 mt-2 w-44 bg-white border border-slate-200 rounded-xl shadow-lg py-1 z-50">
+                    {PRESETS.map(preset => (
+                      <button
+                        key={preset.label}
+                        onClick={() => selectPreset(preset)}
+                        className={`w-full text-left px-4 py-2 text-sm transition-colors ${
+                          dateLabel === preset.label
+                            ? 'bg-blue-50 text-[#137fec] font-medium'
+                            : 'text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Export button */}
+              <button onClick={handleExport} className="flex items-center gap-1.5 bg-[#137fec] hover:bg-blue-700 text-white px-2.5 md:px-4 py-2 rounded-xl text-xs md:text-sm font-medium shadow-sm transition-all">
+                <Download size={14} />
+                <span className="hidden sm:inline">Export</span>
+              </button>
+            </div>
           </div>
+
+          {/* Date sub-line — visible on mobile only */}
+          <p className="text-xs text-slate-500 sm:hidden">
+            <span className="font-medium text-slate-700">{dateLabel}</span>
+            <span className="ml-2 text-slate-400">({dateRange.from} → {dateRange.to})</span>
+          </p>
         </header>
 
         {/* Report content */}
-        <main className="flex-1 overflow-y-auto p-6 scroll-smooth">
+        <main className="flex-1 overflow-y-auto p-3 md:p-6 scroll-smooth">
           <div className="max-w-7xl mx-auto">
             <ActiveComponent
               from={dateRange.from}

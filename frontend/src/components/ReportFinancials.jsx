@@ -51,31 +51,31 @@ function Revenue({ from, to }) {
   const d = data || {};
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       {/* KPI row */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-3 md:gap-4">
         {[
           { label: 'Total Billed',   value: fmt(d.total || 0) },
           { label: 'Collected',      value: fmt(d.collected || 0) },
           { label: 'Pending',        value: fmt(d.pending || 0) },
         ].map(k => (
-          <div key={k.label} className="bg-white p-6 rounded-2xl border shadow-sm">
-            <p className="text-slate-500 text-sm">{k.label}</p>
-            <p className="text-2xl font-bold text-slate-800 mt-1">{k.value}</p>
+          <div key={k.label} className="bg-white p-4 md:p-6 rounded-2xl border shadow-sm">
+            <p className="text-slate-500 text-xs md:text-sm">{k.label}</p>
+            <p className="text-lg md:text-2xl font-bold text-slate-800 mt-1">{k.value}</p>
           </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
         {/* Monthly revenue trend bar */}
-        <div className="lg:col-span-2 bg-white p-6 rounded-2xl border shadow-sm">
-          <h3 className="font-bold text-slate-800 mb-4">Monthly Revenue</h3>
+        <div className="lg:col-span-2 bg-white p-4 md:p-6 rounded-2xl border shadow-sm">
+          <h3 className="font-bold text-slate-800 mb-4 text-sm md:text-base">Monthly Revenue</h3>
           {d.trend?.length > 0 ? (
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={d.trend}>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={d.trend} margin={{ left: -10, right: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12 }} tickFormatter={fmt} />
+                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11 }} tickFormatter={fmt} width={50} />
                 <Tooltip formatter={v => [fmt(v), 'Revenue']} />
                 <Bar dataKey="total" fill="#137fec" radius={[4, 4, 0, 0]} name="Revenue" />
               </BarChart>
@@ -84,12 +84,12 @@ function Revenue({ from, to }) {
         </div>
 
         {/* Payment method pie */}
-        <div className="bg-white p-6 rounded-2xl border shadow-sm">
-          <h3 className="font-bold text-slate-800 mb-4">Payment Methods</h3>
+        <div className="bg-white p-4 md:p-6 rounded-2xl border shadow-sm">
+          <h3 className="font-bold text-slate-800 mb-4 text-sm md:text-base">Payment Methods</h3>
           {d.by_payment_method?.length > 0 ? (
-            <ResponsiveContainer width="100%" height={260}>
+            <ResponsiveContainer width="100%" height={220}>
               <PieChart>
-                <Pie data={d.by_payment_method} cx="50%" cy="45%" innerRadius={55} outerRadius={80} paddingAngle={4} dataKey="value">
+                <Pie data={d.by_payment_method} cx="50%" cy="45%" innerRadius={50} outerRadius={75} paddingAngle={4} dataKey="value">
                   {d.by_payment_method.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Pie>
                 <Tooltip formatter={v => [fmt(v)]} />
@@ -100,45 +100,49 @@ function Revenue({ from, to }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
         {/* Top patients table */}
         {d.top_patients?.length > 0 && (
           <div className="bg-white border rounded-2xl shadow-sm overflow-hidden">
-            <div className="p-4 border-b bg-slate-50"><h3 className="font-bold text-slate-800">Top Patients by Revenue</h3></div>
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
-                <tr><th className="p-3 text-left">Patient</th><th className="p-3 text-right">Total Billed</th></tr>
-              </thead>
-              <tbody>
-                {d.top_patients.map((p, i) => (
-                  <tr key={i} className="border-t border-slate-50 hover:bg-slate-50">
-                    <td className="p-3">{p.name}</td>
-                    <td className="p-3 text-right font-semibold text-slate-700">{fmt(p.total)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="p-4 border-b bg-slate-50"><h3 className="font-bold text-slate-800 text-sm md:text-base">Top Patients by Revenue</h3></div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[300px]">
+                <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
+                  <tr><th className="p-3 text-left">Patient</th><th className="p-3 text-right">Total Billed</th></tr>
+                </thead>
+                <tbody>
+                  {d.top_patients.map((p, i) => (
+                    <tr key={i} className="border-t border-slate-50 hover:bg-slate-50">
+                      <td className="p-3">{p.name}</td>
+                      <td className="p-3 text-right font-semibold text-slate-700">{fmt(p.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
         {/* Revenue by doctors table */}
         {d.by_doctors?.length > 0 && (
           <div className="bg-white border rounded-2xl shadow-sm overflow-hidden">
-            <div className="p-4 border-b bg-slate-50"><h3 className="font-bold text-slate-800">Revenue by Doctors</h3></div>
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
-                <tr><th className="p-3 text-left">Doctor</th><th className="p-3 text-right">Cases</th><th className="p-3 text-right">Total Revenue</th></tr>
-              </thead>
-              <tbody>
-                {d.by_doctors.map((dr, i) => (
-                  <tr key={i} className="border-t border-slate-50 hover:bg-slate-50">
-                    <td className="p-3 font-medium">{dr.name}</td>
-                    <td className="p-3 text-right text-slate-500">{dr.count || 0}</td>
-                    <td className="p-3 text-right font-semibold text-slate-700">{fmt(dr.total || 0)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="p-4 border-b bg-slate-50"><h3 className="font-bold text-slate-800 text-sm md:text-base">Revenue by Doctors</h3></div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[300px]">
+                <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
+                  <tr><th className="p-3 text-left">Doctor</th><th className="p-3 text-right">Cases</th><th className="p-3 text-right">Total Revenue</th></tr>
+                </thead>
+                <tbody>
+                  {d.by_doctors.map((dr, i) => (
+                    <tr key={i} className="border-t border-slate-50 hover:bg-slate-50">
+                      <td className="p-3 font-medium">{dr.name}</td>
+                      <td className="p-3 text-right text-slate-500">{dr.count || 0}</td>
+                      <td className="p-3 text-right font-semibold text-slate-700">{fmt(dr.total || 0)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>
@@ -154,21 +158,21 @@ function Expense({ from, to }) {
   const d = data || {};
 
   return (
-    <div className="space-y-6">
-      <div className="bg-white p-6 rounded-2xl border shadow-sm">
-        <p className="text-slate-500 text-sm">Total Expenses</p>
-        <p className="text-3xl font-bold text-slate-800 mt-1">{fmt(d.total || 0)}</p>
+    <div className="space-y-4 md:space-y-6">
+      <div className="bg-white p-4 md:p-6 rounded-2xl border shadow-sm">
+        <p className="text-slate-500 text-xs md:text-sm">Total Expenses</p>
+        <p className="text-2xl md:text-3xl font-bold text-slate-800 mt-1">{fmt(d.total || 0)}</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-white p-6 rounded-2xl border shadow-sm">
-          <h3 className="font-bold text-slate-800 mb-4">Monthly Expense Trend</h3>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
+        <div className="lg:col-span-2 bg-white p-4 md:p-6 rounded-2xl border shadow-sm">
+          <h3 className="font-bold text-slate-800 mb-4 text-sm md:text-base">Monthly Expense Trend</h3>
           {d.trend?.length > 0 ? (
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={d.trend}>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={d.trend} margin={{ left: -10, right: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12 }} tickFormatter={fmt} />
+                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11 }} tickFormatter={fmt} width={50} />
                 <Tooltip formatter={v => [fmt(v), 'Expenses']} />
                 <Bar dataKey="total" fill="#ef4444" radius={[4, 4, 0, 0]} />
               </BarChart>
@@ -176,12 +180,12 @@ function Expense({ from, to }) {
           ) : <p className="text-slate-400 text-sm text-center py-16">No data.</p>}
         </div>
 
-        <div className="bg-white p-6 rounded-2xl border shadow-sm">
-          <h3 className="font-bold text-slate-800 mb-4">By Category</h3>
+        <div className="bg-white p-4 md:p-6 rounded-2xl border shadow-sm">
+          <h3 className="font-bold text-slate-800 mb-4 text-sm md:text-base">By Category</h3>
           {d.by_category?.length > 0 ? (
-            <ResponsiveContainer width="100%" height={260}>
+            <ResponsiveContainer width="100%" height={220}>
               <PieChart>
-                <Pie data={d.by_category} cx="50%" cy="45%" innerRadius={55} outerRadius={80} paddingAngle={4} dataKey="value">
+                <Pie data={d.by_category} cx="50%" cy="45%" innerRadius={50} outerRadius={75} paddingAngle={4} dataKey="value">
                   {d.by_category.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Pie>
                 <Tooltip formatter={v => [fmt(v)]} />
@@ -205,28 +209,30 @@ function Vendors({ from, to }) {
   return (
     <div className="bg-white border rounded-2xl shadow-sm overflow-hidden">
       <div className="p-4 border-b bg-slate-50">
-        <h3 className="font-bold text-slate-800">Vendor Spend Summary</h3>
+        <h3 className="font-bold text-slate-800 text-sm md:text-base">Vendor Spend Summary</h3>
         <p className="text-xs text-slate-400 mt-0.5">Based on expense transactions linked to vendors</p>
       </div>
       {rows.length > 0 ? (
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
-            <tr>
-              <th className="p-3 text-left">Vendor</th>
-              <th className="p-3 text-right">Transactions</th>
-              <th className="p-3 text-right">Total Spent</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => (
-              <tr key={i} className="border-t border-slate-50 hover:bg-slate-50">
-                <td className="p-3 font-medium">{r.vendor_name}</td>
-                <td className="p-3 text-right text-slate-500">{r.order_count}</td>
-                <td className="p-3 text-right font-semibold text-slate-700">{fmt(r.total_spent)}</td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[320px]">
+            <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
+              <tr>
+                <th className="p-3 text-left">Vendor</th>
+                <th className="p-3 text-right">Transactions</th>
+                <th className="p-3 text-right">Total Spent</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i} className="border-t border-slate-50 hover:bg-slate-50">
+                  <td className="p-3 font-medium">{r.vendor_name}</td>
+                  <td className="p-3 text-right text-slate-500">{r.order_count}</td>
+                  <td className="p-3 text-right font-semibold text-slate-700">{fmt(r.total_spent)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : (
         <p className="text-slate-400 text-sm text-center py-16">No vendor transactions in this period.</p>
       )}
@@ -245,34 +251,36 @@ function MedOrders({ from, to }) {
 
   return (
     <div className="bg-white border rounded-2xl shadow-sm overflow-hidden">
-      <div className="p-4 border-b bg-slate-50"><h3 className="font-bold text-slate-800">Purchase Orders</h3></div>
+      <div className="p-4 border-b bg-slate-50"><h3 className="font-bold text-slate-800 text-sm md:text-base">Purchase Orders</h3></div>
       {rows.length > 0 ? (
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
-            <tr>
-              <th className="p-3 text-left">Vendor</th>
-              <th className="p-3 text-left">Category</th>
-              <th className="p-3 text-left">Order Date</th>
-              <th className="p-3 text-center">Items</th>
-              <th className="p-3 text-center">Status</th>
-              <th className="p-3 text-right">Total Cost</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => (
-              <tr key={i} className="border-t border-slate-50 hover:bg-slate-50">
-                <td className="p-3 font-medium">{r.vendor_name}</td>
-                <td className="p-3 text-slate-500">{r.category}</td>
-                <td className="p-3 text-slate-500">{new Date(r.order_date).toLocaleDateString('en-GB')}</td>
-                <td className="p-3 text-center">{r.item_count}</td>
-                <td className="p-3 text-center">
-                  <span className={`text-xs px-2 py-0.5 rounded font-semibold ${STATUS_COLORS[r.status] || 'bg-slate-100 text-slate-600'}`}>{r.status}</span>
-                </td>
-                <td className="p-3 text-right font-semibold">{fmt(r.total_cost)}</td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[540px]">
+            <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
+              <tr>
+                <th className="p-3 text-left">Vendor</th>
+                <th className="p-3 text-left">Category</th>
+                <th className="p-3 text-left">Order Date</th>
+                <th className="p-3 text-center">Items</th>
+                <th className="p-3 text-center">Status</th>
+                <th className="p-3 text-right">Total Cost</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i} className="border-t border-slate-50 hover:bg-slate-50">
+                  <td className="p-3 font-medium">{r.vendor_name}</td>
+                  <td className="p-3 text-slate-500">{r.category}</td>
+                  <td className="p-3 text-slate-500">{new Date(r.order_date).toLocaleDateString('en-GB')}</td>
+                  <td className="p-3 text-center">{r.item_count}</td>
+                  <td className="p-3 text-center">
+                    <span className={`text-xs px-2 py-0.5 rounded font-semibold ${STATUS_COLORS[r.status] || 'bg-slate-100 text-slate-600'}`}>{r.status}</span>
+                  </td>
+                  <td className="p-3 text-right font-semibold">{fmt(r.total_cost)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : (
         <p className="text-slate-400 text-sm text-center py-16">No purchase orders in this period.</p>
       )}
@@ -288,18 +296,18 @@ function TreatmentRevenue({ from, to }) {
   const rows = data?.by_treatment || [];
 
   return (
-    <div className="space-y-6">
-      <div className="bg-white p-6 rounded-2xl border shadow-sm">
-        <h3 className="font-bold text-slate-800 mb-6">Revenue by Treatment Type</h3>
+    <div className="space-y-4 md:space-y-6">
+      <div className="bg-white p-4 md:p-6 rounded-2xl border shadow-sm">
+        <h3 className="font-bold text-slate-800 mb-4 md:mb-6 text-sm md:text-base">Revenue by Treatment Type</h3>
         {rows.length > 0 ? (
-          <div style={{ height: '500px', overflowY: 'auto' }}>
+          <div style={{ height: '480px', overflowY: 'auto' }}>
             <ResponsiveContainer width="100%" height={Math.max(300, rows.length * 36)}>
-              <BarChart data={rows} layout="vertical" margin={{ left: 160 }}>
+              <BarChart data={rows} layout="vertical" margin={{ left: 10, right: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} tickFormatter={fmt} />
-                <YAxis dataKey="name" type="category" width={150} axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
+                <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 11 }} tickFormatter={fmt} />
+                <YAxis dataKey="name" type="category" width={120} axisLine={false} tickLine={false} tick={{ fontSize: 11 }} />
                 <Tooltip formatter={v => [fmt(v), 'Revenue']} />
-                <Bar dataKey="total_cost" fill="#137fec" radius={[0, 4, 4, 0]} barSize={18} name="Revenue">
+                <Bar dataKey="total_cost" fill="#137fec" radius={[0, 4, 4, 0]} barSize={16} name="Revenue">
                   {rows.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Bar>
               </BarChart>
@@ -310,25 +318,27 @@ function TreatmentRevenue({ from, to }) {
 
       {rows.length > 0 && (
         <div className="bg-white border rounded-2xl shadow-sm overflow-hidden">
-          <div className="p-4 border-b bg-slate-50"><h3 className="font-bold text-slate-800">Treatment Breakdown</h3></div>
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
-              <tr>
-                <th className="p-3 text-left">Treatment</th>
-                <th className="p-3 text-right">Count</th>
-                <th className="p-3 text-right">Revenue</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={i} className="border-t border-slate-50 hover:bg-slate-50">
-                  <td className="p-3 font-medium">{r.name}</td>
-                  <td className="p-3 text-right text-slate-500">{r.count}</td>
-                  <td className="p-3 text-right font-semibold text-slate-700">{fmt(r.total_cost)}</td>
+          <div className="p-4 border-b bg-slate-50"><h3 className="font-bold text-slate-800 text-sm md:text-base">Treatment Breakdown</h3></div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[300px]">
+              <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
+                <tr>
+                  <th className="p-3 text-left">Treatment</th>
+                  <th className="p-3 text-right">Count</th>
+                  <th className="p-3 text-right">Revenue</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i} className="border-t border-slate-50 hover:bg-slate-50">
+                    <td className="p-3 font-medium">{r.name}</td>
+                    <td className="p-3 text-right text-slate-500">{r.count}</td>
+                    <td className="p-3 text-right font-semibold text-slate-700">{fmt(r.total_cost)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

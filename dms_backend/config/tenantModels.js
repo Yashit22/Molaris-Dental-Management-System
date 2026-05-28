@@ -31,6 +31,7 @@ import { ClinicProfileSchema }      from '../models/ClinicProfile.model.js';
 import { BookingSettingsSchema }    from '../models/BookingSettings.model.js';
 import { InvoiceSettingsSchema }    from '../models/InvoiceSettings.model.js';
 import { PrescriptionSettingsSchema } from '../models/PrescriptionSettings.model.js';
+import { IntegrationStatusSchema }   from '../models/IntegrationStatus.model.js';
 
 /**
  * Returns all clinic Mongoose models bound to the given tenant connection.
@@ -76,6 +77,7 @@ export function getTenantModels(conn) {
     BookingSettings:          getOrCreate('BookingSettings',          BookingSettingsSchema),
     InvoiceSettings:          getOrCreate('InvoiceSettings',          InvoiceSettingsSchema),
     PrescriptionSettings:     getOrCreate('PrescriptionSettings',     PrescriptionSettingsSchema),
+    IntegrationStatus:        getOrCreate('IntegrationStatus',        IntegrationStatusSchema),
   };
 
   return conn._dmsModels;

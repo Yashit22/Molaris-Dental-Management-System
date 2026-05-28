@@ -54,7 +54,7 @@ export default function ReportInventory({ from, to }) {
   const totalConsumed = selectedLogs.reduce((s, l) => s + l.used, 0);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       {/* Low stock alert */}
       {lowStock.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
@@ -66,11 +66,11 @@ export default function ReportInventory({ from, to }) {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
         {/* Item list */}
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col max-h-[520px]">
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col max-h-64 lg:max-h-[520px]">
           <div className="p-4 border-b bg-slate-50 flex-shrink-0">
-            <h3 className="font-bold text-slate-800">Select Item</h3>
+            <h3 className="font-bold text-slate-800 text-sm md:text-base">Select Item</h3>
             <p className="text-xs text-slate-400 mt-0.5">{items.length} items total</p>
           </div>
           <div className="overflow-y-auto flex-1">
@@ -78,7 +78,7 @@ export default function ReportInventory({ from, to }) {
               <div
                 key={item._id}
                 onClick={() => setSelected(item._id)}
-                className={`p-4 border-b cursor-pointer transition-colors ${
+                className={`p-3 md:p-4 border-b cursor-pointer transition-colors ${
                   selectedId === item._id ? 'bg-blue-50 border-l-4 border-l-[#137fec]' : 'hover:bg-slate-50'
                 }`}
               >
@@ -99,21 +99,21 @@ export default function ReportInventory({ from, to }) {
         </div>
 
         {/* Right: consumption charts */}
-        <div className="lg:col-span-2 flex flex-col gap-6">
+        <div className="lg:col-span-2 flex flex-col gap-4 md:gap-6">
           {selectedItem ? (
             <>
               {/* Consumption trend */}
-              <div className="bg-white p-6 rounded-2xl border shadow-sm">
-                <h3 className="font-bold text-slate-800 mb-1">Consumption Trend</h3>
-                <p className="text-sm text-slate-500 mb-5">
+              <div className="bg-white p-4 md:p-6 rounded-2xl border shadow-sm">
+                <h3 className="font-bold text-slate-800 mb-1 text-sm md:text-base">Consumption Trend</h3>
+                <p className="text-xs md:text-sm text-slate-500 mb-4">
                   Daily usage for: <span className="font-semibold text-[#137fec]">{selectedItem.name}</span>
                 </p>
                 {selectedLogs.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={220}>
-                    <LineChart data={selectedLogs}>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={selectedLogs} margin={{ left: -10, right: 10 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 11 }} />
-                      <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
+                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11 }} width={35} />
                       <Tooltip />
                       <Line type="monotone" dataKey="used" stroke="#137fec" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Used" />
                     </LineChart>
@@ -124,25 +124,25 @@ export default function ReportInventory({ from, to }) {
               </div>
 
               {/* KPI cards */}
-              <div className="grid grid-cols-3 gap-4">
-                <div className="bg-white p-4 rounded-xl border shadow-sm">
-                  <p className="text-xs text-slate-500 font-bold uppercase">Current Stock</p>
-                  <p className="text-2xl font-bold text-slate-800 mt-1">{selectedItem.stock_on_hand}</p>
+              <div className="grid grid-cols-3 gap-3 md:gap-4">
+                <div className="bg-white p-3 md:p-4 rounded-xl border shadow-sm">
+                  <p className="text-[10px] md:text-xs text-slate-500 font-bold uppercase">Current Stock</p>
+                  <p className="text-xl md:text-2xl font-bold text-slate-800 mt-1">{selectedItem.stock_on_hand}</p>
                 </div>
-                <div className="bg-white p-4 rounded-xl border shadow-sm">
-                  <p className="text-xs text-slate-500 font-bold uppercase">Consumed (Period)</p>
-                  <p className="text-2xl font-bold text-slate-800 mt-1">{totalConsumed}</p>
+                <div className="bg-white p-3 md:p-4 rounded-xl border shadow-sm">
+                  <p className="text-[10px] md:text-xs text-slate-500 font-bold uppercase">Consumed</p>
+                  <p className="text-xl md:text-2xl font-bold text-slate-800 mt-1">{totalConsumed}</p>
                 </div>
-                <div className={`bg-white p-4 rounded-xl border shadow-sm`}>
-                  <p className="text-xs text-slate-500 font-bold uppercase">Status</p>
-                  <p className={`text-lg font-bold mt-1 ${selectedItem.status === 'Good' ? 'text-green-600' : selectedItem.status === 'Low' ? 'text-yellow-600' : 'text-red-600'}`}>
+                <div className="bg-white p-3 md:p-4 rounded-xl border shadow-sm">
+                  <p className="text-[10px] md:text-xs text-slate-500 font-bold uppercase">Status</p>
+                  <p className={`text-base md:text-lg font-bold mt-1 ${selectedItem.status === 'Good' ? 'text-green-600' : selectedItem.status === 'Low' ? 'text-yellow-600' : 'text-red-600'}`}>
                     {selectedItem.status}
                   </p>
                 </div>
               </div>
             </>
           ) : (
-            <div className="bg-white rounded-2xl border shadow-sm flex items-center justify-center h-64">
+            <div className="bg-white rounded-2xl border shadow-sm flex items-center justify-center h-40 md:h-64">
               <p className="text-slate-400 text-sm">Select an item from the list.</p>
             </div>
           )}
@@ -151,15 +151,15 @@ export default function ReportInventory({ from, to }) {
 
       {/* Top consumed items bar chart */}
       {consumed.length > 0 && (
-        <div className="bg-white p-6 rounded-2xl border shadow-sm">
-          <h3 className="font-bold text-slate-800 mb-6">Top Consumed Items (Period)</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={consumed} layout="vertical">
+        <div className="bg-white p-4 md:p-6 rounded-2xl border shadow-sm">
+          <h3 className="font-bold text-slate-800 mb-4 md:mb-6 text-sm md:text-base">Top Consumed Items (Period)</h3>
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart data={consumed} layout="vertical" margin={{ left: 10, right: 10 }}>
               <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-              <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
-              <YAxis dataKey="name" type="category" width={160} axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
+              <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 11 }} />
+              <YAxis dataKey="name" type="category" width={130} axisLine={false} tickLine={false} tick={{ fontSize: 11 }} />
               <Tooltip />
-              <Bar dataKey="total" radius={[0, 4, 4, 0]} barSize={18} name="Units Used">
+              <Bar dataKey="total" radius={[0, 4, 4, 0]} barSize={16} name="Units Used">
                 {consumed.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
               </Bar>
             </BarChart>

@@ -1,4 +1,3 @@
-import IntegrationStatus from '../models/IntegrationStatus.model.js';
 import { google } from 'googleapis';
 import nodemailer from 'nodemailer';
 import fetch from 'node-fetch';
@@ -6,6 +5,7 @@ import fetch from 'node-fetch';
 // ── Check Google Drive integration status and quota ──
 export const checkGoogleDriveStatus = async (req, res) => {
   try {
+    const { IntegrationStatus } = req.tenantModels;
     const requiredEnvVars = [
       'GOOGLE_CLIENT_ID',
       'GOOGLE_CLIENT_SECRET',
@@ -84,6 +84,7 @@ export const checkGoogleDriveStatus = async (req, res) => {
 // ── Check Gmail integration status ──
 export const checkGmailStatus = async (req, res) => {
   try {
+    const { IntegrationStatus } = req.tenantModels;
     const emailSettings = req.app.locals.emailSettings || {};
     const isConfigured =
       emailSettings.smtpHost &&
@@ -96,9 +97,9 @@ export const checkGmailStatus = async (req, res) => {
 
     if (isConfigured) {
       // Check if a test email was already sent and succeeded
-      const status = await IntegrationStatus.findOne({ integration: 'gmail' });
-      isVerified = status?.isVerified || false;
-      lastError = status?.lastError || null;
+      const existing = await IntegrationStatus.findOne({ integration: 'gmail' });
+      isVerified = existing?.isVerified || false;
+      lastError = existing?.lastError || null;
     }
 
     const status = await IntegrationStatus.findOneAndUpdate(
@@ -133,6 +134,7 @@ export const checkGmailStatus = async (req, res) => {
 // ── Check WhatsApp integration status ──
 export const checkWhatsAppStatus = async (req, res) => {
   try {
+    const { IntegrationStatus } = req.tenantModels;
     const isConfigured = !!process.env.WAAPI_BASE_URL;
     let isVerified = false;
     let lastError = null;
@@ -152,8 +154,8 @@ export const checkWhatsAppStatus = async (req, res) => {
       }
 
       // Also check if a test message was sent successfully
-      const status = await IntegrationStatus.findOne({ integration: 'whatsapp' });
-      if (status?.testDetails?.testStatus === 'success') {
+      const existing = await IntegrationStatus.findOne({ integration: 'whatsapp' });
+      if (existing?.testDetails?.testStatus === 'success') {
         isVerified = true;
       } else if (lastError) {
         isVerified = false;
@@ -192,6 +194,7 @@ export const checkWhatsAppStatus = async (req, res) => {
 // ── Get all integrations status ──
 export const getAllIntegrationsStatus = async (req, res) => {
   try {
+    const { IntegrationStatus } = req.tenantModels;
     const integrations = await IntegrationStatus.find();
     const statusMap = {};
 
@@ -232,6 +235,7 @@ export const getAllIntegrationsStatus = async (req, res) => {
 // ── Send test email ──
 export const sendTestEmail = async (req, res) => {
   try {
+    const { IntegrationStatus } = req.tenantModels;
     const { email } = req.body;
 
     if (!email) {
@@ -294,6 +298,7 @@ export const sendTestEmail = async (req, res) => {
   } catch (error) {
     console.error('[Integration] Error sending test email:', error);
 
+    const { IntegrationStatus } = req.tenantModels;
     // Mark as failed
     await IntegrationStatus.findOneAndUpdate(
       { integration: 'gmail' },
@@ -316,6 +321,7 @@ export const sendTestEmail = async (req, res) => {
 // ── Send test WhatsApp message ──
 export const sendTestWhatsApp = async (req, res) => {
   try {
+    const { IntegrationStatus } = req.tenantModels;
     const { phone } = req.body;
 
     if (!phone) {
@@ -367,6 +373,7 @@ export const sendTestWhatsApp = async (req, res) => {
   } catch (error) {
     console.error('[Integration] Error sending test WhatsApp:', error);
 
+    const { IntegrationStatus } = req.tenantModels;
     // Mark as failed
     await IntegrationStatus.findOneAndUpdate(
       { integration: 'whatsapp' },

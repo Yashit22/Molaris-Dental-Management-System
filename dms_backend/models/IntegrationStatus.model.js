@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 
-const integrationStatusSchema = new mongoose.Schema(
+export const IntegrationStatusSchema = new mongoose.Schema(
   {
     integration: {
       type: String,
@@ -26,4 +26,4 @@ const integrationStatusSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-export default mongoose.model('IntegrationStatus', integrationStatusSchema);
+export default mongoose.model('IntegrationStatus', IntegrationStatusSchema);

@@ -1295,7 +1295,7 @@ function FeedbackPollLangEditor({
   const langLabel = LANGUAGES.find((l) => l.code === lang)?.label;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-8 items-start">
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6 md:gap-8 items-start">
       {/* ── Left: poll editor ── */}
       <div className="space-y-5">
         {/* Type pill */}
@@ -1371,8 +1371,8 @@ function FeedbackPollLangEditor({
         )}
       </div>
 
-      {/* ── Right: poll preview ── */}
-      <div className="lg:sticky lg:top-6">
+      {/* ── Right: poll preview — hidden on mobile ── */}
+      <div className="hidden lg:block lg:sticky lg:top-6">
         <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide text-center mb-3">
           Preview — {langLabel}
         </p>
@@ -1517,7 +1517,7 @@ function LangEditor({ lang, event, template, onSaved }) {
 
   // Step 2: editor + sticky phone preview side by side
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-8 items-start">
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6 md:gap-8 items-start">
       {/* ── Left: form ── */}
       <div className="space-y-5">
         {/* Type pill + change */}
@@ -1621,8 +1621,8 @@ function LangEditor({ lang, event, template, onSaved }) {
         )}
       </div>
 
-      {/* ── Right: sticky phone preview ── */}
-      <div className="lg:sticky lg:top-6">
+      {/* ── Right: sticky phone preview — hidden on mobile ── */}
+      <div className="hidden lg:block lg:sticky lg:top-6">
         <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide text-center mb-3">
           Preview — {langLabel}
         </p>
@@ -1679,67 +1679,51 @@ function TemplateEditor({
       </div>
 
       {/* Enable + delay */}
-      <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
-        <div>
-          <p className="text-sm font-semibold text-slate-800 dark:text-white">
-            Enable this notification
-          </p>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Automatically send when this event occurs
-          </p>
-        </div>
-        <div className="flex items-center gap-4">
-          {eventSettings.enabled &&
-            (event.key === "appointmentReminder" ? (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-slate-500 dark:text-slate-400">
-                  Send
-                </span>
-                <input
-                  type="number"
-                  min="1"
-                  value={eventSettings.hoursBeforeAppointment ?? 24}
-                  onChange={(e) =>
-                    onSettingChange(
-                      event.key,
-                      "hoursBeforeAppointment",
-                      Number(e.target.value),
-                    )
-                  }
-                  className="w-16 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#137fec]"
-                />
-                <span className="text-sm text-slate-500 dark:text-slate-400">
-                  hours before appointment
-                </span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-slate-500 dark:text-slate-400">
-                  Delay
-                </span>
-                <input
-                  type="number"
-                  min="0"
-                  value={eventSettings.delayMinutes ?? 0}
-                  onChange={(e) =>
-                    onSettingChange(
-                      event.key,
-                      "delayMinutes",
-                      Number(e.target.value),
-                    )
-                  }
-                  className="w-16 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#137fec]"
-                />
-                <span className="text-sm text-slate-500 dark:text-slate-400">
-                  min
-                </span>
-              </div>
-            ))}
+      <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-800 dark:text-white">
+              Enable this notification
+            </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Automatically send when this event occurs
+            </p>
+          </div>
           <Toggle
             value={eventSettings.enabled}
             onChange={(v) => onSettingChange(event.key, "enabled", v)}
           />
         </div>
+        {eventSettings.enabled &&
+          (event.key === "appointmentReminder" ? (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <span className="text-sm text-slate-500 dark:text-slate-400">Send</span>
+              <input
+                type="number"
+                min="1"
+                value={eventSettings.hoursBeforeAppointment ?? 24}
+                onChange={(e) =>
+                  onSettingChange(event.key, "hoursBeforeAppointment", Number(e.target.value))
+                }
+                className="w-16 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#137fec]"
+              />
+              <span className="text-sm text-slate-500 dark:text-slate-400">hours before appointment</span>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <span className="text-sm text-slate-500 dark:text-slate-400">Delay</span>
+              <input
+                type="number"
+                min="0"
+                value={eventSettings.delayMinutes ?? 0}
+                onChange={(e) =>
+                  onSettingChange(event.key, "delayMinutes", Number(e.target.value))
+                }
+                className="w-16 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#137fec]"
+              />
+              <span className="text-sm text-slate-500 dark:text-slate-400">min</span>
+            </div>
+          ))}
       </div>
 
       {/* Language tabs */}
@@ -1999,7 +1983,7 @@ function StepLangEditor({ lang, event, existing, onSaved }) {
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_220px] gap-5 items-start">
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_220px] gap-4 md:gap-5 items-start">
       {/* Left: form */}
       <div className="space-y-3">
         <div className="flex items-center gap-2">
@@ -2083,8 +2067,8 @@ function StepLangEditor({ lang, event, existing, onSaved }) {
         </div>
       </div>
 
-      {/* Right: preview */}
-      <div className="lg:sticky lg:top-6">
+      {/* Right: preview — hidden on mobile */}
+      <div className="hidden lg:block lg:sticky lg:top-6">
         <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide text-center mb-2">
           Preview · {langLabel}
         </p>
@@ -2302,7 +2286,7 @@ function JourneyEditor({ onBack, settings, onSettingChange }) {
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-4 md:gap-6 items-start">
         {/* ── Left: treatment list ── */}
         <div className="space-y-3">
           <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
@@ -2407,9 +2391,9 @@ function JourneyEditor({ onBack, settings, onSettingChange }) {
         {activeJourney ? (
           <div className="space-y-4">
             {/* Header */}
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-semibold text-slate-800 dark:text-white">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold text-slate-800 dark:text-white truncate">
                   {activeJourney.treatmentName}
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
@@ -2418,8 +2402,8 @@ function JourneyEditor({ onBack, settings, onSettingChange }) {
                   journey
                 </p>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-500">Enabled</span>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span className="text-xs md:text-sm text-slate-500">Enabled</span>
                 <Toggle
                   value={activeJourney.enabled}
                   onChange={(v) =>
@@ -2430,7 +2414,7 @@ function JourneyEditor({ onBack, settings, onSettingChange }) {
             </div>
 
             {/* Steps + timeline preview side by side */}
-            <div className="grid grid-cols-1 xl:grid-cols-[1fr_240px] gap-6 items-start">
+            <div className="grid grid-cols-1 xl:grid-cols-[1fr_240px] gap-4 md:gap-6 items-start">
               {/* Steps */}
               <div className="space-y-4">
                 {activeJourney.messages.length === 0 && (
@@ -4086,8 +4070,8 @@ function LogsPanel() {
           No messages logged yet.
         </p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto -mx-3 md:mx-0 px-3 md:px-0">
+          <table className="w-full text-sm min-w-[600px]">
             <thead>
               <tr className="border-b border-slate-200 dark:border-slate-700">
                 {[
@@ -4217,59 +4201,59 @@ function FeedbackAnalyticsPanel() {
     .map(([day, { sum, count }]) => ({ day, avg: +(sum / count).toFixed(2) }));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2 md:gap-3">
         <div className="flex items-center gap-2">
           <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">From</label>
           <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-            className="border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-1.5 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#137fec]" />
+            className="border border-slate-300 dark:border-slate-600 rounded-lg px-2 md:px-3 py-1.5 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#137fec]" />
         </div>
         <div className="flex items-center gap-2">
           <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">To</label>
           <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-            className="border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-1.5 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#137fec]" />
+            className="border border-slate-300 dark:border-slate-600 rounded-lg px-2 md:px-3 py-1.5 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#137fec]" />
         </div>
         <button onClick={load}
-          className="px-4 py-1.5 bg-[#137fec] text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
+          className="px-3 md:px-4 py-1.5 bg-[#137fec] text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
           {loading ? "Loading…" : "Apply"}
         </button>
       </div>
 
       {/* KPI Cards */}
       {analytics && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 md:gap-4">
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-3 md:p-4">
             <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">Total Responses</p>
-            <p className="text-3xl font-bold text-blue-700 dark:text-blue-300 mt-1">{analytics.total}</p>
+            <p className="text-2xl md:text-3xl font-bold text-blue-700 dark:text-blue-300 mt-1">{analytics.total}</p>
           </div>
-          <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-4">
+          <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-3 md:p-4">
             <p className="text-xs font-semibold text-green-600 dark:text-green-400 uppercase tracking-wide">Avg Rating</p>
-            <p className="text-3xl font-bold text-green-700 dark:text-green-300 mt-1">{analytics.avgRating ?? "—"} <span className="text-sm font-normal">/ 5</span></p>
+            <p className="text-2xl md:text-3xl font-bold text-green-700 dark:text-green-300 mt-1">{analytics.avgRating ?? "—"} <span className="text-sm font-normal">/ 5</span></p>
           </div>
-          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4">
+          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3 md:p-4">
             <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wide">Happy + Very Happy</p>
-            <p className="text-3xl font-bold text-amber-700 dark:text-amber-300 mt-1">
+            <p className="text-2xl md:text-3xl font-bold text-amber-700 dark:text-amber-300 mt-1">
               {(analytics.ratingCounts[4] || 0) + (analytics.ratingCounts[5] || 0)}
             </p>
           </div>
-          <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-xl p-4">
+          <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-xl p-3 md:p-4">
             <p className="text-xs font-semibold text-purple-600 dark:text-purple-400 uppercase tracking-wide">Predicted Google ⭐</p>
-            <p className="text-3xl font-bold text-purple-700 dark:text-purple-300 mt-1">{analytics.predictedGoogleScore ?? "—"} <span className="text-sm font-normal">/ 5</span></p>
+            <p className="text-2xl md:text-3xl font-bold text-purple-700 dark:text-purple-300 mt-1">{analytics.predictedGoogleScore ?? "—"} <span className="text-sm font-normal">/ 5</span></p>
           </div>
         </div>
       )}
 
       {/* Charts */}
       {analytics && analytics.total > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
           {/* Bar: rating distribution */}
-          <div className="bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+          <div className="bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-3 md:p-4">
             <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4">Rating Distribution</p>
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={barChartData} barSize={32}>
-                <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+              <BarChart data={barChartData} barSize={32} margin={{ left: -10, right: 10 }}>
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} width={30} />
                 <Tooltip />
                 <Bar dataKey="count" name="Responses">
                   {barChartData.map((entry, i) => (
@@ -4281,14 +4265,14 @@ function FeedbackAnalyticsPanel() {
           </div>
 
           {/* Line: avg rating over time */}
-          <div className="bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+          <div className="bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-3 md:p-4">
             <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4">Avg Rating Over Time</p>
             {lineChartData.length > 1 ? (
               <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={lineChartData}>
+                <LineChart data={lineChartData} margin={{ left: -10, right: 10 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="day" tick={{ fontSize: 10 }} />
-                  <YAxis domain={[1, 5]} tick={{ fontSize: 11 }} />
+                  <XAxis dataKey="day" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                  <YAxis domain={[1, 5]} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} width={30} />
                   <Tooltip />
                   <Line type="monotone" dataKey="avg" stroke="#137fec" strokeWidth={2} dot={{ r: 4 }} name="Avg Rating" />
                 </LineChart>
@@ -4310,8 +4294,8 @@ function FeedbackAnalyticsPanel() {
             {loading ? "Loading…" : "No feedback responses found for this period."}
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto -mx-3 md:mx-0 px-3 md:px-0">
+            <table className="w-full text-sm min-w-[480px]">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
                   {["Patient", "Appointment Date", "Type", "Rating", "Responded At"].map(h => (
@@ -4491,26 +4475,26 @@ export default function WhatsAppPage() {
   ];
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="p-3 md:p-6 space-y-4 md:space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-9 h-9 md:w-10 md:h-10 rounded-xl bg-green-100 dark:bg-green-900/30 flex items-center justify-center flex-shrink-0">
             <span className="material-symbols-outlined text-green-600 dark:text-green-400">
               chat
             </span>
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-white">
+          <div className="min-w-0">
+            <h1 className="text-lg md:text-xl font-bold text-slate-900 dark:text-white truncate">
               WhatsApp
             </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
+            <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 hidden sm:block">
               Automated patient messaging
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-slate-600 dark:text-slate-400">
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <span className="text-xs md:text-sm text-slate-600 dark:text-slate-400 hidden sm:block">
             {settings.enabled ? "Messaging on" : "Messaging off"}
           </span>
           <Toggle
@@ -4524,32 +4508,34 @@ export default function WhatsAppPage() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-fit">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => {
-              setActiveTab(t.key);
-              setActiveEditor(null);
-            }}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              activeTab === t.key
-                ? "bg-white dark:bg-slate-700 text-[#137fec] shadow-sm"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
-            }`}
-          >
-            <span className="material-symbols-outlined text-base">
-              {t.icon}
-            </span>{" "}
-            {t.label}
-          </button>
-        ))}
+      {/* Tabs — scrollable on mobile */}
+      <div className="overflow-x-auto -mx-3 md:mx-0 px-3 md:px-0">
+        <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-max min-w-full sm:w-fit">
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => {
+                setActiveTab(t.key);
+                setActiveEditor(null);
+              }}
+              className={`flex items-center gap-1.5 px-3 md:px-4 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors whitespace-nowrap ${
+                activeTab === t.key
+                  ? "bg-white dark:bg-slate-700 text-[#137fec] shadow-sm"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+              }`}
+            >
+              <span className="material-symbols-outlined text-xl">
+                {t.icon}
+              </span>
+              <span className="hidden xs:inline sm:inline">{t.label}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Content */}
-      <div className="bg-white dark:bg-[#1a2634] rounded-2xl border border-slate-200 dark:border-slate-700 p-6">
+      <div className="bg-white dark:bg-[#1a2634] rounded-2xl border border-slate-200 dark:border-slate-700 p-3 md:p-6">
         {/* ── Event cards ── */}
         {activeTab === "messages" && !activeEditor && (
           <MessagesTab
@@ -4622,7 +4608,7 @@ export default function WhatsAppPage() {
         {/* ── Settings ── */}
         {activeTab === "settings" && (
           <div className="space-y-6 max-w-md">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">
                   Default Language

@@ -41,30 +41,30 @@ export default function ReportSummary({ from, to }) {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       {/* KPI cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
         {KPI_CONFIGS.map(cfg => {
           const Icon = cfg.icon;
           const val = data?.[cfg.key] ?? 0;
           return (
-            <div key={cfg.key} className="bg-white p-6 rounded-2xl border shadow-sm">
-              <div className={`size-10 rounded-xl ${cfg.bg} flex items-center justify-center mb-3`}>
-                <Icon size={20} className={cfg.color} />
+            <div key={cfg.key} className="bg-white p-4 md:p-6 rounded-2xl border shadow-sm">
+              <div className={`size-9 md:size-10 rounded-xl ${cfg.bg} flex items-center justify-center mb-3`}>
+                <Icon size={18} className={cfg.color} />
               </div>
-              <p className="text-slate-500 text-sm font-medium">{cfg.label}</p>
-              <p className="text-2xl font-bold text-slate-800 mt-1">{cfg.format(val)}</p>
+              <p className="text-slate-500 text-xs md:text-sm font-medium">{cfg.label}</p>
+              <p className="text-xl md:text-2xl font-bold text-slate-800 mt-1">{cfg.format(val)}</p>
             </div>
           );
         })}
       </div>
 
       {/* Revenue trend */}
-      <div className="bg-white p-6 rounded-2xl border shadow-sm">
-        <h3 className="font-bold text-slate-800 mb-6">Revenue Trend</h3>
+      <div className="bg-white p-4 md:p-6 rounded-2xl border shadow-sm">
+        <h3 className="font-bold text-slate-800 mb-4 md:mb-6 text-sm md:text-base">Revenue Trend</h3>
         {data?.revenue_trend?.length > 0 ? (
-          <ResponsiveContainer width="100%" height={280}>
-            <AreaChart data={data.revenue_trend}>
+          <ResponsiveContainer width="100%" height={220}>
+            <AreaChart data={data.revenue_trend} margin={{ left: -10, right: 10 }}>
               <defs>
                 <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%"  stopColor="#137fec" stopOpacity={0.15} />
@@ -72,8 +72,8 @@ export default function ReportSummary({ from, to }) {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-              <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12 }} tickFormatter={v => `₹${v >= 1000 ? (v/1000).toFixed(0)+'K' : v}`} />
+              <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11 }} tickFormatter={v => `₹${v >= 1000 ? (v/1000).toFixed(0)+'K' : v}`} width={50} />
               <Tooltip formatter={v => [`₹${v.toLocaleString()}`, 'Revenue']} />
               <Area type="monotone" dataKey="amount" stroke="#137fec" strokeWidth={2.5} fill="url(#revGrad)" />
             </AreaChart>

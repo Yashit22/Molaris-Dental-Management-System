@@ -91,7 +91,7 @@ function ErrorBadge({ error }) {
 function ReportDisplay({ text }) {
   if (!text) return <p className="text-slate-400 italic">Not generated.</p>;
   return (
-    <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap font-mono bg-slate-50 rounded-lg p-4 border border-slate-100 overflow-y-auto max-h-[280px]">
+    <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap font-mono bg-slate-50 rounded-lg p-4 border border-slate-100 overflow-y-auto max-h-[200px] sm:max-h-[280px]">
       {text}
     </div>
   );
@@ -882,7 +882,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
 
     return (
       <div
-        className={`fixed bottom-6 right-6 z-[400] flex items-center gap-3 px-4 py-3 ${pillColor} text-white rounded-full shadow-2xl cursor-pointer select-none`}
+        className={`fixed bottom-20 sm:bottom-6 right-4 sm:right-6 z-[400] flex items-center gap-3 px-4 py-3 ${pillColor} text-white rounded-full shadow-2xl cursor-pointer select-none`}
         onClick={() => setMinimized(false)}
       >
         {(stage === 'transcribing' || stage === 'generating')
@@ -907,8 +907,8 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
 
   // ── FULL MODAL ──────────────────────────────────────────────────────────────
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 backdrop-blur-sm p-2 sm:p-4 overflow-hidden">
-      <div className="bg-white w-full sm:max-w-3xl shadow-2xl h-[96vh] sm:h-[92vh] rounded-lg sm:rounded-2xl flex flex-col">
+    <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm sm:p-4 overflow-hidden">
+      <div className="bg-white w-full sm:max-w-3xl shadow-2xl h-[95dvh] sm:h-[92vh] rounded-t-2xl sm:rounded-2xl flex flex-col">
 
         {/* Integration Status Banner */}
         {!integrations.google_drive?.isVerified && (
@@ -922,14 +922,14 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
 
         {/* Header */}
         <div className="flex-shrink-0 flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100">
-          <div>
+          <div className="min-w-0">
             <h3 className="font-bold text-base sm:text-lg text-slate-800 flex items-center gap-2">
               <span className="size-8 rounded-lg bg-[#137fec]/10 flex items-center justify-center flex-shrink-0">
                 <Mic size={16} className="text-[#137fec]" />
               </span>
               AI Clinical Report
             </h3>
-            <p className="text-xs text-slate-400 mt-0.5 ml-10">
+            <p className="hidden sm:block text-xs text-slate-400 mt-0.5 ml-10">
               Select a template, then dictate the consultation — the AI generates the document
             </p>
           </div>
@@ -997,7 +997,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
                     <div className="flex gap-2">
                       {DETAIL_LEVELS.map(dl => (
                         <button key={dl.key} onClick={() => setDetailLevel(dl.key)}
-                          className={`flex-1 py-2.5 sm:py-2 rounded-lg text-sm font-medium transition-colors border ${
+                          className={`flex-1 py-3 sm:py-2 rounded-lg text-sm font-medium transition-colors border ${
                             detailLevel === dl.key
                               ? 'bg-[#137fec] text-white border-[#137fec]'
                               : 'bg-white text-slate-600 border-slate-200 hover:border-[#137fec] hover:text-[#137fec]'
@@ -1131,7 +1131,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
                 <button
                   onClick={stage === 'recording' || stage === 'paused' ? stopRecording : startRecording}
                   disabled={stage === 'idle' && !canRecord}
-                  className={`relative size-24 rounded-full flex items-center justify-center shadow-xl transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed ${
+                  className={`relative size-20 sm:size-24 rounded-full flex items-center justify-center shadow-xl transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed ${
                     stage === 'recording'
                       ? 'bg-red-500 hover:bg-red-600 shadow-red-300'
                       : stage === 'paused'
@@ -1146,8 +1146,11 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
                     </>
                   )}
                   {stage === 'recording' || stage === 'paused'
-                    ? <MicOff size={36} className="text-white" />
-                    : <Mic    size={36} className="text-white" />}
+                    ? <MicOff size={30} className="text-white sm:hidden" />
+                    : <Mic    size={30} className="text-white sm:hidden" />}
+                  {stage === 'recording' || stage === 'paused'
+                    ? <MicOff size={36} className="text-white hidden sm:block" />
+                    : <Mic    size={36} className="text-white hidden sm:block" />}
                 </button>
 
                 {(stage === 'recording' || stage === 'paused') && (
@@ -1173,8 +1176,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
                     </p>
                     {canRecord && (
                       <p className="text-slate-400 text-sm mt-1">
-                        Dictate the patient history, examination findings,<br />
-                        diagnosis, and management plan in one go.
+                        Dictate the patient history, examination findings, diagnosis, and management plan in one go.
                       </p>
                     )}
                   </>
@@ -1359,7 +1361,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
 
               {/* Report display */}
               <div>
-                <div className="flex items-center justify-between gap-2 mb-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                   <div className="flex items-center gap-2 min-w-0">
                     <FileText size={15} className="text-slate-500 flex-shrink-0" />
                     <p className="text-sm font-semibold text-slate-700 truncate">{selectedTemplate?.name || 'Generated Report'}</p>
@@ -1488,10 +1490,10 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
 
                 <div className="p-3 sm:p-4 space-y-2.5 sm:space-y-3">
                   {/* Save to Connect Cloud */}
-                  <label className="flex items-start gap-3 sm:gap-4 p-3 sm:p-3 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors select-none">
+                  <label className="flex items-start gap-3 p-3.5 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors select-none">
                     <input type="checkbox" checked={deliver.cloud}
                       onChange={e => setDeliver(d => ({ ...d, cloud: e.target.checked }))}
-                      className="mt-0.5 sm:mt-0.5 w-5 h-5 rounded accent-[#137fec] cursor-pointer flex-shrink-0" />
+                      className="mt-0.5 w-5 h-5 rounded accent-[#137fec] cursor-pointer flex-shrink-0" />
                     <Save size={16} className="text-slate-400 mt-0.5 flex-shrink-0 hidden sm:block" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-slate-700">Save to Connect Cloud</p>
@@ -1506,10 +1508,10 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
 
                   {/* Email to patient */}
                   <div className="rounded-xl border border-slate-200 overflow-hidden">
-                    <label className="flex items-start gap-3 sm:gap-4 p-3 sm:p-3 cursor-pointer hover:bg-slate-50 transition-colors select-none">
+                    <label className="flex items-start gap-3 p-3.5 cursor-pointer hover:bg-slate-50 transition-colors select-none">
                       <input type="checkbox" checked={deliver.email}
                         onChange={e => setDeliver(d => ({ ...d, email: e.target.checked }))}
-                        className="mt-0.5 sm:mt-0.5 w-5 h-5 rounded accent-[#137fec] cursor-pointer flex-shrink-0" />
+                        className="mt-0.5 w-5 h-5 rounded accent-[#137fec] cursor-pointer flex-shrink-0" />
                       <Mail size={16} className="text-slate-400 mt-0.5 flex-shrink-0 hidden sm:block" />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-slate-700">Email to patient</p>
@@ -1543,10 +1545,10 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
 
                   {/* WhatsApp to patient (text-only) */}
                   <div className="rounded-xl border border-slate-200 overflow-hidden">
-                    <label className="flex items-start gap-3 sm:gap-4 p-3 sm:p-3 cursor-pointer hover:bg-slate-50 transition-colors select-none">
+                    <label className="flex items-start gap-3 p-3.5 cursor-pointer hover:bg-slate-50 transition-colors select-none">
                       <input type="checkbox" checked={deliver.whatsapp}
                         onChange={e => setDeliver(d => ({ ...d, whatsapp: e.target.checked }))}
-                        className="mt-0.5 sm:mt-0.5 w-5 h-5 rounded accent-[#137fec] cursor-pointer flex-shrink-0" />
+                        className="mt-0.5 w-5 h-5 rounded accent-[#137fec] cursor-pointer flex-shrink-0" />
                       <MessageSquare size={16} className="text-slate-400 mt-0.5 flex-shrink-0 hidden sm:block" />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-slate-700">WhatsApp to patient</p>
@@ -1592,7 +1594,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
         </div>
 
         {/* Footer */}
-        <div className="flex-shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between px-3 sm:px-6 py-2.5 sm:py-4 border-t border-slate-100 bg-slate-50 gap-2.5 sm:gap-0">
+        <div className="flex-shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between px-3 sm:px-6 py-3 sm:py-4 border-t border-slate-100 bg-slate-50 gap-2 sm:gap-0">
           <p className="hidden sm:block text-xs text-slate-400 truncate">
             {stage === 'done'
               ? deliverySucceeded
@@ -1602,17 +1604,17 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
               ? 'Review or edit the transcript, then click Generate'
               : 'You can minimize this window while recording or processing'}
           </p>
-          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
             {stage === 'done' && !deliverySucceeded && (
               <>
                 <button onClick={resetState}
-                  className="px-4 py-2.5 sm:py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors flex-1 sm:flex-none">
+                  className="px-4 py-3 sm:py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors flex-1 sm:flex-none">
                   Record Again
                 </button>
                 <button
                   onClick={handleApproveAndSend}
                   disabled={delivering || (!deliver.cloud && !deliver.email && !deliver.whatsapp)}
-                  className="flex items-center justify-center gap-2 px-5 py-2.5 sm:py-2 text-sm font-semibold text-white bg-[#137fec] rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-1 sm:flex-none"
+                  className="flex items-center justify-center gap-2 px-5 py-3 sm:py-2 text-sm font-semibold text-white bg-[#137fec] rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-1 sm:flex-none"
                 >
                   {delivering ? <Loader2 size={14} className="animate-spin" /> : <SendHorizonal size={14} />}
                   {delivering ? 'Sending…' : 'Approve & Send'}
@@ -1622,18 +1624,18 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
             {stage === 'done' && deliverySucceeded && (
               <>
                 <button onClick={resetState}
-                  className="px-4 py-2.5 sm:py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors flex-1 sm:flex-none">
+                  className="px-4 py-3 sm:py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors flex-1 sm:flex-none">
                   Record Again
                 </button>
                 <button onClick={handleClose}
-                  className="flex items-center justify-center gap-2 px-5 py-2.5 sm:py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors flex-1 sm:flex-none">
+                  className="flex items-center justify-center gap-2 px-5 py-3 sm:py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors flex-1 sm:flex-none">
                   <CheckCircle size={14} /> Done
                 </button>
               </>
             )}
             {stage !== 'done' && (
               <button onClick={handleClose}
-                className="w-full sm:w-auto px-5 py-2.5 sm:py-2 text-sm font-medium text-white bg-[#137fec] rounded-xl sm:rounded-lg hover:bg-blue-600 transition-colors">
+                className="w-full sm:w-auto px-5 py-3 sm:py-2 text-sm font-medium text-white bg-[#137fec] rounded-xl sm:rounded-lg hover:bg-blue-600 transition-colors">
                 Close
               </button>
             )}

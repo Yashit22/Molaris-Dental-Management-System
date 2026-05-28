@@ -8,12 +8,8 @@ import {
   sendTestWhatsApp,
   getStorageInfo,
 } from '../controllers/integration.controller.js';
-import { authenticate } from '../middleware/auth.js';
 
 const router = express.Router();
-
-// All routes require authentication
-router.use(authenticate);
 
 // Check individual integrations
 router.get('/status/google-drive', checkGoogleDriveStatus);
