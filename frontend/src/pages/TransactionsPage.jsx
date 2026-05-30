@@ -21,6 +21,9 @@ const TransactionsPage = () => {
   const [tempStart, setTempStart] = useState('');
   const [tempEnd, setTempEnd] = useState('');
 
+  // Search State
+  const [searchQuery, setSearchQuery] = useState('');
+
   // Data & Loading States
   const [allTransactions, setAllTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -70,6 +73,9 @@ const TransactionsPage = () => {
   const filteredTransactions = allTransactions.filter(txn => {
     // 1. Tab Filter
     if (activeTab !== 'Statement' && txn.type !== activeTab) return false;
+
+    // 2. Search Filter
+    if (searchQuery.trim() && !txn.party.toLowerCase().includes(searchQuery.toLowerCase())) return false;
 
     // 2. Date Filter
     const txnDate = new Date(txn.date);
@@ -204,7 +210,7 @@ const TransactionsPage = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `Transactions_${activeTab}_${dateFilterLabel.replace(/[\s\-]/g, '_')}.csv`);
+    link.setAttribute('download', `Transactions_${activeTab}_${dateFilterLabel.replace(/[\s-]/g, '_')}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -218,44 +224,44 @@ const TransactionsPage = () => {
         {/* KPI Cards */}
         <div className="px-4 md:px-8 pt-4 md:pt-6 pb-2">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-5">
-            <div className="p-4 bg-white dark:bg-card-dark rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4">
-              <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl text-red-500"><ArrowUpRight size={28} /></div>
-              <div>
-                <p className="text-slate-500 text-sm font-large">Transactions</p>
+            <div className="p-3 md:p-4 bg-white dark:bg-card-dark rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-3">
+              <div className="p-2 md:p-3 bg-red-50 dark:bg-red-900/20 rounded-xl text-red-500 shrink-0"><ArrowUpRight size={22} /></div>
+              <div className="min-w-0">
+                <p className="text-slate-500 text-xs font-medium truncate">Transactions</p>
                 <div className="flex items-baseline gap-1">
-                  <h3 className="text-2xl font-bold text-slate-900 dark:text-white">{filteredTransactions.length}</h3>
+                  <h3 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white">{filteredTransactions.length}</h3>
                   <span className="text-xs text-slate-400">Nos</span>
                 </div>
               </div>
             </div>
-            <div className="p-4 bg-white dark:bg-card-dark rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4">
-              <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-xl text-green-600"><Wallet size={28} /></div>
-              <div>
-                <p className="text-slate-500 text-sm font-medium">Net Amount</p>
-                <h3 className="text-2xl font-bold text-slate-900 dark:text-white">₹{totalAmount.toLocaleString()}</h3>
+            <div className="p-3 md:p-4 bg-white dark:bg-card-dark rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-3">
+              <div className="p-2 md:p-3 bg-green-50 dark:bg-green-900/20 rounded-xl text-green-600 shrink-0"><Wallet size={22} /></div>
+              <div className="min-w-0">
+                <p className="text-slate-500 text-xs font-medium truncate">Net Amount</p>
+                <h3 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white truncate">₹{totalAmount.toLocaleString()}</h3>
               </div>
             </div>
-            <div className="p-4 bg-white dark:bg-card-dark rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4">
-              <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-xl text-purple-600"><Wallet size={28} /></div>
-              <div>
-                <p className="text-slate-500 text-sm font-medium">Cash</p>
-                <h3 className="text-2xl font-bold text-slate-900 dark:text-white">₹{cashAmount.toLocaleString()}</h3>
+            <div className="p-3 md:p-4 bg-white dark:bg-card-dark rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-3">
+              <div className="p-2 md:p-3 bg-purple-50 dark:bg-purple-900/20 rounded-xl text-purple-600 shrink-0"><Wallet size={22} /></div>
+              <div className="min-w-0">
+                <p className="text-slate-500 text-xs font-medium truncate">Cash</p>
+                <h3 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white truncate">₹{cashAmount.toLocaleString()}</h3>
               </div>
             </div>
-            <div className="p-4 bg-white dark:bg-card-dark rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4">
-              <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-xl text-orange-600"><Building2 size={28} /></div>
-              <div>
-                <p className="text-slate-500 text-sm font-medium">Bank</p>
-                <h3 className="text-2xl font-bold text-slate-900 dark:text-white">₹{bankAmount.toLocaleString()}</h3>
+            <div className="p-3 md:p-4 bg-white dark:bg-card-dark rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-3">
+              <div className="p-2 md:p-3 bg-orange-50 dark:bg-orange-900/20 rounded-xl text-orange-600 shrink-0"><Building2 size={22} /></div>
+              <div className="min-w-0">
+                <p className="text-slate-500 text-xs font-medium truncate">Bank</p>
+                <h3 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white truncate">₹{bankAmount.toLocaleString()}</h3>
               </div>
             </div>
           </div>
         </div>
 
         {/* Title & Filters */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 px-4 md:px-8 pt-4 pb-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 px-4 md:px-8 pt-4 pb-4 flex-wrap">
             <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-6">
-              <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Transactions</h1>
+              <h1 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-white">Transactions</h1>
               <div className="bg-slate-100 dark:bg-slate-800 p-1 rounded-lg flex text-sm font-medium w-fit">
                 {['Statement', 'Income', 'Expense'].map((tab) => (
                   <button
@@ -273,8 +279,25 @@ const TransactionsPage = () => {
               </div>
             </div>
 
-            {/* --- DATE FILTER DROPDOWN --- */}
-            <div className="relative w-full sm:w-auto">
+            {/* --- SEARCH + DATE FILTER --- */}
+            <div className="flex items-center gap-2 w-full lg:w-auto">
+              {/* Search Bar */}
+              <div className="flex items-center gap-2 flex-1 lg:w-52 px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm">
+                <Search size={16} className="text-slate-400 shrink-0" />
+                <input
+                  type="text"
+                  placeholder="Search by party..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="flex-1 text-sm text-slate-700 dark:text-slate-300 bg-transparent outline-none placeholder:text-slate-400 min-w-0"
+                />
+                {searchQuery && (
+                  <button onClick={() => setSearchQuery('')} className="text-slate-400 hover:text-slate-600 shrink-0 text-xs leading-none">✕</button>
+                )}
+              </div>
+
+              {/* --- DATE FILTER DROPDOWN --- */}
+              <div className="relative shrink-0">
               <button 
                 onClick={() => {
                   setShowDateMenu(!showDateMenu);
@@ -351,11 +374,12 @@ const TransactionsPage = () => {
                   )}
                 </div>
               )}
-            </div>
+              </div>{/* end date filter */}
+            </div>{/* end search+date wrapper */}
         </div>
 
-        {/* Table Area */}
-        <div className="md:flex-1 md:overflow-auto overflow-x-auto px-6 md:px-8 pb-8">
+        {/* Table Area — desktop */}
+        <div className="hidden md:block md:flex-1 md:overflow-auto overflow-x-auto px-6 md:px-8 pb-8">
           <div className="bg-white dark:bg-card-dark border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm overflow-hidden min-h-[400px]">
             <table className="w-full text-left border-collapse">
               <thead className="bg-[#F7F2F2] dark:bg-slate-800/50 sticky top-0 z-10">
@@ -430,6 +454,60 @@ const TransactionsPage = () => {
               </tbody>
             </table>
           </div>
+        </div>
+
+        {/* Card List — mobile only */}
+        <div className="md:hidden px-4 pb-24 flex flex-col gap-3">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-16">
+              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#137fec]"></div>
+              <p className="text-slate-500 text-sm">Loading transactions...</p>
+            </div>
+          ) : error ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-16">
+              <div className="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center text-red-500">
+                <Search size={28} />
+              </div>
+              <p className="text-red-600 text-sm font-medium">{error}</p>
+              <button onClick={fetchTransactions} className="text-xs text-[#137fec] hover:underline">Retry</button>
+            </div>
+          ) : filteredTransactions.length > 0 ? (
+            filteredTransactions.map((txn, index) => (
+              <div key={index} className="bg-white dark:bg-card-dark border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{txn.party}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">{txn.date}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className={`text-base font-bold ${txn.type === 'Income' ? 'text-green-600' : 'text-red-600'}`}>
+                      {txn.type === 'Income' ? '+' : '-'}₹{txn.amount.toLocaleString()}
+                    </p>
+                    <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full mt-1 ${txn.type === 'Income' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                      {txn.type}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <div className="flex gap-3 text-xs text-slate-500">
+                    <span>{txn.category}</span>
+                    <span className="text-slate-300">•</span>
+                    <span>{txn.method}</span>
+                  </div>
+                  <button className="p-1.5 text-slate-400 hover:text-[#137fec] transition-colors rounded-full hover:bg-blue-50">
+                    <Printer size={16} />
+                  </button>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="flex flex-col items-center justify-center gap-3 py-16">
+              <div className="w-14 h-14 bg-slate-100 rounded-full flex items-center justify-center text-slate-300">
+                <Search size={28} />
+              </div>
+              <p className="text-slate-500 text-sm font-medium">No Transactions Found</p>
+            </div>
+          )}
         </div>
 
         {/* Export CSV FAB */}

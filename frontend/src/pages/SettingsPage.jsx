@@ -2880,8 +2880,8 @@ const SettingsPage = () => {
             </div>
 
             {/* Header — Unified Add button */}
-            <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
-              <h3 className="text-base sm:text-xl font-bold text-slate-800 dark:text-white">
+            <div className="flex items-center justify-between gap-3 mb-6">
+              <h3 className="text-base sm:text-xl font-bold text-slate-800 dark:text-white min-w-0">
                 {treatmentTab === 'findings' ? 'Clinical Findings' : treatmentTab === 'diagnoses' ? 'Diagnoses' : 'Suggested Treatments'}
               </h3>
               {bulkMode ? (

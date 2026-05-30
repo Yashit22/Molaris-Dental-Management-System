@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, Download, Plus, Edit, X, Package, User, Loader2, Upload, CheckCircle, AlertCircle } from 'lucide-react';
+import { Search, Download, Plus, Edit, X, Package, User, Loader2, Upload, CheckCircle, AlertCircle, SlidersHorizontal } from 'lucide-react';
 import api from '../services/api';
 
 const STATUS_STYLES = {
@@ -675,6 +675,222 @@ function VendorCards({ vendors, onEdit }) {
   );
 }
 
+// ─── Multiselect Dropdown ─────────────────────────────────────────────────────
+function MultiSelectDropdown({ label, options, selected, onChange, placeholder = 'Select...' }) {
+  const [open, setOpen]       = useState(false);
+  const [search, setSearch]   = useState('');
+  const containerRef          = useRef(null);
+
+  useEffect(() => {
+    function handleOutside(e) {
+      if (containerRef.current && !containerRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, []);
+
+  const filtered = options.filter(o => o.label.toLowerCase().includes(search.toLowerCase()));
+
+  function toggle(value) {
+    onChange(selected.includes(value) ? selected.filter(v => v !== value) : [...selected, value]);
+  }
+
+  function clearAll(e) {
+    e.stopPropagation();
+    onChange([]);
+  }
+
+  const displayText = selected.length === 0
+    ? placeholder
+    : selected.length === 1
+      ? options.find(o => o.value === selected[0])?.label || placeholder
+      : `${selected.length} selected`;
+
+  return (
+    <div ref={containerRef} className="relative">
+      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{label}</p>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border text-sm transition-all ${
+          open ? 'border-[#137fec] ring-1 ring-[#137fec]/20' : 'border-slate-200 hover:border-[#137fec]'
+        } bg-white`}
+      >
+        <span className={selected.length > 0 ? 'text-slate-800 font-medium' : 'text-slate-400'}>{displayText}</span>
+        <div className="flex items-center gap-1 shrink-0">
+          {selected.length > 0 && (
+            <span
+              onClick={clearAll}
+              className="w-4 h-4 rounded-full bg-slate-200 hover:bg-red-100 hover:text-red-500 text-slate-500 flex items-center justify-center text-[10px] font-bold cursor-pointer transition-colors"
+            >✕</span>
+          )}
+          <svg className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+          </svg>
+        </div>
+      </button>
+
+      {open && (
+        <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden">
+          {/* Search within dropdown */}
+          {options.length > 5 && (
+            <div className="p-2 border-b border-slate-100">
+              <input
+                autoFocus
+                type="text"
+                placeholder="Search..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-[#137fec]"
+              />
+            </div>
+          )}
+          <div className="max-h-48 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <p className="px-3 py-3 text-sm text-slate-400 text-center">No results</p>
+            ) : filtered.map(opt => (
+              <label
+                key={opt.value}
+                className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-blue-50 transition-colors"
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.includes(opt.value)}
+                  onChange={() => toggle(opt.value)}
+                  className="w-4 h-4 accent-[#137fec] cursor-pointer shrink-0"
+                />
+                <span className={`text-sm ${selected.includes(opt.value) ? 'text-[#137fec] font-medium' : 'text-slate-700'}`}>
+                  {opt.label}
+                </span>
+              </label>
+            ))}
+          </div>
+          {selected.length > 0 && (
+            <div className="px-3 py-2 border-t border-slate-100 bg-slate-50 text-xs text-slate-500">
+              {selected.length} of {options.length} selected
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Filter Modal ─────────────────────────────────────────────────────────────
+function FilterModal({ isOpen, onClose, vendors, items, onApply, activeFilters }) {
+  const [selectedVendors,  setSelectedVendors]  = useState(activeFilters.vendors  || []);
+  const [selectedItems,    setSelectedItems]    = useState(activeFilters.items    || []);
+  const [selectedStatuses, setSelectedStatuses] = useState(activeFilters.statuses || []);
+
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedVendors(activeFilters.vendors   || []);
+      setSelectedItems(activeFilters.items       || []);
+      setSelectedStatuses(activeFilters.statuses || []);
+    }
+  }, [isOpen, activeFilters]);
+
+  if (!isOpen) return null;
+
+  function toggleStatus(value) {
+    setSelectedStatuses(prev => prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]);
+  }
+
+  function handleApply() {
+    onApply({ vendors: selectedVendors, items: selectedItems, statuses: selectedStatuses });
+    onClose();
+  }
+
+  function handleClear() {
+    setSelectedVendors([]);
+    setSelectedItems([]);
+    setSelectedStatuses([]);
+  }
+
+  const activeCount = selectedVendors.length + selectedItems.length + selectedStatuses.length;
+
+  const vendorOptions = vendors.map(v => ({ value: v._id, label: v.name }));
+  const itemOptions   = [...new Set(items.map(i => i.name))].sort().map(n => ({ value: n, label: n }));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4">
+      <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[85vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b bg-slate-50 rounded-t-2xl sm:rounded-t-2xl">
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal size={18} className="text-[#137fec]" />
+            <h3 className="text-base font-bold text-slate-800">Filter Orders</h3>
+            {activeCount > 0 && (
+              <span className="text-xs font-semibold bg-[#137fec] text-white px-2 py-0.5 rounded-full">{activeCount}</span>
+            )}
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-red-50 hover:text-red-500 rounded-full transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="overflow-y-auto flex-1 p-5 space-y-6">
+          {/* Status */}
+          <div>
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Status</p>
+            <div className="flex flex-wrap gap-2">
+              {LAB_STATUSES.map(s => (
+                <button
+                  key={s}
+                  onClick={() => toggleStatus(s)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                    selectedStatuses.includes(s)
+                      ? 'bg-[#137fec] text-white border-[#137fec]'
+                      : 'bg-white text-slate-600 border-slate-200 hover:border-[#137fec] hover:text-[#137fec]'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Vendor — multiselect dropdown */}
+          <MultiSelectDropdown
+            label="Lab Vendor"
+            options={vendorOptions}
+            selected={selectedVendors}
+            onChange={setSelectedVendors}
+            placeholder={vendors.length === 0 ? 'No vendors available' : 'All vendors'}
+          />
+
+          {/* Item — multiselect dropdown */}
+          <MultiSelectDropdown
+            label="Item"
+            options={itemOptions}
+            selected={selectedItems}
+            onChange={setSelectedItems}
+            placeholder={itemOptions.length === 0 ? 'No items in catalog' : 'All items'}
+          />
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 border-t bg-slate-50 flex gap-3 rounded-b-2xl">
+          <button
+            onClick={handleClear}
+            disabled={activeCount === 0}
+            className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-600 font-semibold text-sm hover:bg-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Clear All
+          </button>
+          <button
+            onClick={handleApply}
+            className="flex-1 py-2.5 rounded-xl bg-[#137fec] hover:bg-blue-700 text-white font-bold text-sm shadow-md transition-colors"
+          >
+            Apply Filters
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function LabOrdersPage() {
   const [activeModule, setActiveModule] = useState('Lab Order');
@@ -682,6 +898,9 @@ export default function LabOrdersPage() {
   const [searchQuery, setSearchQuery]   = useState('');
   const [bulkItemsOpen, setBulkItemsOpen]     = useState(false);
   const [bulkVendorsOpen, setBulkVendorsOpen] = useState(false);
+  const [filterOpen, setFilterOpen]               = useState(false);
+  const [activeFilters, setActiveFilters]         = useState({ vendors: [], items: [], statuses: [] });
+  const [selectedItemCategories, setSelectedItemCategories] = useState([]);
 
   const [orders,     setOrders]     = useState([]);
   const [items,      setItems]      = useState([]);
@@ -810,9 +1029,21 @@ export default function LabOrdersPage() {
   const filteredOrders = orders.filter(o => {
     const q = searchQuery.toLowerCase();
     const name = `${o.patient_id?.first_name || ''} ${o.patient_id?.last_name || ''}`.toLowerCase();
-    return name.includes(q) || (o.items?.[0]?.item_name || '').toLowerCase().includes(q);
+    if (!name.includes(q) && !(o.items?.[0]?.item_name || '').toLowerCase().includes(q)) return false;
+
+    if (activeFilters.statuses.length > 0 && !activeFilters.statuses.includes(o.status)) return false;
+    if (activeFilters.vendors.length  > 0 && !activeFilters.vendors.includes(o.vendor_id?._id || o.vendor_id)) return false;
+    if (activeFilters.items.length    > 0 && !activeFilters.items.includes(o.items?.[0]?.item_name)) return false;
+
+    return true;
   });
-  const filteredItems   = items.filter(i => i.name.toLowerCase().includes(searchQuery.toLowerCase()));
+
+  const totalActiveFilters = activeFilters.vendors.length + activeFilters.items.length + activeFilters.statuses.length;
+  const filteredItems = items.filter(i => {
+    if (!i.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    if (selectedItemCategories.length > 0 && !selectedItemCategories.includes(i.category)) return false;
+    return true;
+  });
   const filteredVendors = vendors.filter(v => v.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
   function renderDesktopTable() {
@@ -968,6 +1199,14 @@ export default function LabOrdersPage() {
         onClose={() => setBulkVendorsOpen(false)}
         onSuccess={fetchAll}
       />
+      <FilterModal
+        isOpen={filterOpen}
+        onClose={() => setFilterOpen(false)}
+        vendors={labVendors}
+        items={items}
+        onApply={setActiveFilters}
+        activeFilters={activeFilters}
+      />
 
       {/* Top bar: tabs + export */}
       <div className="flex flex-wrap items-center gap-2 mb-4 sm:mb-6">
@@ -975,7 +1214,7 @@ export default function LabOrdersPage() {
           {['Lab Order', 'Lab Item', 'Vendor Labs'].map(tab => (
             <button
               key={tab}
-              onClick={() => { setActiveModule(tab); setSearchQuery(''); }}
+              onClick={() => { setActiveModule(tab); setSearchQuery(''); if (tab !== 'Lab Order') setActiveFilters({ vendors: [], items: [], statuses: [] }); if (tab !== 'Lab Item') setSelectedItemCategories([]); }}
               className={`px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold rounded-lg transition-all whitespace-nowrap ${
                 activeModule === tab ? 'bg-[#137fec] text-white shadow' : 'text-slate-600 hover:bg-white/50'
               }`}
@@ -1006,6 +1245,37 @@ export default function LabOrdersPage() {
                 className="pl-9 pr-3 py-2 border rounded-xl text-sm w-full xs:w-48 sm:w-64 focus:ring-1 focus:ring-[#137fec] outline-none"
               />
             </div>
+
+            {/* Filter button — only shown for Lab Orders */}
+            {activeModule === 'Lab Order' && (
+              <button
+                onClick={() => setFilterOpen(true)}
+                className={`relative flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border transition-all ${
+                  totalActiveFilters > 0
+                    ? 'bg-[#137fec] text-white border-[#137fec] shadow-md'
+                    : 'bg-white border-slate-200 text-slate-600 hover:border-[#137fec] hover:text-[#137fec]'
+                }`}
+              >
+                <SlidersHorizontal size={15} />
+                <span className="hidden xs:inline">Filters</span>
+                {totalActiveFilters > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                    {totalActiveFilters}
+                  </span>
+                )}
+              </button>
+            )}
+
+            {/* Category filter — only shown for Lab Items */}
+            {activeModule === 'Lab Item' && (
+              <MultiSelectDropdown
+                label=""
+                options={ITEM_CATEGORIES.map(c => ({ value: c, label: c }))}
+                selected={selectedItemCategories}
+                onChange={setSelectedItemCategories}
+                placeholder="All categories"
+              />
+            )}
 
             {/* Bulk Upload */}
             {activeModule === 'Lab Item' && (
