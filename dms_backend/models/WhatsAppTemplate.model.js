@@ -9,6 +9,7 @@ const WhatsAppTemplateSchema = new mongoose.Schema({
     type: String,
     enum: [
       'appointmentBooked',
+      'appointmentConfirmed',
       'appointmentReminder',
       'appointmentRescheduled',
       'treatmentCompleted',

@@ -5,6 +5,7 @@ import {
   triggerBookingConfirmed,
   triggerAppointmentRescheduled,
   triggerAppointmentCancelled,
+  triggerAppointmentBookedEmail,
 } from './email.controller.js';
 
 // GET /api/appointments?date=2025-12-25
@@ -134,6 +135,14 @@ export async function createAppointment(req, res) {
         .catch(err => {
           console.error('[Appointment WhatsApp] Error queuing messages:', err.message);
         });
+
+      // Fire-and-forget appointment-booked email (guards on settings internally)
+      triggerAppointmentBookedEmail({
+        tenantModels: req.tenantModels,
+        patientId: saved.patient_id,
+        appointmentId: saved._id,
+        appointment: saved,
+      }).catch(err => console.error('[Appointment Email] booked email silenced:', err.message));
     }
 
     res.status(201).json(saved);
@@ -257,12 +266,33 @@ export async function updateStatus(req, res) {
       });
     }
 
-    // Email: booking confirmed (Requested → Confirmed/Scheduled)
+    // Email & WhatsApp: booking confirmed (Requested → Confirmed/Scheduled)
     if ((status === 'Confirmed' || status === 'Scheduled') && currentAppt?.status === 'Requested' && appt?.patient_id) {
       req.tenantModels.Patient.findById(appt.patient_id).lean()
         .then(patient => {
           if (!patient) return;
           triggerBookingConfirmed({ tenantModels: req.tenantModels, patient, appointment: appt, serviceName: appt.type });
+
+          // WhatsApp confirmation message
+          if (patient?.contact?.mobile) {
+            const rawPhone = patient.contact.mobile.toString().replace(/\D/g, '');
+            const phone = rawPhone.startsWith('91') ? rawPhone : `91${rawPhone}`;
+            const firstName = patient.first_name;
+            const name = `${firstName} ${patient.last_name || ''}`.trim();
+            const startInstant = new Date(appt.start_time);
+            const data = {
+              name,
+              firstName,
+              patientId: patient.patientId,
+              mobile: phone,
+              appointmentDate: startInstant.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', year: 'numeric', month: 'long', day: 'numeric' }),
+              appointmentTime: startInstant.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }),
+              appointmentType: appt.type || 'Consultation',
+            };
+            triggerWhatsApp(req.tenantModels, req.user.tenantId, process.env.WAAPI_BASE_URL,
+              'appointmentConfirmed', phone, data, patient._id.toString(), appt.whatsapp_language,
+              null, null, `apptConfirmed:${appt._id}`);
+          }
         })
         .catch(() => {});
     }

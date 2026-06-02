@@ -32,6 +32,15 @@ const EVENTS = [
     allowedContentTypes: ["text"],
   },
   {
+    key: "appointmentConfirmed",
+    label: "Appointment Confirmed",
+    description: "Sent when an online booking request is confirmed by staff",
+    icon: "check_circle",
+    color: "green",
+    variables: ["name", "firstName", "appointmentDate", "appointmentTime", "appointmentType"],
+    allowedContentTypes: ["text"],
+  },
+  {
     key: "appointmentReminder",
     label: "Appointment Reminder",
     description: "Reminder sent X hours before appointment",
@@ -1843,7 +1852,7 @@ function JourneyStepEditor({
         {/* Delay */}
         <div>
           <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">
-            Send after treatment completion
+            {idx === 0 ? "Send after treatment completion" : "Send after previous step"}
           </label>
           <div className="flex gap-2">
             <input

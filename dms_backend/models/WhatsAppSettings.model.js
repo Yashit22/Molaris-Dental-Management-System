@@ -22,6 +22,7 @@ const WhatsAppSettingsSchema = new mongoose.Schema({
   fallbackLanguage: { type: String, enum: ['en', 'hi', 'mr'], default: 'en' },
   events: {
     appointmentBooked:       { type: EventToggleSchema, default: () => ({}) },
+    appointmentConfirmed:    { type: EventToggleSchema, default: () => ({}) },
     appointmentReminder:     { type: ReminderToggleSchema, default: () => ({}) },
     appointmentRescheduled:  { type: EventToggleSchema, default: () => ({}) },
     treatmentCompleted:      { type: EventToggleSchema, default: () => ({}) },

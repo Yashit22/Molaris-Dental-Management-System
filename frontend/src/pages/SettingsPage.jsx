@@ -1884,11 +1884,25 @@ function SmartReportDocPreview({ clinicInfo }) {
   );
 }
 
-function AIReportEmailPreview({ clinicInfo }) {
+function AIReportEmailPreview({ clinicInfo, richHtml }) {
   const clinic = clinicInfo?.name    || 'Your Clinic';
   const tag    = clinicInfo?.tagline || '';
+
+  if (!richHtml) {
+    return (
+      <DocSheet label="Email preview — plain text">
+        <div className="p-4 space-y-3 text-xs font-mono">
+          <p className="text-slate-700 font-semibold">Subject: Your visit summary — 23 May 2026</p>
+          <hr className="border-slate-200" />
+          <p className="text-slate-500 whitespace-pre-wrap leading-relaxed">{`Hi Jane,\n\nPlease find your H&P Note from Dr. Smith attached.\n\nDate: 23 May 2026\nPatient: Jane Doe\n\nBest regards,\n${clinic}`}</p>
+        </div>
+        <p className="text-[10px] text-slate-400 text-center p-4 pt-0">Plain-text email your patient receives.</p>
+      </DocSheet>
+    );
+  }
+
   return (
-    <DocSheet label="Email preview">
+    <DocSheet label="Email preview — rich HTML">
       <div className="px-4 pt-3 pb-2 border-b border-slate-100 bg-gradient-to-r from-[#1d6fe8] to-[#137fec]">
         <p className="font-bold text-sm text-white">{clinic}</p>
         {tag && <p className="text-[10px] text-blue-100 mt-0.5">{tag}</p>}
@@ -1904,15 +1918,15 @@ function AIReportEmailPreview({ clinicInfo }) {
           Patient presented with chief complaint of sensitivity in lower-left quadrant. Clinical findings suggest early carious lesion on tooth 36…
         </p>
       </div>
-      <p className="text-[10px] text-slate-400 text-center p-4 pt-0">Email your patient receives on their phone.</p>
+      <p className="text-[10px] text-slate-400 text-center p-4 pt-0">Branded HTML email your patient receives.</p>
     </DocSheet>
   );
 }
 
-function SectionPreviewPane({ clinicInfo, section }) {
+function SectionPreviewPane({ clinicInfo, section, htmlEmailEnabled }) {
   if (section === 'smart_report') return <SmartReportDocPreview  clinicInfo={clinicInfo} />;
-  if (section === 'ai_report')    return <AIReportEmailPreview   clinicInfo={clinicInfo} />;
-  if (section === 'send_email')   return <AIReportEmailPreview   clinicInfo={clinicInfo} />;
+  if (section === 'ai_report')    return <AIReportEmailPreview   clinicInfo={clinicInfo} richHtml />;
+  if (section === 'send_email')   return <AIReportEmailPreview   clinicInfo={clinicInfo} richHtml={!!htmlEmailEnabled} />;
   return null;
 }
 
@@ -2164,7 +2178,7 @@ function AIReportWhatsAppSection() {
 
 // ─── AI Report email template (self-contained) ───────────────────────────────
 
-function AIReportEmailSection() {
+function AIReportEmailSection({ htmlEmailEnabled, onHtmlToggle }) {
   const [form, setForm]     = useState({ email: { subject: '', body: '' }, htmlEmail: { enabled: false } });
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState(null);
@@ -2174,7 +2188,7 @@ function AIReportEmailSection() {
 
   useEffect(() => {
     API.get('/report/delivery-settings')
-      .then(r => setForm(r.data || {}))
+      .then(r => { setForm(r.data || {}); onHtmlToggle?.(r.data?.htmlEmail?.enabled ?? false); })
       .catch(() => {});
   }, []);
 
@@ -2258,7 +2272,7 @@ function AIReportEmailSection() {
       <section className="space-y-3">
         <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-1">
           <h3 className="text-sm font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wide flex items-center gap-2">Rich HTML Email</h3>
-          <ToggleSwitch enabled={!!form.htmlEmail?.enabled} onChange={v => setForm(f => ({ ...f, htmlEmail: { ...f.htmlEmail, enabled: v } }))} />
+          <ToggleSwitch enabled={!!form.htmlEmail?.enabled} onChange={v => { setForm(f => ({ ...f, htmlEmail: { ...f.htmlEmail, enabled: v } })); onHtmlToggle?.(v); }} />
         </div>
         <p className="text-xs text-slate-400 leading-relaxed">
           When on, report emails are sent as branded HTML (clinic header, patient details, report body inline) instead of plain text.
@@ -2286,6 +2300,7 @@ function PatientDocumentsTab() {
   const [section, setSection]           = React.useState('smart_report');
   const [previewVisible, setPreviewVisible] = React.useState(false);
   const [clinicInfo, setClinicInfo]     = React.useState({ name: '', tagline: '', phone: '', email: '' });
+  const [htmlEmailEnabled, setHtmlEmailEnabled] = React.useState(false);
 
   React.useEffect(() => {
     API.get('/settings/invoice').catch(() => null).then(r => {
@@ -2342,7 +2357,7 @@ function PatientDocumentsTab() {
         {/* Mobile preview panel */}
         {previewVisible && hasPreview && (
           <div className="lg:hidden p-6 bg-slate-50 dark:bg-slate-700/30 border-b border-slate-100 dark:border-slate-700">
-            <SectionPreviewPane clinicInfo={clinicInfo} section={section} />
+            <SectionPreviewPane clinicInfo={clinicInfo} section={section} htmlEmailEnabled={htmlEmailEnabled} />
           </div>
         )}
 
@@ -2367,7 +2382,7 @@ function PatientDocumentsTab() {
             <div className="p-4 sm:p-6">
               {section === 'smart_report'  && <SmartReportDeliverySection />}
               {section === 'ai_report'     && <ReportDeliveryTab />}
-              {section === 'send_email'    && <AIReportEmailSection />}
+              {section === 'send_email'    && <AIReportEmailSection htmlEmailEnabled={htmlEmailEnabled} onHtmlToggle={setHtmlEmailEnabled} />}
               {section === 'send_whatsapp' && <AIReportWhatsAppSection />}
               {section === 'invoice'       && <InvoiceSettingsTab />}
               {section === 'prescription'  && <PrescriptionSettingsTab />}
@@ -2377,7 +2392,7 @@ function PatientDocumentsTab() {
           {/* Preview column — desktop only */}
           {hasPreview && (
             <div className="hidden lg:flex lg:w-72 xl:w-80 flex-shrink-0 flex-col p-6 bg-slate-50/60 dark:bg-slate-700/20" style={{ minHeight: 480 }}>
-              <SectionPreviewPane clinicInfo={clinicInfo} section={section} />
+              <SectionPreviewPane clinicInfo={clinicInfo} section={section} htmlEmailEnabled={htmlEmailEnabled} />
             </div>
           )}
 

@@ -163,8 +163,11 @@ export async function submitBooking(req, res) {
 
     const [h, m] = time.split(':').map(Number);
     const slotDuration = settings?.slotDurationMinutes || 30;
-    const start_time = parseLocalDate(dateStr);
-    start_time.setHours(h, m, 0, 0);
+    // Create date in local time, then convert to UTC by subtracting IST offset (+5:30)
+    const localStart = parseLocalDate(dateStr);
+    localStart.setHours(h, m, 0, 0);
+    const istOffset = 5.5 * 60 * 60 * 1000; // 5:30 in milliseconds
+    const start_time = new Date(localStart.getTime() - istOffset);
     const end_time = new Date(start_time.getTime() + slotDuration * 60_000);
 
     const conflict = await Appointment.findOne({
@@ -206,7 +209,7 @@ export async function submitBooking(req, res) {
       end_time,
       title:  `Online Booking — ${patientData.name || 'Patient'}`,
       type:   'Consultation',
-      status: 'Pending',
+      status: 'Requested',
       source: 'online',
       notes:  patientData.chiefComplaint || '',
     });

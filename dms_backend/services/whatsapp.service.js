@@ -217,10 +217,14 @@ export async function buildMessage(tenantModels, tenantId, eventType, data, expl
     console.log(`[WhatsApp] Built message for ${eventType}, contentType=${contentType}`);
   }
 
+  // Map internal event types to WAAPI-accepted messageType values
+  const WAAPI_TYPE_MAP = {
+    appointmentConfirmed: 'appointmentBooked',
+  };
   const payload = {
     tenantId,
     to:          '',            // caller fills this
-    messageType: eventType,
+    messageType: WAAPI_TYPE_MAP[eventType] || eventType,
     contentType,
     content,
   };
@@ -339,9 +343,13 @@ export async function triggerJourney(tenantModels, tenantId, waapiBaseUrl, patie
     push(settings.fallbackLanguage);
     push('en');
 
+    // Delays are CUMULATIVE: each step's delay is relative to the previous step,
+    // matching the frontend journey-editor timeline preview (getCumulativeLabel).
+    let cumulativeMs = 0;
     for (const msg of journey.messages) {
-      const delayMs     = (msg.delay?.value || 0) * (UNIT_MS[msg.delay?.unit] || UNIT_MS.hours);
-      const scheduledAt = new Date(completedAt.getTime() + delayMs);
+      const stepMs      = (msg.delay?.value || 0) * (UNIT_MS[msg.delay?.unit] || UNIT_MS.hours);
+      cumulativeMs     += stepMs;
+      const scheduledAt = new Date(completedAt.getTime() + cumulativeMs);
 
       // Resolve best language variant — pick first in chain that has content
       let langVariant = null;

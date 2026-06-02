@@ -235,38 +235,53 @@ export async function updateSettings(req, res) {
       });
     }
 
-    let settings = await EmailSettings.findOne({});
+    const existing = await EmailSettings.findOne({});
 
-    if (!settings) {
-      settings = new EmailSettings();
-    }
+    // Build a $set payload — only include fields that were actually sent
+    const $set = {};
 
-    settings.enabled = enabled !== undefined ? enabled : settings.enabled;
-    settings.automationEnabled = automationEnabled !== undefined ? automationEnabled : settings.automationEnabled;
-    settings.mode = mode || settings.mode;
-    settings.fromName = fromName || settings.fromName;
-    settings.fromEmail = fromEmail || settings.fromEmail;
-    settings.replyTo = replyTo || settings.replyTo;
+    if (enabled !== undefined)           $set.enabled           = enabled;
+    if (automationEnabled !== undefined) $set.automationEnabled = automationEnabled;
+    if (mode)                            $set.mode              = mode;
+    if (fromName !== undefined)          $set.fromName          = fromName;
+    if (fromEmail !== undefined)         $set.fromEmail         = fromEmail;
+    if (replyTo !== undefined)           $set.replyTo           = replyTo;
 
     if (smtp) {
-      settings.smtp.host = smtp.host || settings.smtp.host;
-      settings.smtp.port = smtp.port || settings.smtp.port;
-      settings.smtp.secure = smtp.secure !== undefined ? smtp.secure : settings.smtp.secure;
-      settings.smtp.user = smtp.user || settings.smtp.user;
-
-      // Handle password: if provided and not empty, encrypt it
+      if (smtp.host !== undefined)    $set['smtp.host']   = smtp.host;
+      if (smtp.port !== undefined)    $set['smtp.port']   = smtp.port;
+      if (smtp.secure !== undefined)  $set['smtp.secure'] = smtp.secure;
+      if (smtp.user !== undefined)    $set['smtp.user']   = smtp.user;
       if (smtp.password && smtp.password.trim()) {
-        settings.smtp.password = encrypt(smtp.password.trim());
+        $set['smtp.password'] = encrypt(smtp.password.trim());
       }
-      // If empty string, keep existing password
     }
 
     if (events) {
-      settings.events = { ...settings.events, ...events };
-      settings.markModified('events');
+      for (const [eventKey, eventVal] of Object.entries(events)) {
+        if (!eventVal || typeof eventVal !== 'object') continue;
+        for (const [field, value] of Object.entries(eventVal)) {
+          if (field === 'include' && value && typeof value === 'object') {
+            for (const [subKey, subVal] of Object.entries(value)) {
+              $set[`events.${eventKey}.include.${subKey}`] = subVal;
+            }
+          } else {
+            $set[`events.${eventKey}.${field}`] = value;
+          }
+        }
+      }
     }
 
-    await settings.save();
+    let settings;
+    if (!existing) {
+      settings = await EmailSettings.create($set);
+    } else {
+      settings = await EmailSettings.findOneAndUpdate(
+        { _id: existing._id },
+        { $set },
+        { new: true, runValidators: false }
+      );
+    }
 
     // Invalidate transporter cache
     if (settings._id) {
@@ -275,7 +290,7 @@ export async function updateSettings(req, res) {
 
     // Return safe copy
     const safe = settings.toObject();
-    delete safe.smtp.password;
+    if (safe.smtp) delete safe.smtp.password;
 
     res.json({ message: 'Settings updated', settings: safe });
   } catch (err) {
