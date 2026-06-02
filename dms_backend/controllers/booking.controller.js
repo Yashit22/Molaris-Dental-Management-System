@@ -45,7 +45,11 @@ function generateSlots({ daySchedule, slotDuration, date, existingAppointments, 
     if (inBreak) continue;
 
     const timeStr  = minutesToTime(cur);
-    const slotStart = new Date(date); slotStart.setHours(Math.floor(cur / 60), cur % 60, 0, 0);
+    // Build the slot's UTC instant from its IST wall-clock time (server-tz independent).
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+    const slotStart = new Date(
+      Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), Math.floor(cur / 60), cur % 60, 0, 0) - IST_OFFSET
+    );
     const slotEnd   = new Date(slotStart.getTime() + slotDuration * 60_000);
 
     const isBlocked = (blockedSlots || []).some(bs =>
@@ -163,11 +167,11 @@ export async function submitBooking(req, res) {
 
     const [h, m] = time.split(':').map(Number);
     const slotDuration = settings?.slotDurationMinutes || 30;
-    // Create date in local time, then convert to UTC by subtracting IST offset (+5:30)
-    const localStart = parseLocalDate(dateStr);
-    localStart.setHours(h, m, 0, 0);
+    // The selected time is an IST wall-clock time. Build the corresponding UTC
+    // instant explicitly (server-timezone independent): IST = UTC + 5:30.
+    const [y, mo, d] = dateStr.split('-').map(Number);
     const istOffset = 5.5 * 60 * 60 * 1000; // 5:30 in milliseconds
-    const start_time = new Date(localStart.getTime() - istOffset);
+    const start_time = new Date(Date.UTC(y, mo - 1, d, h, m, 0, 0) - istOffset);
     const end_time = new Date(start_time.getTime() + slotDuration * 60_000);
 
     const conflict = await Appointment.findOne({

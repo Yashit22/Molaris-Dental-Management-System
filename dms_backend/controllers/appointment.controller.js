@@ -273,6 +273,17 @@ export async function updateStatus(req, res) {
           if (!patient) return;
           triggerBookingConfirmed({ tenantModels: req.tenantModels, patient, appointment: appt, serviceName: appt.type });
 
+          // Appointment-booked email: online bookings arrive as "Requested" and
+          // skip createAppointment's email path, so fire it when the clinic
+          // schedules/confirms the request.
+          triggerAppointmentBookedEmail({
+            tenantModels: req.tenantModels,
+            patientId: appt.patient_id,
+            appointmentId: appt._id,
+            doctorName: req.user?.name,
+            appointment: appt,
+          }).catch(err => console.error('[Appointment Email] booked email silenced:', err.message));
+
           // WhatsApp confirmation message
           if (patient?.contact?.mobile) {
             const rawPhone = patient.contact.mobile.toString().replace(/\D/g, '');
