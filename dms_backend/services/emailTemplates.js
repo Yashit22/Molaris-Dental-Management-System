@@ -111,12 +111,12 @@ export function newBookingNotification(vars) {
   };
 }
 
-// ─── 3. Appointment Confirmed (to patient) ───────────────────────────────────
+// ─── 3. Appointment Scheduled (to patient) ───────────────────────────────────
 export function appointmentConfirmed(vars) {
-  const subject = sub('Your appointment is confirmed — {{appointment_date}}, {{appointment_time}}', vars);
+  const subject = sub('Your appointment is scheduled — {{appointment_date}}, {{appointment_time}}', vars);
   const body = `
     <p>Hi {{first_name}},</p>
-    <p>Great news! Your appointment has been <strong>confirmed</strong>.</p>
+    <p>Great news! Your appointment has been <strong>scheduled</strong>.</p>
     ${appointmentCard({ date: vars.appointment_date, time: vars.appointment_time, doctor: vars.doctor_name, service: vars.service_name, address: vars.clinic_address })}
     <p>Please arrive 5-10 minutes early. If you need to reschedule, call us at <strong>{{clinic_phone}}</strong>.</p>
     <p>See you soon,<br><strong>{{clinic_name}}</strong></p>
@@ -130,7 +130,7 @@ export function appointmentConfirmed(vars) {
   return {
     subject,
     html,
-    text: sub(`Hi {{first_name}},\n\nYour appointment at {{clinic_name}} is confirmed.\n\nDate: {{appointment_date}}\nTime: {{appointment_time}}\nDoctor: {{doctor_name}}\n\nSee you soon!\n{{clinic_name}}`, vars),
+    text: sub(`Hi {{first_name}},\n\nYour appointment at {{clinic_name}} is scheduled.\n\nDate: {{appointment_date}}\nTime: {{appointment_time}}\nDoctor: {{doctor_name}}\n\nSee you soon!\n{{clinic_name}}`, vars),
   };
 }
 

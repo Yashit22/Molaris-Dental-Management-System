@@ -972,19 +972,19 @@ const LANG_LABELS = { en: 'English', hi: 'Hindi', mr: 'Marathi' };
 const EMAIL_PRESETS = {
   appointmentBooked: [
     {
-      name: 'Appointment Confirmed (Formal)',
-      subject: 'Your appointment is confirmed — {{date}}',
+      name: 'Appointment Scheduled (Formal)',
+      subject: 'Your appointment is scheduled — {{date}}',
       body: 'Dear {{first_name}},\n\nThis is to confirm your appointment with {{doctor}} on {{date}} at {{time}}.\n\nPlease arrive 10 minutes before your scheduled time.\n\nWarm regards,\n{{clinic}}',
     },
     {
-      name: 'Appointment Confirmed (Friendly)',
+      name: 'Appointment Scheduled (Friendly)',
       subject: "Great, you're booked! See you on {{date}} 😊",
       body: "Hi {{first_name}},\n\nJust confirming your appointment with {{doctor}} on {{date}} at {{time}}. We're looking forward to seeing you!\n\nAny questions? Just reply to this email.\n\nBest,\n{{clinic}}",
     },
     {
-      name: 'Appointment Confirmed (Minimal)',
-      subject: 'Appointment Confirmed',
-      body: 'Dear {{name}},\n\nYour appointment with {{doctor}} on {{date}} at {{time}} has been confirmed.\n\nSee you soon,\n{{clinic}}',
+      name: 'Appointment Scheduled (Minimal)',
+      subject: 'Appointment Scheduled',
+      body: 'Dear {{name}},\n\nYour appointment with {{doctor}} on {{date}} at {{time}} has been scheduled.\n\nSee you soon,\n{{clinic}}',
     },
   ],
   appointmentCompleted: [
@@ -2689,39 +2689,56 @@ const SettingsPage = () => {
     if (bulkItems.length === 0) return;
     setLoading(true);
 
+    const skipped = [];
+    const failed = [];
+
     try {
       for (const item of bulkItems) {
         if (!item.name.trim()) continue;
-
-        if (treatmentTab === 'findings') {
-          await API.post('/clinical-findings', {
-            name: item.name.trim(),
-            category: item.category || '',
-            description: item.description || '',
-            is_active: true
-          });
-        } else if (treatmentTab === 'diagnoses') {
-          await API.post('/diagnoses', {
-            name: item.name.trim(),
-            code: item.code || '',
-            category: item.category || '',
-            description: item.description || '',
-            is_active: true
-          });
-        } else if (treatmentTab === 'treatments') {
-          await API.post('/suggested-treatments', {
-            name: item.name.trim(),
-            cost: parseFloat(item.cost) || 0,
-            category: item.category || '',
-            description: item.description || '',
-            is_active: true
-          });
+        try {
+          if (treatmentTab === 'findings') {
+            await API.post('/clinical-findings', {
+              name: item.name.trim(),
+              category: item.category || '',
+              description: item.description || '',
+              is_active: true
+            });
+          } else if (treatmentTab === 'diagnoses') {
+            await API.post('/diagnoses', {
+              name: item.name.trim(),
+              code: item.code || '',
+              category: item.category || '',
+              description: item.description || '',
+              is_active: true
+            });
+          } else if (treatmentTab === 'treatments') {
+            await API.post('/suggested-treatments', {
+              name: item.name.trim(),
+              cost: parseFloat(item.cost) || 0,
+              category: item.category || '',
+              description: item.description || '',
+              is_active: true
+            });
+          }
+        } catch (err) {
+          if (err.response?.status === 409) {
+            skipped.push(item.name.trim());
+          } else {
+            failed.push(item.name.trim());
+          }
         }
       }
       setBulkItems([]);
       setBulkMode(false);
       fetchTreatmentData();
-      alert('Items added successfully!');
+      if (skipped.length || failed.length) {
+        const parts = [];
+        if (skipped.length) parts.push(`${skipped.length} duplicate(s) skipped: ${skipped.join(', ')}`);
+        if (failed.length) parts.push(`${failed.length} failed: ${failed.join(', ')}`);
+        alert('Done with warnings:\n' + parts.join('\n'));
+      } else {
+        alert('Items added successfully!');
+      }
     } catch (err) {
       console.error('Failed to add items:', err);
       alert('Failed to add some items: ' + (err.response?.data?.error || err.message));

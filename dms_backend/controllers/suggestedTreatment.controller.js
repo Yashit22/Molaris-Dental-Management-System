@@ -22,7 +22,11 @@ export async function getSuggestedTreatments(req, res) {
 export async function createSuggestedTreatment(req, res) {
   const { SuggestedTreatment } = req.tenantModels;
   try {
-    const newTreatment = new SuggestedTreatment(req.body);
+    const name = req.body.name?.trim();
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+    const exists = await SuggestedTreatment.findOne({ name: { $regex: `^${name}$`, $options: 'i' } });
+    if (exists) return res.status(409).json({ error: `"${name}" already exists` });
+    const newTreatment = new SuggestedTreatment({ ...req.body, name });
     await newTreatment.save();
     res.status(201).json(newTreatment);
   } catch (err) {
@@ -34,6 +38,12 @@ export async function createSuggestedTreatment(req, res) {
 export async function updateSuggestedTreatment(req, res) {
   const { SuggestedTreatment } = req.tenantModels;
   try {
+    if (req.body.name) {
+      const name = req.body.name.trim();
+      const exists = await SuggestedTreatment.findOne({ name: { $regex: `^${name}$`, $options: 'i' }, _id: { $ne: req.params.id } });
+      if (exists) return res.status(409).json({ error: `"${name}" already exists` });
+      req.body.name = name;
+    }
     const treatment = await SuggestedTreatment.findByIdAndUpdate(
       req.params.id,
       { $set: req.body },

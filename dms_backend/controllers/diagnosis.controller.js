@@ -25,7 +25,11 @@ export async function getDiagnoses(req, res) {
 export async function createDiagnosis(req, res) {
   const { Diagnosis } = req.tenantModels;
   try {
-    const newDiagnosis = new Diagnosis(req.body);
+    const name = req.body.name?.trim();
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+    const exists = await Diagnosis.findOne({ name: { $regex: `^${name}$`, $options: 'i' } });
+    if (exists) return res.status(409).json({ error: `"${name}" already exists` });
+    const newDiagnosis = new Diagnosis({ ...req.body, name });
     await newDiagnosis.save();
     res.status(201).json(newDiagnosis);
   } catch (err) {
@@ -37,6 +41,12 @@ export async function createDiagnosis(req, res) {
 export async function updateDiagnosis(req, res) {
   const { Diagnosis } = req.tenantModels;
   try {
+    if (req.body.name) {
+      const name = req.body.name.trim();
+      const exists = await Diagnosis.findOne({ name: { $regex: `^${name}$`, $options: 'i' }, _id: { $ne: req.params.id } });
+      if (exists) return res.status(409).json({ error: `"${name}" already exists` });
+      req.body.name = name;
+    }
     const diagnosis = await Diagnosis.findByIdAndUpdate(
       req.params.id,
       { $set: req.body },

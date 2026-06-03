@@ -57,7 +57,7 @@ async function main() {
         event: 'appointmentBooked',
         language: 'en',
         contentType: 'text',
-        content: { text: 'Hi {{name}}, your appointment with {{doctorName}} has been confirmed for {{date}} at {{time}}.' },
+        content: { text: 'Hi {{name}}, your appointment with {{doctorName}} has been scheduled for {{date}} at {{time}}.' },
         isActive: true,
       },
       {

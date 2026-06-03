@@ -123,7 +123,7 @@ const AppointmentsPage = () => {
   const [editPatientModal, setEditPatientModal] = useState(null); // { patientId, first_name, last_name, email, mobile }
   const [editPatientSaving, setEditPatientSaving] = useState(false);
 
-  const ALL_STATUSES = ['Requested', 'Scheduled', 'Confirmed', 'Checked In', 'In Progress', 'Completed', 'Cancelled', 'No Show'];
+  const ALL_STATUSES = ['Requested', 'Scheduled', 'Checked In', 'In Progress', 'Completed', 'Cancelled', 'No Show'];
 
   // Click Outside Hook
   useEffect(() => {
@@ -142,7 +142,6 @@ const AppointmentsPage = () => {
       case 'In Progress': return 'green';
       case 'Checked In': return 'blue';
       case 'Scheduled': return 'slate';
-      case 'Confirmed': return 'blue';
       case 'Completed': return 'green';
       case 'Waiting': return 'orange';
       case 'Cancelled': return 'red';
@@ -482,8 +481,8 @@ const AppointmentsPage = () => {
                                   <div className="sticky top-0 bg-white p-1 border-b border-slate-100 z-10 space-y-1">
                                     <button
                                       onTouchStart={() => {}}
-                                      onTouchEnd={(e) => { e.preventDefault(); handleStatusChange(apt.id, 'Confirmed'); }}
-                                      onClick={() => handleStatusChange(apt.id, 'Confirmed')}
+                                      onTouchEnd={(e) => { e.preventDefault(); handleStatusChange(apt.id, 'Scheduled'); }}
+                                      onClick={() => handleStatusChange(apt.id, 'Scheduled')}
                                       className="w-full text-left px-3 py-2.5 text-sm font-bold text-white bg-green-600 hover:bg-green-700 rounded-md flex items-center gap-2 transition-colors shadow-sm active:opacity-80"
                                     >
                                       <span>✓ Confirm</span>
@@ -583,7 +582,7 @@ const AppointmentsPage = () => {
                                       >
                                         {apt.status === 'Requested' && (
                                           <div className="sticky top-0 bg-white p-1 border-b border-slate-100 z-10 space-y-1">
-                                            <button onClick={() => handleStatusChange(apt.id, 'Confirmed')} className="w-full text-left px-3 py-2.5 text-sm font-bold text-white bg-green-600 hover:bg-green-700 rounded-md flex items-center gap-2 transition-colors shadow-sm">
+                                            <button onClick={() => handleStatusChange(apt.id, 'Scheduled')} className="w-full text-left px-3 py-2.5 text-sm font-bold text-white bg-green-600 hover:bg-green-700 rounded-md flex items-center gap-2 transition-colors shadow-sm">
                                               <span>✓ Confirm</span>
                                             </button>
                                             <button onClick={() => handleStatusChange(apt.id, 'Cancelled')} className="w-full text-left px-3 py-2.5 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-md flex items-center gap-2 transition-colors shadow-sm">
@@ -663,7 +662,7 @@ const AppointmentsPage = () => {
                     >
                       {apt.status === 'Requested' && (
                         <div className="sticky top-0 bg-white p-1 border-b border-slate-100 z-10 space-y-1">
-                          <button onClick={(e) => { e.stopPropagation(); handleStatusChange(apt.id, 'Confirmed'); }} className="w-full text-left px-3 py-2.5 text-sm font-bold text-white bg-green-600 hover:bg-green-700 rounded-md flex items-center gap-2 transition-colors shadow-sm">
+                          <button onClick={(e) => { e.stopPropagation(); handleStatusChange(apt.id, 'Scheduled'); }} className="w-full text-left px-3 py-2.5 text-sm font-bold text-white bg-green-600 hover:bg-green-700 rounded-md flex items-center gap-2 transition-colors shadow-sm">
                             <span>✓ Confirm</span>
                           </button>
                           <button onClick={(e) => { e.stopPropagation(); handleStatusChange(apt.id, 'Cancelled'); }} className="w-full text-left px-3 py-2.5 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-md flex items-center gap-2 transition-colors shadow-sm">

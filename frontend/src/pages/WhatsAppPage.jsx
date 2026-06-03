@@ -32,9 +32,9 @@ const EVENTS = [
     allowedContentTypes: ["text"],
   },
   {
-    key: "appointmentConfirmed",
-    label: "Appointment Confirmed",
-    description: "Sent when an online booking request is confirmed by staff",
+    key: "appointmentScheduled",
+    label: "Appointment Scheduled",
+    description: "Sent when an online booking request is scheduled by staff",
     icon: "check_circle",
     color: "green",
     variables: ["name", "firstName", "appointmentDate", "appointmentTime", "appointmentType"],

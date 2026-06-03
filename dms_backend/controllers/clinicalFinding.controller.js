@@ -22,7 +22,11 @@ export async function getClinicalFindings(req, res) {
 export async function createClinicalFinding(req, res) {
   const { ClinicalFinding } = req.tenantModels;
   try {
-    const newFinding = new ClinicalFinding(req.body);
+    const name = req.body.name?.trim();
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+    const exists = await ClinicalFinding.findOne({ name: { $regex: `^${name}$`, $options: 'i' } });
+    if (exists) return res.status(409).json({ error: `"${name}" already exists` });
+    const newFinding = new ClinicalFinding({ ...req.body, name });
     await newFinding.save();
     res.status(201).json(newFinding);
   } catch (err) {
@@ -34,6 +38,12 @@ export async function createClinicalFinding(req, res) {
 export async function updateClinicalFinding(req, res) {
   const { ClinicalFinding } = req.tenantModels;
   try {
+    if (req.body.name) {
+      const name = req.body.name.trim();
+      const exists = await ClinicalFinding.findOne({ name: { $regex: `^${name}$`, $options: 'i' }, _id: { $ne: req.params.id } });
+      if (exists) return res.status(409).json({ error: `"${name}" already exists` });
+      req.body.name = name;
+    }
     const finding = await ClinicalFinding.findByIdAndUpdate(
       req.params.id,
       { $set: req.body },

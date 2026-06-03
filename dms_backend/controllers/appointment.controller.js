@@ -266,8 +266,8 @@ export async function updateStatus(req, res) {
       });
     }
 
-    // Email & WhatsApp: booking confirmed (Requested → Confirmed/Scheduled)
-    if ((status === 'Confirmed' || status === 'Scheduled') && currentAppt?.status === 'Requested' && appt?.patient_id) {
+    // Email & WhatsApp: booking scheduled (Requested → Scheduled)
+    if (status === 'Scheduled' && currentAppt?.status === 'Requested' && appt?.patient_id) {
       req.tenantModels.Patient.findById(appt.patient_id).lean()
         .then(patient => {
           if (!patient) return;
@@ -301,8 +301,8 @@ export async function updateStatus(req, res) {
               appointmentType: appt.type || 'Consultation',
             };
             triggerWhatsApp(req.tenantModels, req.user.tenantId, process.env.WAAPI_BASE_URL,
-              'appointmentConfirmed', phone, data, patient._id.toString(), appt.whatsapp_language,
-              null, null, `apptConfirmed:${appt._id}`);
+              'appointmentScheduled', phone, data, patient._id.toString(), appt.whatsapp_language,
+              null, null, `apptScheduled:${appt._id}`);
           }
         })
         .catch(() => {});

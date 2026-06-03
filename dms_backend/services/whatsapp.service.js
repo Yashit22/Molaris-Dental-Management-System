@@ -219,7 +219,7 @@ export async function buildMessage(tenantModels, tenantId, eventType, data, expl
 
   // Map internal event types to WAAPI-accepted messageType values
   const WAAPI_TYPE_MAP = {
-    appointmentConfirmed: 'appointmentBooked',
+    appointmentScheduled: 'appointmentBooked',
   };
   const payload = {
     tenantId,

@@ -877,7 +877,7 @@ export async function triggerBookingEmails({ tenantModels, patient, appointment,
   }
 }
 
-// ─── Booking confirmed by staff ─────────────────────────────────────────────
+// ─── Booking scheduled by staff ─────────────────────────────────────────────
 export async function triggerBookingConfirmed({ tenantModels, patient, appointment, serviceName }) {
   try {
     const settings = await getSettingsOrNull(tenantModels);
