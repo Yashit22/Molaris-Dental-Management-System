@@ -21,6 +21,48 @@ function parseLocalDate(str) {
 
 const DAY_NAMES = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
 
+// Build the effective per-day online-booking schedule for a doctor.
+// When `useCustomBookingSchedule` is true, use `bookingWorkingHours`.
+// Otherwise reuse the Doctors-tab `availability` shifts, collapsing the
+// multiple shifts of a day into a single open span with the gaps between
+// shifts treated as breaks (so the existing slot generator handles them).
+// Collapse an array of {start,end} time-ranges into a single open span whose
+// inter-range gaps become breaks — so the existing slot generator handles it.
+function shiftsToDaySchedule(rawShifts) {
+  const shifts = (rawShifts || [])
+    .filter(s => s && s.start && s.end)
+    .map(s => ({ start: timeToMinutes(s.start), end: timeToMinutes(s.end) }))
+    .filter(s => s.end > s.start)
+    .sort((a, b) => a.start - b.start);
+
+  if (shifts.length === 0) return { isOpen: false };
+
+  const start = shifts[0].start;
+  const end   = shifts[shifts.length - 1].end;
+
+  const breaks = [];
+  for (let i = 1; i < shifts.length; i++) {
+    if (shifts[i].start > shifts[i - 1].end) {
+      breaks.push({ start: minutesToTime(shifts[i - 1].end), end: minutesToTime(shifts[i].start) });
+    }
+  }
+
+  return { isOpen: true, start: minutesToTime(start), end: minutesToTime(end), breaks };
+}
+
+function effectiveDaySchedule(doctor, dayName) {
+  if (doctor.useCustomBookingSchedule) {
+    const day = doctor.bookingWorkingHours?.[dayName] || {};
+    if (!day.isOpen) return { isOpen: false };
+    // Prefer explicit shifts; fall back to legacy single start/end + breaks.
+    if (Array.isArray(day.shifts) && day.shifts.length > 0) return shiftsToDaySchedule(day.shifts);
+    return day;
+  }
+
+  // Reuse the Doctors-tab availability shifts.
+  return shiftsToDaySchedule(doctor.availability?.[dayName]);
+}
+
 function generateSlots({ daySchedule, slotDuration, date, existingAppointments, blockedSlots, holidays }) {
   if (!daySchedule?.isOpen) return [];
 
@@ -75,13 +117,21 @@ export async function getBookingConfig(req, res) {
     const [settings, doctors] = await Promise.all([
       BookingSettings.findOne().lean(),
       Doctor.find({ isBookable: true, is_active: true })
-        .select('name specialization qualification experience_years bookingWorkingHours holidays')
+        .select('name specialization qualification experience_years bookingWorkingHours availability useCustomBookingSchedule holidays')
         .lean(),
     ]);
 
     if (settings && !settings.isBookingEnabled) {
       return res.json({ bookingEnabled: false });
     }
+
+    // Expose the effective booking schedule (custom or reused availability)
+    const doctorsOut = doctors.map(doc => {
+      const bookingWorkingHours = {};
+      for (let i = 0; i < 7; i++) bookingWorkingHours[DAY_NAMES[i]] = effectiveDaySchedule(doc, DAY_NAMES[i]);
+      const { availability, useCustomBookingSchedule, ...rest } = doc;
+      return { ...rest, bookingWorkingHours };
+    });
 
     res.json({
       bookingEnabled:  true,
@@ -90,7 +140,7 @@ export async function getBookingConfig(req, res) {
       clinicLogoUrl:   settings?.clinicLogoUrl || '',
       slotDuration:    settings?.slotDurationMinutes || 30,
       blockedDates:    settings?.blockedDates || [],
-      doctors,
+      doctors: doctorsOut,
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -116,7 +166,7 @@ export async function getAvailableSlots(req, res) {
 
     const slotDuration = settings?.slotDurationMinutes || 30;
     const dayName = DAY_NAMES[date.getDay()];
-    const daySchedule = doctor.bookingWorkingHours?.[dayName] || {};
+    const daySchedule = effectiveDaySchedule(doctor, dayName);
 
     const clinicBlocked = (settings?.blockedDates || []).some(b => {
       const bd = new Date(b.date);
@@ -124,8 +174,13 @@ export async function getAvailableSlots(req, res) {
     });
     if (clinicBlocked) return res.json({ slots: [] });
 
-    const dayStart = new Date(date); dayStart.setHours(0, 0, 0, 0);
-    const dayEnd   = new Date(date); dayEnd.setHours(23, 59, 59, 999);
+    // The booking day is an IST calendar day. Build its UTC boundaries explicitly
+    // (server-tz independent) so the appointment window aligns with the IST slot
+    // instants computed in generateSlots — otherwise early/late IST appointments
+    // would fall outside the window and slots would wrongly appear available.
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+    const dayStart = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0) - IST_OFFSET);
+    const dayEnd   = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999) - IST_OFFSET);
 
     const existingAppointments = await Appointment.find({
       doctor_id: doctorId,

@@ -58,7 +58,7 @@ export async function getDoctorSchedule(req, res) {
   try {
     const { Doctor } = req.tenantModels;
     const doctor = await Doctor.findById(req.params.id)
-      .select('name isBookable bookingWorkingHours holidays blockedSlots')
+      .select('name isBookable useCustomBookingSchedule availability bookingWorkingHours holidays blockedSlots')
       .lean();
     if (!doctor) return res.status(404).json({ error: 'Doctor not found' });
 
@@ -73,6 +73,8 @@ export async function getDoctorSchedule(req, res) {
 
     res.json({
       isBookable: doctor.isBookable || false,
+      useCustomBookingSchedule: doctor.useCustomBookingSchedule || false,
+      availability: doctor.availability || {},
       bookingWorkingHours,
       holidays:     doctor.holidays     || [],
       blockedSlots: doctor.blockedSlots || [],
@@ -140,10 +142,11 @@ export async function savePrescriptionSettings(req, res) {
 export async function saveDoctorSchedule(req, res) {
   try {
     const { Doctor } = req.tenantModels;
-    const { isBookable, bookingWorkingHours, holidays, blockedSlots } = req.body;
+    const { isBookable, useCustomBookingSchedule, bookingWorkingHours, holidays, blockedSlots } = req.body;
 
     const update = {};
     if (isBookable !== undefined) update.isBookable = isBookable;
+    if (useCustomBookingSchedule !== undefined) update.useCustomBookingSchedule = useCustomBookingSchedule;
     if (bookingWorkingHours !== undefined) update.bookingWorkingHours = bookingWorkingHours;
     if (holidays !== undefined) update.holidays = holidays;
     if (blockedSlots !== undefined) update.blockedSlots = blockedSlots;
