@@ -10,7 +10,7 @@ const TransactionsPage = () => {
   const [activeTab, setActiveTab] = useState('Statement');
 
   // Filter States
-  const [dateFilterLabel, setDateFilterLabel] = useState('This Month'); // Controls the button text
+  const [dateFilterLabel, setDateFilterLabel] = useState('All Time'); // Controls the button text
   const [customRange, setCustomRange] = useState({ start: null, end: null }); // Stores actual custom dates
 
   // UI States
@@ -41,6 +41,7 @@ const TransactionsPage = () => {
       const { data } = await API.get('/transactions');
       const formatted = (Array.isArray(data) ? data : []).map(txn => ({
         id: txn._id || '',
+        rawDate: txn.date ? new Date(txn.date) : null,
         date: txn.date ? new Date(txn.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '',
         party: txn.party_name || 'Unknown',
         type: txn.type || 'Income',
@@ -78,7 +79,9 @@ const TransactionsPage = () => {
     if (searchQuery.trim() && !txn.party.toLowerCase().includes(searchQuery.toLowerCase())) return false;
 
     // 2. Date Filter
-    const txnDate = new Date(txn.date);
+    if (dateFilterLabel === 'All Time') return true;
+    if (!txn.rawDate) return false;
+    const txnDate = new Date(txn.rawDate);
     if (isNaN(txnDate.getTime())) return false;
     const currentDate = new Date();
     
@@ -112,7 +115,7 @@ const TransactionsPage = () => {
 
     // -- Custom Range Logic --
     // If the label is NOT a preset, we assume it's a custom range
-    if (!['Today', 'Yesterday', 'This Week', 'This Month'].includes(dateFilterLabel)) {
+    if (!['All Time', 'Today', 'Yesterday', 'This Week', 'This Month'].includes(dateFilterLabel)) {
        if (!customRange.start) return true; // Should not happen if logic is correct
 
        const startDate = new Date(customRange.start);
@@ -360,7 +363,7 @@ const TransactionsPage = () => {
                   ) : (
                     /* Preset List View */
                     <div className="py-1">
-                      {['Today', 'Yesterday', 'This Week', 'This Month', 'Custom'].map((option) => (
+                      {['All Time', 'Today', 'Yesterday', 'This Week', 'This Month', 'Custom'].map((option) => (
                         <button
                           key={option}
                           onClick={() => handlePresetSelect(option)}
