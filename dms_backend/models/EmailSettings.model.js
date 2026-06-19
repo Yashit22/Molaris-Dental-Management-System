@@ -32,7 +32,6 @@ export const EmailSettingsSchema = new mongoose.Schema(
       password: String, // encrypted via crypto.util
     },
     fromName: String,
-    fromEmail: String,
     replyTo: String,
     events: {
       // Online booking: patient submits request → confirmation to patient + alert to clinic

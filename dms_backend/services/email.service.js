@@ -124,7 +124,7 @@ export async function sendEmail({
     const transporter = getTransporter(settings);
 
     const mailOptions = {
-      from: settings.fromEmail || settings.smtp.user,
+      from: settings.smtp.user,
       to,
       subject,
       text: text || undefined,

@@ -1049,7 +1049,7 @@ function EmailTab() {
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [smtpForm, setSmtpForm] = useState({
     mode: 'gmail', enabled: false, automationEnabled: false,
-    fromName: '', fromEmail: '', replyTo: '',
+    fromName: '', replyTo: '',
     smtp: { host: 'smtp.gmail.com', port: 465, secure: true, user: '', password: '' },
     events: {
       appointmentBooked:    { enabled: false, delayMinutes: 0, subject: '', body: '' },
@@ -1088,7 +1088,6 @@ function EmailTab() {
         enabled:          res.data.enabled || false,
         automationEnabled: res.data.automationEnabled || false,
         fromName:         res.data.fromName || '',
-        fromEmail:        res.data.fromEmail || '',
         replyTo:          res.data.replyTo || '',
         smtp: {
           host:     res.data.smtp?.host || 'smtp.gmail.com',
@@ -1259,7 +1258,7 @@ function EmailTab() {
                         <span className="flex-shrink-0 w-7 h-7 rounded-full bg-[#137fec] text-white text-xs font-bold flex items-center justify-center">2</span>
                         <div>
                           <p className="font-semibold">Go to Security settings</p>
-                          <p className="text-xs text-slate-500 mt-0.5">In the left sidebar click <strong>Security</strong>. Scroll down to the section titled <strong>"How you sign in to Google"</strong>.</p>
+                          <p className="text-xs text-slate-500 mt-0.5">Scroll down on the page to find the <strong>Security</strong> section on the left. Look for the section titled <strong>"How you sign in to Google"</strong> and locate the <strong>2-Step Verification</strong> option.</p>
                         </div>
                       </li>
                       <li className="flex gap-3">
@@ -1391,10 +1390,6 @@ function EmailTab() {
               <input type="text" value={smtpForm.fromName} onChange={e => setSmtpForm(f => ({ ...f, fromName: e.target.value }))} placeholder="Dr. Name" className={inputCls} />
             </div>
             <div>
-              <label className="text-xs font-bold text-slate-500 uppercase block mb-1">From Email</label>
-              <input type="email" value={smtpForm.fromEmail} onChange={e => setSmtpForm(f => ({ ...f, fromEmail: e.target.value }))} placeholder="clinic@example.com" className={inputCls} />
-            </div>
-            <div className="xs:col-span-2">
               <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Reply-To (optional)</label>
               <input type="email" value={smtpForm.replyTo} onChange={e => setSmtpForm(f => ({ ...f, replyTo: e.target.value }))} placeholder="replies@example.com" className={inputCls} />
             </div>
@@ -2457,7 +2452,7 @@ const SettingsPage = () => {
     phone: '',
     license_number: '',
     qualification: '',
-    experience_years: 0,
+    experience_years: '',
     is_active: true,
     notes: '',
     availability: {
@@ -2624,17 +2619,17 @@ const SettingsPage = () => {
       phone: '',
       license_number: '',
       qualification: '',
-      experience_years: 0,
+      experience_years: '',
       is_active: true,
       notes: '',
       availability: {
-        monday: { start: '09:00', end: '17:00' },
-        tuesday: { start: '09:00', end: '17:00' },
-        wednesday: { start: '09:00', end: '17:00' },
-        thursday: { start: '09:00', end: '17:00' },
-        friday: { start: '09:00', end: '17:00' },
-        saturday: { start: '10:00', end: '14:00' },
-        sunday: { start: '', end: '' }
+        monday: [{ start: '09:00', end: '17:00' }],
+        tuesday: [{ start: '09:00', end: '17:00' }],
+        wednesday: [{ start: '09:00', end: '17:00' }],
+        thursday: [{ start: '09:00', end: '17:00' }],
+        friday: [{ start: '09:00', end: '17:00' }],
+        saturday: [{ start: '10:00', end: '14:00' }],
+        sunday: []
       }
     });
     setShowModal(true);
@@ -2671,11 +2666,12 @@ const SettingsPage = () => {
     e.preventDefault();
     setLoading(true);
     try {
+      const payload = { ...doctorFormData, experience_years: Number(doctorFormData.experience_years) || 0 };
       if (editingDoctor) {
-        const res = await API.put(`/doctors/${editingDoctor._id}`, doctorFormData);
+        const res = await API.put(`/doctors/${editingDoctor._id}`, payload);
         setDoctors(doctors.map(d => d._id === editingDoctor._id ? res.data : d));
       } else {
-        const res = await API.post('/doctors', doctorFormData);
+        const res = await API.post('/doctors', payload);
         setDoctors([...doctors, res.data]);
       }
       setShowModal(false);
@@ -2691,7 +2687,7 @@ const SettingsPage = () => {
     const { name, value, type, checked } = e.target;
     setDoctorFormData(prev => ({
       ...prev,
-      [name]: type === 'checkbox' ? checked : (name === 'experience_years' ? Number(value) : value)
+      [name]: type === 'checkbox' ? checked : (name === 'experience_years' ? (value === '' ? '' : Number(value)) : value)
     }));
   };
 

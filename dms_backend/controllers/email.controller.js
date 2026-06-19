@@ -223,7 +223,6 @@ export async function updateSettings(req, res) {
       mode,
       smtp,
       fromName,
-      fromEmail,
       replyTo,
       events,
     } = req.body;
@@ -244,7 +243,6 @@ export async function updateSettings(req, res) {
     if (automationEnabled !== undefined) $set.automationEnabled = automationEnabled;
     if (mode)                            $set.mode              = mode;
     if (fromName !== undefined)          $set.fromName          = fromName;
-    if (fromEmail !== undefined)         $set.fromEmail         = fromEmail;
     if (replyTo !== undefined)           $set.replyTo           = replyTo;
 
     if (smtp) {
@@ -318,7 +316,7 @@ export async function testSend(req, res) {
     const transporter = getTransporter(settings);
 
     await transporter.sendMail({
-      from: settings.fromEmail || settings.smtp.user,
+      from: settings.smtp.user,
       to,
       subject: 'Test Email from Dental DMS',
       text: 'This is a test email to verify your SMTP configuration is working correctly.',
@@ -742,7 +740,7 @@ export async function triggerAppointmentCompleted({ tenantModels, patientId, app
     const html = buildRichHtml(body, {
       clinicName:  clinic.clinic_name,
       clinicPhone: clinic.clinic_phone,
-      clinicEmail: settings.fromEmail || '',
+      clinicEmail: '',
     });
 
     const delayMs = (eventCfg.delayMinutes || 0) * 60 * 1000;
@@ -866,7 +864,7 @@ export async function triggerBookingEmails({ tenantModels, patient, appointment,
 
     // Clinic alert
     if (ev.notifyClinic) {
-      const clinicEmail = ev.clinicEmail || settings.fromEmail || settings.smtp?.user;
+      const clinicEmail = ev.clinicEmail || settings.smtp?.user;
       if (clinicEmail) {
         const tpl = Templates.newBookingNotification(vars);
         await _fireMail(tenantModels, settings, { to: clinicEmail, event: 'bookingReceived', ...tpl });
@@ -947,7 +945,7 @@ export async function triggerAppointmentBookedEmail({ tenantModels, patientId, a
     const html = buildRichHtml(body, {
       clinicName:  clinic.clinic_name,
       clinicPhone: clinic.clinic_phone,
-      clinicEmail: settings.fromEmail || '',
+      clinicEmail: '',
     });
 
     const delayMs = (eventCfg.delayMinutes || 0) * 60 * 1000;
@@ -1066,7 +1064,7 @@ export async function triggerLowStockAlert({ tenantModels, item }) {
     const settings = await getSettingsOrNull(tenantModels);
     if (!settings?.enabled) return;
 
-    const alertEmail = settings.events?.bookingReceived?.clinicEmail || settings.fromEmail || settings.smtp?.user;
+    const alertEmail = settings.events?.bookingReceived?.clinicEmail || settings.smtp?.user;
     if (!alertEmail) return;
 
     const clinic = await getClinicVars(tenantModels);
