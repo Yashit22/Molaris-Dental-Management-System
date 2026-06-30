@@ -1,24 +1,16 @@
 import express from 'express';
-import { uploadMiddleware, generateReport, listTemplates, transcribeAudio, getJobStatus, editTranscript, cancelGeneration, saveReportToDrive, getReportDeliverySettings, saveReportDeliverySettings } from '../controllers/report.controller.js';
+import { generateReport, listTemplates, transcribeAudio, getJobStatus, getLatestReport, editTranscript, cancelGeneration, saveReportToDrive, getReportDeliverySettings, saveReportDeliverySettings } from '../controllers/report.controller.js';
 
 const router = express.Router();
 
 router.get('/templates',   listTemplates);
-router.post('/transcribe', uploadMiddleware, transcribeAudio);
+// Audio is transcribed live over the WS relay (/api/report/stream); these
+// endpoints now take JSON transcript text only — no multipart audio upload.
+router.post('/transcribe', transcribeAudio);
+router.get('/latest',      getLatestReport);
 router.get('/jobs/:jobId', getJobStatus);
 router.patch('/jobs/:jobId/transcript', editTranscript);
-
-// /generate accepts multipart (legacy) OR JSON (jobId path)
-// multer is applied only when Content-Type is multipart
-function maybeUpload(req, res, next) {
-  const ct = req.headers['content-type'] || '';
-  if (ct.includes('multipart/form-data')) {
-    uploadMiddleware(req, res, next);
-  } else {
-    next();
-  }
-}
-router.post('/generate', maybeUpload, generateReport);
+router.post('/generate', generateReport);
 
 router.get('/delivery-settings',          getReportDeliverySettings);
 router.put('/delivery-settings',          saveReportDeliverySettings);

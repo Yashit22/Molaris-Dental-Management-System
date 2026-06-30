@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Edit2, Trash2, X, Download, Upload, Mail, CheckCircle, XCircle, RefreshCw, Pill, FileSpreadsheet, ExternalLink, Loader2, Calendar, Clock, Globe, Copy, Link2, BookOpen, ChevronDown, Eye } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Download, Upload, Mail, CheckCircle, XCircle, RefreshCw, FileSpreadsheet, ExternalLink, Loader2, Calendar, Clock, Globe, Copy, Link2, BookOpen, ChevronDown, Eye } from 'lucide-react';
 import API from '../services/api';
 import AddClinicalDataModal from '../modals/AddClinicalDataModal';
 import SingleClinicalItemModal from '../modals/SingleClinicalItemModal';
 import BulkUploadClinicalModal from '../modals/BulkUploadClinicalModal';
-import { useInventorySettings } from '../Context/SettingsContext';
 import { useAuth } from '../Context/AuthContext';
 
 // ─── Booking helpers ──────────────────────────────────────────────────────────
@@ -276,716 +275,9 @@ function DoctorScheduleModal({ doctor, onClose, onSaved }) {
   );
 }
 
-// ─── Invoice Settings (now part of Share with Patient tab) ──────────────────
+// ─── Email Tab ────────────────────────────────────────────────────────────────
 
-function InvoiceSettingsTab() {
-  const inputCls = 'w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 focus:ring-2 focus:ring-[#137fec] outline-none';
 
-  const [form, setForm] = React.useState({
-    clinic: { name: '', addressLines: ['', ''], phone: '', email: '', gstNumber: '', logoUrl: '' },
-    currencySymbol: '₹',
-    tax: { label: 'Tax', defaultRatePct: 0, show: true },
-    invoiceNumber: { prefix: 'INV' },
-    showPaidPending: true,
-    footerText: '',
-    termsText: '',
-  });
-  const [loading, setLoading] = React.useState(true);
-  const [saving, setSaving] = React.useState(false);
-  const [banner, setBanner] = React.useState(null);
-
-  React.useEffect(() => {
-    API.get('/settings/invoice')
-      .then(r => {
-        if (r.data && Object.keys(r.data).length > 0) {
-          const { _id, __v, createdAt, updatedAt, ...data } = r.data;
-          setForm(prev => ({
-            ...prev,
-            ...data,
-            clinic:        { ...prev.clinic,        ...(data.clinic        || {}) },
-            tax:           { ...prev.tax,           ...(data.tax           || {}) },
-            invoiceNumber: { ...prev.invoiceNumber, ...(data.invoiceNumber || {}) },
-          }));
-        }
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
-
-  async function save() {
-    setSaving(true);
-    setBanner(null);
-    try {
-      const { _id, __v, createdAt, updatedAt, ...payload } = form;
-      await API.put('/settings/invoice', payload);
-      setBanner({ ok: true, msg: 'Invoice settings saved.' });
-    } catch (err) {
-      setBanner({ ok: false, msg: err.response?.data?.message || err.message });
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function setClinic(field, val) {
-    setForm(f => ({ ...f, clinic: { ...f.clinic, [field]: val } }));
-  }
-  function setAddressLine(idx, val) {
-    const lines = [...(form.clinic.addressLines || ['', ''])];
-    lines[idx] = val;
-    setForm(f => ({ ...f, clinic: { ...f.clinic, addressLines: lines } }));
-  }
-
-  if (loading) return <div className="text-center py-12 text-slate-500">Loading…</div>;
-
-  return (
-    <div className="space-y-8">
-      <h3 className="text-lg font-bold text-slate-800 dark:text-white">Invoice Branding & Settings</h3>
-
-      {/* Clinic / Branding */}
-      <section className="space-y-4">
-        <h4 className="text-sm font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wide border-b border-slate-100 dark:border-slate-700 pb-1">
-          Clinic / Branding
-        </h4>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="col-span-2">
-            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Clinic Name</label>
-            <input type="text" value={form.clinic.name} onChange={e => setClinic('name', e.target.value)} placeholder="City Dental Clinic" className={inputCls} />
-          </div>
-          <div className="col-span-2">
-            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Address Line 1</label>
-            <input type="text" value={(form.clinic.addressLines || [])[0] || ''} onChange={e => setAddressLine(0, e.target.value)} placeholder="123, Main Street" className={inputCls} />
-          </div>
-          <div className="col-span-2">
-            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Address Line 2</label>
-            <input type="text" value={(form.clinic.addressLines || [])[1] || ''} onChange={e => setAddressLine(1, e.target.value)} placeholder="Mumbai, Maharashtra 400001" className={inputCls} />
-          </div>
-          <div>
-            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Phone</label>
-            <input type="text" value={form.clinic.phone} onChange={e => setClinic('phone', e.target.value)} placeholder="+91 98765 43210" className={inputCls} />
-          </div>
-          <div>
-            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Email</label>
-            <input type="email" value={form.clinic.email} onChange={e => setClinic('email', e.target.value)} placeholder="clinic@example.com" className={inputCls} />
-          </div>
-          <div>
-            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">GST Number</label>
-            <input type="text" value={form.clinic.gstNumber} onChange={e => setClinic('gstNumber', e.target.value)} placeholder="27AAAAA0000A1Z5" className={inputCls} />
-          </div>
-          <div>
-            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Logo URL (optional)</label>
-            <input type="url" value={form.clinic.logoUrl} onChange={e => setClinic('logoUrl', e.target.value)} placeholder="https://…/logo.png" className={inputCls} />
-          </div>
-        </div>
-      </section>
-
-      {/* Tax */}
-      <section className="space-y-4">
-        <h4 className="text-sm font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wide border-b border-slate-100 dark:border-slate-700 pb-1">
-          Tax
-        </h4>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Tax Label</label>
-            <input type="text" value={form.tax?.label || 'Tax'} onChange={e => setForm(f => ({ ...f, tax: { ...f.tax, label: e.target.value } }))} placeholder="GST / Tax" className={inputCls} />
-          </div>
-          <div>
-            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Default Rate (%)</label>
-            <input type="number" min="0" max="100" step="0.01" value={form.tax?.defaultRatePct ?? 0} onChange={e => setForm(f => ({ ...f, tax: { ...f.tax, defaultRatePct: Number(e.target.value) } }))} className={inputCls} />
-          </div>
-        </div>
-      </section>
-
-      {/* Footer & Terms */}
-      <section className="space-y-4">
-        <h4 className="text-sm font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wide border-b border-slate-100 dark:border-slate-700 pb-1">
-          Footer & Terms
-        </h4>
-        <div>
-          <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Footer Text</label>
-          <textarea rows={2} value={form.footerText} onChange={e => setForm(f => ({ ...f, footerText: e.target.value }))} placeholder="Thank you for choosing us!" className={`${inputCls} resize-none`} />
-        </div>
-      </section>
-
-      <div className="flex items-center gap-4 pt-2">
-        <button onClick={save} disabled={saving} className="px-6 py-2.5 bg-[#137fec] hover:bg-blue-600 text-white font-semibold rounded-xl text-sm transition-colors disabled:opacity-60">
-          {saving ? 'Saving…' : 'Save Invoice Settings'}
-        </button>
-        {banner && (
-          <p className={`text-sm font-medium flex items-center gap-1.5 ${banner.ok ? 'text-green-600' : 'text-red-600'}`}>
-            {banner.ok ? <CheckCircle size={15} /> : <XCircle size={15} />}
-            {banner.msg}
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Prescription Settings (now part of Share with Patient tab) ──────────────
-
-function PrescriptionSettingsTab() {
-  const inputCls = 'w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 focus:ring-2 focus:ring-[#137fec] outline-none';
-
-  const [form, setForm] = React.useState({
-    clinic: { name: '', tagline: '', addressLines: ['', ''], phone: '', email: '', logoUrl: '' },
-    footerText: '',
-  });
-  const [loading, setLoading] = React.useState(true);
-  const [saving, setSaving] = React.useState(false);
-  const [banner, setBanner] = React.useState(null);
-
-  React.useEffect(() => {
-    API.get('/settings/prescription')
-      .then(r => {
-        if (r.data && Object.keys(r.data).length > 0) {
-          const { _id, __v, createdAt, updatedAt, ...data } = r.data;
-          setForm(prev => ({
-            ...prev,
-            ...data,
-            clinic: { ...prev.clinic, ...(data.clinic || {}) },
-          }));
-        }
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
-
-  async function save() {
-    setSaving(true);
-    setBanner(null);
-    try {
-      const { _id, __v, createdAt, updatedAt, ...payload } = form;
-      await API.put('/settings/prescription', payload);
-      setBanner({ ok: true, msg: 'Prescription settings saved.' });
-    } catch (err) {
-      setBanner({ ok: false, msg: err.response?.data?.message || err.message });
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function setClinic(field, val) {
-    setForm(f => ({ ...f, clinic: { ...f.clinic, [field]: val } }));
-  }
-  function setAddressLine(idx, val) {
-    const lines = [...(form.clinic.addressLines || ['', ''])];
-    lines[idx] = val;
-    setForm(f => ({ ...f, clinic: { ...f.clinic, addressLines: lines } }));
-  }
-
-  if (loading) return <div className="text-center py-12 text-slate-500">Loading…</div>;
-
-  return (
-    <div className="space-y-8">
-      <h3 className="text-lg font-bold text-slate-800 dark:text-white">Prescription Branding & Settings</h3>
-
-      {/* Clinic / Branding */}
-      <section className="space-y-4">
-        <h4 className="text-sm font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wide border-b border-slate-100 dark:border-slate-700 pb-1">
-          Clinic / Branding
-        </h4>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="col-span-2">
-            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Clinic Name</label>
-            <input type="text" value={form.clinic.name} onChange={e => setClinic('name', e.target.value)} placeholder="City Dental Clinic" className={inputCls} />
-          </div>
-          <div className="col-span-2">
-            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Tagline (optional)</label>
-            <input type="text" value={form.clinic.tagline} onChange={e => setClinic('tagline', e.target.value)} placeholder="Your smile is our priority" className={inputCls} />
-          </div>
-          <div className="col-span-2">
-            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Address Line 1</label>
-            <input type="text" value={(form.clinic.addressLines || [])[0] || ''} onChange={e => setAddressLine(0, e.target.value)} placeholder="123, Main Street" className={inputCls} />
-          </div>
-          <div className="col-span-2">
-            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Address Line 2</label>
-            <input type="text" value={(form.clinic.addressLines || [])[1] || ''} onChange={e => setAddressLine(1, e.target.value)} placeholder="Mumbai, Maharashtra 400001" className={inputCls} />
-          </div>
-          <div>
-            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Phone</label>
-            <input type="text" value={form.clinic.phone} onChange={e => setClinic('phone', e.target.value)} placeholder="+91 98765 43210" className={inputCls} />
-          </div>
-          <div>
-            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Email</label>
-            <input type="email" value={form.clinic.email} onChange={e => setClinic('email', e.target.value)} placeholder="clinic@example.com" className={inputCls} />
-          </div>
-          <div className="col-span-2">
-            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Logo URL (optional)</label>
-            <input type="url" value={form.clinic.logoUrl} onChange={e => setClinic('logoUrl', e.target.value)} placeholder="https://…/logo.png" className={inputCls} />
-          </div>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <section className="space-y-4">
-        <h4 className="text-sm font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wide border-b border-slate-100 dark:border-slate-700 pb-1">
-          Footer
-        </h4>
-        <div>
-          <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Footer Text</label>
-          <textarea rows={2} value={form.footerText} onChange={e => setForm(f => ({ ...f, footerText: e.target.value }))} placeholder="This prescription is valid for 7 days." className={`${inputCls} resize-none`} />
-        </div>
-      </section>
-
-      <div className="flex items-center gap-4 pt-2">
-        <button onClick={save} disabled={saving} className="px-6 py-2.5 bg-[#137fec] hover:bg-blue-600 text-white font-semibold rounded-xl text-sm transition-colors disabled:opacity-60">
-          {saving ? 'Saving…' : 'Save Prescription Settings'}
-        </button>
-        {banner && (
-          <p className={`text-sm font-medium flex items-center gap-1.5 ${banner.ok ? 'text-green-600' : 'text-red-600'}`}>
-            {banner.ok ? <CheckCircle size={15} /> : <XCircle size={15} />}
-            {banner.msg}
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Inventory Tab ────────────────────────────────────────────────────────────
-
-function ToggleSwitch({ enabled, onChange, disabled }) {
-  return (
-    <button
-      type="button"
-      onClick={() => !disabled && onChange(!enabled)}
-      disabled={disabled}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-        enabled ? 'bg-[#137fec]' : 'bg-slate-300 dark:bg-slate-600'
-      } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-    >
-      <span
-        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-          enabled ? 'translate-x-6' : 'translate-x-1'
-        }`}
-      />
-    </button>
-  );
-}
-
-function MedicineFormModal({ medicine, onClose, onSave }) {
-  const [form, setForm] = useState({
-    name: medicine?.name || '',
-    composition: medicine?.composition || '',
-    manufacturer: medicine?.manufacturer || '',
-    category: medicine?.category || '',
-  });
-  const [saving, setSaving] = useState(false);
-
-  const submit = async (e) => {
-    e.preventDefault();
-    if (!form.name.trim()) return;
-    setSaving(true);
-    try {
-      if (medicine?._id) {
-        await API.put(`/inventory/${medicine._id}`, form);
-      } else {
-        await API.post('/inventory', { ...form, type: 'Pharmacy' });
-      }
-      onSave();
-      onClose();
-    } catch (err) {
-      alert('Failed to save: ' + (err.response?.data?.error || err.message));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
-          <h3 className="font-bold text-lg text-slate-800 dark:text-white">
-            {medicine?._id ? 'Edit Medicine' : 'Add Medicine'}
-          </h3>
-          <button onClick={onClose} className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700">
-            <X size={20} />
-          </button>
-        </div>
-        <form onSubmit={submit} className="p-6 space-y-4">
-          <div>
-            <label className="text-xs font-bold text-slate-500 uppercase">Name <span className="text-red-500">*</span></label>
-            <input
-              required
-              autoFocus
-              type="text"
-              value={form.name}
-              onChange={e => setForm({ ...form, name: e.target.value })}
-              className="w-full mt-1 px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-[#137fec] outline-none bg-white dark:bg-slate-800"
-            />
-          </div>
-          <div>
-            <label className="text-xs font-bold text-slate-500 uppercase">Composition</label>
-            <input
-              type="text"
-              value={form.composition}
-              onChange={e => setForm({ ...form, composition: e.target.value })}
-              className="w-full mt-1 px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-[#137fec] outline-none bg-white dark:bg-slate-800"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-bold text-slate-500 uppercase">Manufacturer</label>
-              <input
-                type="text"
-                value={form.manufacturer}
-                onChange={e => setForm({ ...form, manufacturer: e.target.value })}
-                className="w-full mt-1 px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-[#137fec] outline-none bg-white dark:bg-slate-800"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-slate-500 uppercase">Category</label>
-              <input
-                type="text"
-                value={form.category}
-                onChange={e => setForm({ ...form, category: e.target.value })}
-                placeholder="e.g. Antibiotic"
-                className="w-full mt-1 px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-[#137fec] outline-none bg-white dark:bg-slate-800"
-              />
-            </div>
-          </div>
-          <div className="flex justify-end gap-2 pt-4">
-            <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button>
-            <button type="submit" disabled={saving} className="px-5 py-2 rounded-lg bg-[#137fec] text-white text-sm font-bold hover:bg-blue-600 disabled:opacity-60">
-              {saving ? 'Saving…' : medicine?._id ? 'Update' : 'Add Medicine'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function BulkUploadModal({ onClose, onSuccess }) {
-  const [sheetUrl, setSheetUrl] = useState('');
-  const [uploading, setUploading] = useState(false);
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState('');
-
-  const submit = async (e) => {
-    e.preventDefault();
-    if (!sheetUrl.trim()) return;
-    setUploading(true);
-    setError('');
-    setResult(null);
-    try {
-      const res = await API.post('/inventory/bulk-upload-medicines', { sheetUrl: sheetUrl.trim() });
-      setResult(res.data);
-      onSuccess();
-    } catch (err) {
-      setError(err.response?.data?.error || err.message);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <FileSpreadsheet size={20} className="text-green-600" />
-            <h3 className="font-bold text-lg text-slate-800 dark:text-white">Bulk Upload via Google Sheets</h3>
-          </div>
-          <button onClick={onClose} className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700">
-            <X size={20} />
-          </button>
-        </div>
-        <div className="p-6 space-y-4">
-          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 text-sm">
-            <p className="font-semibold text-slate-800 dark:text-slate-100 mb-2">How to use:</p>
-            <ol className="list-decimal pl-5 space-y-1 text-slate-700 dark:text-slate-300">
-              <li>Create a Google Sheet with these column headers in row 1:
-                <div className="mt-1 font-mono text-xs bg-white dark:bg-slate-800 px-2 py-1 rounded border border-slate-200 dark:border-slate-700">
-                  name | composition | manufacturer | category
-                </div>
-                <span className="text-xs text-slate-500">Only <b>name</b> is required.</span>
-              </li>
-              <li>Click <b>Share → General access</b> → set to <b>"Anyone with the link"</b> (Viewer).</li>
-              <li>Copy the URL and paste it below.</li>
-            </ol>
-            <a
-              href="https://docs.google.com/spreadsheets/create"
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 mt-3 text-[#137fec] font-semibold text-xs hover:underline"
-            >
-              <ExternalLink size={12} /> Create a new Google Sheet
-            </a>
-          </div>
-
-          {!result && (
-            <form onSubmit={submit}>
-              <label className="text-xs font-bold text-slate-500 uppercase">Google Sheets URL</label>
-              <input
-                autoFocus
-                required
-                type="url"
-                value={sheetUrl}
-                onChange={e => setSheetUrl(e.target.value)}
-                placeholder="https://docs.google.com/spreadsheets/d/..."
-                className="w-full mt-1 px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-[#137fec] outline-none bg-white dark:bg-slate-800"
-              />
-              {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-              <div className="flex justify-end gap-2 pt-4">
-                <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button>
-                <button type="submit" disabled={uploading} className="px-5 py-2 rounded-lg bg-[#137fec] text-white text-sm font-bold hover:bg-blue-600 disabled:opacity-60 flex items-center gap-2">
-                  {uploading ? <><Loader2 size={14} className="animate-spin" /> Importing…</> : <><Upload size={14} /> Import</>}
-                </button>
-              </div>
-            </form>
-          )}
-
-          {result && (
-            <div className="space-y-3">
-              <div className="grid grid-cols-3 gap-3">
-                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-green-700">{result.inserted}</p>
-                  <p className="text-xs text-slate-500 uppercase">Imported</p>
-                </div>
-                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-amber-700">{result.skipped}</p>
-                  <p className="text-xs text-slate-500 uppercase">Errors</p>
-                </div>
-                <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-slate-700 dark:text-slate-300">{result.total}</p>
-                  <p className="text-xs text-slate-500 uppercase">Total Rows</p>
-                </div>
-              </div>
-              {result.errors?.length > 0 && (
-                <div>
-                  <p className="text-xs text-slate-500 mb-1.5">
-                    {result.errors.length} row{result.errors.length !== 1 ? 's' : ''} skipped — row numbers match your sheet (header is row 1):
-                  </p>
-                  <div className="border border-amber-200 rounded-lg overflow-hidden max-h-56 overflow-y-auto">
-                    <table className="w-full text-xs">
-                      <thead className="bg-amber-50 sticky top-0">
-                        <tr>
-                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Row</th>
-                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Column</th>
-                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Value</th>
-                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Why it failed</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-amber-100">
-                        {result.errors.map((e, i) => (
-                          <tr key={i}>
-                            <td className="px-3 py-1.5 font-mono text-slate-700">{e.row}</td>
-                            <td className="px-3 py-1.5 text-slate-600">{e.column || '—'}</td>
-                            <td className="px-3 py-1.5 text-slate-500 max-w-[160px] truncate" title={e.value}>{e.value || <span className="italic text-slate-400">(empty)</span>}</td>
-                            <td className="px-3 py-1.5 text-red-600">{e.error}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-              <div className="flex justify-end pt-2">
-                <button onClick={onClose} className="px-5 py-2 rounded-lg bg-[#137fec] text-white text-sm font-bold hover:bg-blue-600">
-                  Done
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function InventoryTab() {
-  const { inventorySettings, refreshInventorySettings } = useInventorySettings();
-  const [savingToggle, setSavingToggle] = useState(false);
-  const [medicines, setMedicines] = useState([]);
-  const [loadingMeds, setLoadingMeds] = useState(false);
-  const [search, setSearch] = useState('');
-  const [editingMedicine, setEditingMedicine] = useState(null); // null | {} | object
-  const [showBulkModal, setShowBulkModal] = useState(false);
-
-  const updateToggle = async (key, value) => {
-    setSavingToggle(true);
-    try {
-      await API.put('/inventory/settings', { [key]: value });
-      await refreshInventorySettings();
-    } catch (err) {
-      alert('Failed to save: ' + (err.response?.data?.error || err.message));
-    } finally {
-      setSavingToggle(false);
-    }
-  };
-
-  const fetchMedicines = async () => {
-    setLoadingMeds(true);
-    try {
-      const res = await API.get('/inventory');
-      setMedicines((res.data || []).filter(i => i.type === 'Pharmacy'));
-    } catch (err) {
-      console.error('Failed to load medicines', err);
-    } finally {
-      setLoadingMeds(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!inventorySettings.medicineEnabled) fetchMedicines();
-  }, [inventorySettings.medicineEnabled]);
-
-  const handleDelete = async (id) => {
-    if (!confirm('Delete this medicine?')) return;
-    try {
-      await API.delete(`/inventory/${id}`);
-      fetchMedicines();
-    } catch (err) {
-      alert('Failed to delete: ' + (err.response?.data?.error || err.message));
-    }
-  };
-
-  const filteredMedicines = medicines.filter(m =>
-    !search || `${m.name} ${m.composition || ''} ${m.manufacturer || ''} ${m.category || ''}`
-      .toLowerCase()
-      .includes(search.toLowerCase())
-  );
-
-  return (
-    <div className="space-y-6">
-      {/* Toggles */}
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-6">
-        <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-1">Inventory Modules</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
-          Disable modules you don't track. Disabling Medicine Inventory hides stock tracking and
-          invoice charges, but the medicine list below is still used for prescriptions.
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="flex items-center justify-between p-4 border border-slate-200 dark:border-slate-700 rounded-xl">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
-                <Pill size={20} className="text-[#137fec]" />
-              </div>
-              <div>
-                <p className="font-bold text-slate-800 dark:text-white">Medicine Inventory</p>
-                <p className="text-xs text-slate-500">Track pharmacy stock & charge in invoices</p>
-              </div>
-            </div>
-            <ToggleSwitch
-              enabled={inventorySettings.medicineEnabled}
-              onChange={(v) => updateToggle('medicineEnabled', v)}
-              disabled={savingToggle}
-            />
-          </div>
-          <div className="flex items-center justify-between p-4 border border-slate-200 dark:border-slate-700 rounded-xl">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-orange-50 dark:bg-orange-900/30 rounded-lg">
-                <FileSpreadsheet size={20} className="text-orange-500" />
-              </div>
-              <div>
-                <p className="font-bold text-slate-800 dark:text-white">Consumable Inventory</p>
-                <p className="text-xs text-slate-500">Track consumables used per treatment</p>
-              </div>
-            </div>
-            <ToggleSwitch
-              enabled={inventorySettings.consumableEnabled}
-              onChange={(v) => updateToggle('consumableEnabled', v)}
-              disabled={savingToggle}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Medicine List — only visible when Medicine Inventory is OFF */}
-      {!inventorySettings.medicineEnabled && (
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-6">
-            <div>
-              <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Medicine List</h2>
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                Used for prescriptions in the Treatment page. ({medicines.length} medicines)
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowBulkModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-bold shadow-md"
-              >
-                <FileSpreadsheet size={16} /> Bulk Upload
-              </button>
-              <button
-                onClick={() => setEditingMedicine({})}
-                className="flex items-center gap-2 px-4 py-2 bg-[#137fec] hover:bg-blue-600 text-white rounded-lg text-sm font-bold shadow-md"
-              >
-                <Plus size={16} /> Add Medicine
-              </button>
-            </div>
-          </div>
-
-          <input
-            type="text"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search by name, composition, manufacturer or category…"
-            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-[#137fec] outline-none bg-white dark:bg-slate-800 mb-4"
-          />
-
-          {loadingMeds ? (
-            <div className="flex justify-center py-8"><Loader2 className="animate-spin text-[#137fec]" /></div>
-          ) : filteredMedicines.length === 0 ? (
-            <div className="text-center py-12 text-slate-500">
-              {medicines.length === 0 ? 'No medicines yet. Add one or bulk-upload via Google Sheets.' : 'No medicines match your search.'}
-            </div>
-          ) : (
-            <div className="overflow-x-auto border border-slate-200 dark:border-slate-700 rounded-xl">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 dark:bg-slate-900 text-xs text-slate-500 uppercase">
-                  <tr>
-                    <th className="px-4 py-3 text-left">Name</th>
-                    <th className="px-4 py-3 text-left">Composition</th>
-                    <th className="px-4 py-3 text-left">Manufacturer</th>
-                    <th className="px-4 py-3 text-left">Category</th>
-                    <th className="px-4 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {filteredMedicines.map(m => (
-                    <tr key={m._id} className="hover:bg-slate-50 dark:hover:bg-slate-900/50">
-                      <td className="px-4 py-3 font-semibold text-slate-800 dark:text-white">{m.name}</td>
-                      <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{m.composition || '—'}</td>
-                      <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{m.manufacturer || '—'}</td>
-                      <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{m.category || '—'}</td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex justify-end gap-1">
-                          <button onClick={() => setEditingMedicine(m)} className="p-1.5 rounded-md hover:bg-blue-50 text-slate-400 hover:text-[#137fec]">
-                            <Edit2 size={15} />
-                          </button>
-                          <button onClick={() => handleDelete(m._id)} className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-600">
-                            <Trash2 size={15} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {editingMedicine && (
-        <MedicineFormModal
-          medicine={editingMedicine}
-          onClose={() => setEditingMedicine(null)}
-          onSave={fetchMedicines}
-        />
-      )}
-      {showBulkModal && (
-        <BulkUploadModal
-          onClose={() => setShowBulkModal(false)}
-          onSuccess={fetchMedicines}
-        />
-      )}
-    </div>
-  );
-}
 
 // ─── Email Tab ────────────────────────────────────────────────────────────────
 
@@ -2043,7 +1335,6 @@ function ReportDeliveryTab() {
           {[
             { key: 'cloud',    label: 'Save to Connect Cloud', sub: "Saves to the patient's Google Drive folder" },
             { key: 'email',    label: 'Send via Email',         sub: 'Emails the report PDF to the patient' },
-            { key: 'whatsapp', label: 'Send via WhatsApp',      sub: 'Sends a WhatsApp text notification' },
           ].map(ch => (
             <label key={ch.key} className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/40 cursor-pointer">
               <input type="checkbox"
@@ -2326,8 +1617,253 @@ function AIReportEmailSection({ htmlEmailEnabled, onHtmlToggle }) {
 
 // ─── Share with Patient (unified hub) ────────────────────────────────────────
 
+// ─── Document Branding (canonical DocumentSettings) ──────────────────────────
+// Field components are defined at module scope (stable identity) so inputs keep
+// focus across re-renders while typing.
+function DocBrandText({ ds, set, label, k, ph, wide }) {
+  return (
+    <div className={wide ? 'sm:col-span-2' : ''}>
+      <label className="block text-xs font-semibold text-slate-500 mb-1">{label}</label>
+      <input value={ds[k] ?? ''} onChange={e => set(k, e.target.value)} placeholder={ph}
+        className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-600 dark:bg-slate-700 rounded-lg" />
+    </div>
+  );
+}
+function DocBrandNum({ ds, set, label, k }) {
+  return (
+    <div>
+      <label className="block text-xs font-semibold text-slate-500 mb-1">{label}</label>
+      <input type="number" value={ds[k] ?? 0} onChange={e => set(k, Number(e.target.value))}
+        className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-600 dark:bg-slate-700 rounded-lg" />
+    </div>
+  );
+}
+function DocBrandToggle({ ds, set, label, k }) {
+  return (
+    <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+      <input type="checkbox" checked={ds[k] !== false} onChange={e => set(k, e.target.checked)} className="w-4 h-4 accent-[#137fec]" />
+      {label}
+    </label>
+  );
+}
+function DocBrandGroup({ title, children }) {
+  return (
+    <div className="border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+      <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-3">{title}</h4>
+      {children}
+    </div>
+  );
+}
+
+function DocumentBrandingTab() {
+  const [ds, setDs] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+  const [uploading, setUploading] = React.useState('');
+  const [msg, setMsg] = React.useState('');
+
+  React.useEffect(() => {
+    API.get('/documents/settings')
+      .then(r => setDs(r.data || {}))
+      .catch(() => setDs({}))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const set = (k, v) => setDs(d => ({ ...d, [k]: v }));
+
+  async function uploadImage(file, onUrl, key) {
+    if (!file) return;
+    setUploading(key);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const r = await API.post('/documents/upload-image', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      onUrl(r.data.url);
+    } catch (e) {
+      setMsg('Upload failed: ' + (e.response?.data?.error || e.message));
+    } finally { setUploading(''); }
+  }
+
+  async function save() {
+    setSaving(true); setMsg('');
+    try {
+      await API.put('/documents/settings', ds);
+      setMsg('Saved.');
+      setTimeout(() => setMsg(''), 2500);
+    } catch (e) {
+      setMsg('Save failed: ' + (e.response?.data?.error || e.message));
+    } finally { setSaving(false); }
+  }
+
+  if (loading || !ds) return <div className="py-10 text-center text-slate-400 text-sm">Loading…</div>;
+
+  const Group = DocBrandGroup;
+
+  const modes = ds.payment_modes || [];
+  const setMode = (i, k, v) => set('payment_modes', modes.map((m, j) => j === i ? { ...m, [k]: v } : m));
+
+  return (
+    <div className="space-y-5">
+      <p className="text-sm text-slate-500">Branding applied to all generated documents (prescription, clinical notes, invoice, AI report).</p>
+
+      <Group title="Clinic Info">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <DocBrandText ds={ds} set={set} label="Clinic Name" k="clinic_name" />
+          <DocBrandText ds={ds} set={set} label="Tagline" k="tagline" />
+          <DocBrandText ds={ds} set={set} label="Address" k="address" wide />
+          <DocBrandText ds={ds} set={set} label="City" k="city" /><DocBrandText ds={ds} set={set} label="State" k="state" />
+          <DocBrandText ds={ds} set={set} label="Pincode" k="pincode" /><DocBrandText ds={ds} set={set} label="Phone" k="phone" />
+          <DocBrandText ds={ds} set={set} label="Email" k="email" /><DocBrandText ds={ds} set={set} label="Website" k="website" />
+          <DocBrandText ds={ds} set={set} label="Registration No." k="reg_number" /><DocBrandText ds={ds} set={set} label="Currency Symbol" k="currency_symbol" />
+        </div>
+        <div className="mt-3 flex items-center gap-3">
+          {ds.clinic_logo_url && <img src={ds.clinic_logo_url} alt="logo" className="h-12 w-12 object-contain border rounded" />}
+          <label className="px-3 py-2 text-sm border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-50">
+            {uploading === 'logo' ? 'Uploading…' : 'Upload Logo'}
+            <input type="file" accept="image/*" className="hidden" onChange={e => uploadImage(e.target.files[0], u => set('clinic_logo_url', u), 'logo')} />
+          </label>
+        </div>
+      </Group>
+
+      <Group title="GST & Tax">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <DocBrandText ds={ds} set={set} label="GSTIN" k="gstin" /><DocBrandText ds={ds} set={set} label="PAN" k="pan_number" />
+          <DocBrandNum ds={ds} set={set} label="CGST %" k="cgst_rate" /><DocBrandNum ds={ds} set={set} label="SGST %" k="sgst_rate" /><DocBrandNum ds={ds} set={set} label="IGST %" k="igst_rate" />
+        </div>
+      </Group>
+
+      <Group title="Payment Modes (UPI/QR or Bank Transfer)">
+        {modes.map((m, i) => {
+          const mode = m.type || 'upi';
+          return (
+            <div key={i} className="border border-slate-200 rounded-xl p-3 mb-3">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-semibold text-slate-500">Type</label>
+                  <select
+                    value={mode}
+                    onChange={e => setMode(i, 'type', e.target.value)}
+                    className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white"
+                  >
+                    <option value="upi">UPI / QR</option>
+                    <option value="bank">Bank Transfer</option>
+                  </select>
+                </div>
+                <button onClick={() => set('payment_modes', modes.filter((_, j) => j !== i))} className="text-red-500 text-sm">✕ Remove</button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div><label className="block text-xs font-semibold text-slate-500 mb-1">Label</label>
+                  <input value={m.label || ''} onChange={e => setMode(i, 'label', e.target.value)} placeholder={mode === 'bank' ? 'e.g. Bank Transfer' : 'e.g. UPI'} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" /></div>
+
+                {mode === 'upi' ? (
+                  <>
+                    <div><label className="block text-xs font-semibold text-slate-500 mb-1">UPI ID / Details</label>
+                      <input value={m.details || ''} onChange={e => setMode(i, 'details', e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" /></div>
+                    <div className="flex items-center gap-2 sm:col-span-2">
+                      {m.qr_url && <img src={m.qr_url} alt="qr" className="h-10 w-10 object-contain border rounded" />}
+                      <label className="px-3 py-2 text-sm border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-50">{uploading === `qr${i}` ? '…' : 'Upload QR'}
+                        <input type="file" accept="image/*" className="hidden" onChange={e => uploadImage(e.target.files[0], u => setMode(i, 'qr_url', u), `qr${i}`)} /></label>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div><label className="block text-xs font-semibold text-slate-500 mb-1">Beneficiary Name</label>
+                      <input value={m.beneficiary || ''} onChange={e => setMode(i, 'beneficiary', e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" /></div>
+                    <div><label className="block text-xs font-semibold text-slate-500 mb-1">Account Number</label>
+                      <input value={m.details || ''} onChange={e => setMode(i, 'details', e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" /></div>
+                    <div><label className="block text-xs font-semibold text-slate-500 mb-1">Bank Name</label>
+                      <input value={m.bank_name || ''} onChange={e => setMode(i, 'bank_name', e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" /></div>
+                    <div><label className="block text-xs font-semibold text-slate-500 mb-1">Branch</label>
+                      <input value={m.branch || ''} onChange={e => setMode(i, 'branch', e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" /></div>
+                    <div><label className="block text-xs font-semibold text-slate-500 mb-1">IFSC Code</label>
+                      <input value={m.ifsc || ''} onChange={e => setMode(i, 'ifsc', e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" /></div>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        <div className="flex gap-4">
+          <button onClick={() => set('payment_modes', [...modes, { type: 'upi', label: '', details: '', qr_url: '' }])} className="text-sm font-semibold text-[#137fec]">+ Add UPI / QR</button>
+          <button onClick={() => set('payment_modes', [...modes, { type: 'bank', label: 'Bank Transfer', details: '', bank_name: '', branch: '', ifsc: '', beneficiary: '' }])} className="text-sm font-semibold text-[#137fec]">+ Add Bank Transfer</button>
+        </div>
+      </Group>
+
+      <Group title="Invoice — show / hide">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+          <DocBrandText ds={ds} set={set} label="Invoice Prefix" k="invoice_prefix" />
+          <DocBrandText ds={ds} set={set} label="Footer Text" k="invoice_footer_text" wide />
+        </div>
+        <div className="flex flex-wrap gap-4">
+          <DocBrandToggle ds={ds} set={set} label="Logo" k="invoice_show_logo" />
+          <DocBrandToggle ds={ds} set={set} label="GST / Tax" k="invoice_show_gst" />
+          <DocBrandToggle ds={ds} set={set} label="Payment Options" k="invoice_show_payment" />
+          <DocBrandToggle ds={ds} set={set} label="Paid / Pending" k="invoice_show_paid_pending" />
+          <DocBrandToggle ds={ds} set={set} label="Footer" k="invoice_show_footer" />
+        </div>
+      </Group>
+
+      <Group title="Prescription — show / hide">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+          <DocBrandText ds={ds} set={set} label="Footer Text" k="prescription_footer_text" wide />
+
+        </div>
+        <div className="flex flex-wrap gap-4">
+          <DocBrandToggle ds={ds} set={set} label="Logo" k="prescription_show_logo" />
+          <DocBrandToggle ds={ds} set={set} label="Reg No." k="prescription_show_reg" />
+          <DocBrandToggle ds={ds} set={set} label="Qualification" k="prescription_show_qualification" />
+          <DocBrandToggle ds={ds} set={set} label="Advice" k="prescription_show_advice" />
+          <DocBrandToggle ds={ds} set={set} label="Footer" k="prescription_show_footer" />
+        </div>
+      </Group>
+
+      <Group title="Visit Summary — settings">
+        <div className="flex flex-wrap gap-4 mb-4">
+          <DocBrandToggle ds={ds} set={set} label="Logo" k="smart_show_logo" />
+          <DocBrandToggle ds={ds} set={set} label="Footer" k="smart_show_footer" />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 mb-1">
+            General Post-Care Instructions <span className="text-slate-400 font-normal">(one bullet per line, shown on every Visit Summary)</span>
+          </label>
+          <textarea
+            value={ds.postcare_template ?? ''}
+            onChange={e => set('postcare_template', e.target.value)}
+            rows={7}
+            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg font-mono leading-relaxed resize-y"
+            placeholder="• Avoid hard foods for 24 hours&#10;• Take medications as directed…"
+          />
+        </div>
+      </Group>
+
+      <Group title="AI Report — show / hide">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+          <DocBrandText ds={ds} set={set} label="Header Text" k="report_header_text" wide />
+          <DocBrandText ds={ds} set={set} label="Footer Text" k="report_footer_text" wide />
+        </div>
+        <div className="flex flex-wrap gap-4">
+          <DocBrandToggle ds={ds} set={set} label="Logo" k="report_show_logo" />
+          <DocBrandToggle ds={ds} set={set} label="Patient" k="report_show_patient" />
+          <DocBrandToggle ds={ds} set={set} label="Header Text" k="report_show_header" />
+          <DocBrandToggle ds={ds} set={set} label="Footer" k="report_show_footer" />
+        </div>
+      </Group>
+
+      <div className="flex items-center gap-3">
+        <button onClick={save} disabled={saving} className="px-5 py-2.5 bg-[#137fec] text-white text-sm font-bold rounded-lg hover:bg-blue-700 disabled:opacity-60">
+          {saving ? 'Saving…' : 'Save Branding'}
+        </button>
+        {msg && <span className="text-sm text-slate-500">{msg}</span>}
+      </div>
+    </div>
+  );
+}
+
+// ─── Share with Patient (unified hub) ────────────────────────────────────────
+
 function PatientDocumentsTab() {
-  const [section, setSection]           = React.useState('smart_report');
+  const [section, setSection]           = React.useState('branding');
   const [previewVisible, setPreviewVisible] = React.useState(false);
   const [clinicInfo, setClinicInfo]     = React.useState({ name: '', tagline: '', phone: '', email: '' });
   const [htmlEmailEnabled, setHtmlEmailEnabled] = React.useState(false);
@@ -2352,15 +1888,13 @@ function PatientDocumentsTab() {
   }, []);
 
   const sections = [
+    { id: 'branding',      label: 'Document Branding' },
     { id: 'smart_report',  label: 'Smart Report' },
     { id: 'ai_report',     label: 'AI Report' },
     { id: 'send_email',    label: 'Send Email' },
-    { id: 'send_whatsapp', label: 'Send WhatsApp' },
-    { id: 'invoice',       label: 'Invoice' },
-    { id: 'prescription',  label: 'Prescription' },
   ];
 
-  const hasPreview = section !== 'send_whatsapp';
+  const hasPreview = section !== 'branding';
 
   return (
     <div className="space-y-6">
@@ -2410,12 +1944,10 @@ function PatientDocumentsTab() {
             </div>
 
             <div className="p-4 sm:p-6">
+              {section === 'branding'      && <DocumentBrandingTab />}
               {section === 'smart_report'  && <SmartReportDeliverySection />}
               {section === 'ai_report'     && <ReportDeliveryTab />}
               {section === 'send_email'    && <AIReportEmailSection htmlEmailEnabled={htmlEmailEnabled} onHtmlToggle={setHtmlEmailEnabled} />}
-              {section === 'send_whatsapp' && <AIReportWhatsAppSection />}
-              {section === 'invoice'       && <InvoiceSettingsTab />}
-              {section === 'prescription'  && <PrescriptionSettingsTab />}
             </div>
           </div>
 
@@ -2453,6 +1985,7 @@ const SettingsPage = () => {
     license_number: '',
     qualification: '',
     experience_years: '',
+    signature_url: '',
     is_active: true,
     notes: '',
     availability: {
@@ -2465,6 +1998,7 @@ const SettingsPage = () => {
       sunday: []
     }
   });
+  const [sigUploading, setSigUploading] = useState(false);
 
   // Booking settings state
   const [bookingSettings, setBookingSettings] = useState(DEFAULT_BOOKING_SETTINGS);
@@ -2497,7 +2031,6 @@ const SettingsPage = () => {
       fetchTreatmentData();
     } else if (activeTab === 'booking') {
       fetchBookingSettings();
-    } else if (activeTab === 'doctorSchedules') {
       fetchBookingDoctors();
     }
   }, [activeTab, treatmentTab]);
@@ -2620,6 +2153,7 @@ const SettingsPage = () => {
       license_number: '',
       qualification: '',
       experience_years: '',
+      signature_url: '',
       is_active: true,
       notes: '',
       availability: {
@@ -2633,6 +2167,23 @@ const SettingsPage = () => {
       }
     });
     setShowModal(true);
+  };
+
+  const uploadDoctorSignature = async (file) => {
+    if (!file) return;
+    setSigUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const r = await API.post('/documents/upload-image', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const url = r.data?.url || r.data?.secure_url || '';
+      if (url) setDoctorFormData(prev => ({ ...prev, signature_url: url }));
+    } catch (err) {
+      console.error('Signature upload failed:', err);
+      alert('Failed to upload signature image.');
+    } finally {
+      setSigUploading(false);
+    }
   };
 
   const handleEditDoctor = (doctor) => {
@@ -2832,11 +2383,9 @@ const SettingsPage = () => {
           {[
             { key: 'doctors',           label: 'Doctors' },
             { key: 'treatment',         label: 'Clinical Data' },
-            { key: 'inventory',         label: 'Inventory' },
             { key: 'email',             label: 'Email' },
             { key: 'shareWithPatient',  label: 'Share with Patient' },
             { key: 'booking',           label: 'Online Booking' },
-            { key: 'doctorSchedules',   label: 'Doctor Schedules' },
           ].map(({ key, label }) => (
             <button
               key={key}
@@ -2897,6 +2446,9 @@ const SettingsPage = () => {
                         </div>
                       </div>
                       <div className="mt-2 space-y-1 text-xs text-slate-500">
+                        {doctor.license_number
+                          ? <p className="font-mono">Reg. No.: {doctor.license_number}</p>
+                          : <p className="text-red-400">License number not set</p>}
                         {doctor.email && <p>{doctor.email}</p>}
                         {doctor.phone && <p>{doctor.phone}</p>}
                         <p>{doctor.experience_years} yrs experience</p>
@@ -2911,9 +2463,9 @@ const SettingsPage = () => {
                       <tr>
                         <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Name</th>
                         <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Specialization</th>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Reg. No.</th>
                         <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Email</th>
                         <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Phone</th>
-                        <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Experience</th>
                         <th className="px-6 py-3 text-center text-sm font-semibold text-slate-700 dark:text-slate-300">Actions</th>
                       </tr>
                     </thead>
@@ -2922,9 +2474,9 @@ const SettingsPage = () => {
                         <tr key={doctor._id} className="hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
                           <td className="px-6 py-4"><p className="font-semibold text-slate-800 dark:text-white">{doctor.name}</p></td>
                           <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{doctor.specialization || '-'}</td>
+                          <td className="px-6 py-4 text-slate-600 dark:text-slate-400 font-mono text-sm">{doctor.license_number || <span className="text-red-400 font-sans font-normal text-xs">Not set</span>}</td>
                           <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{doctor.email || '-'}</td>
                           <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{doctor.phone || '-'}</td>
-                          <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{doctor.experience_years} years</td>
                           <td className="px-6 py-4">
                             <div className="flex justify-center gap-2">
                               <button onClick={() => handleEditDoctor(doctor)} className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-600 rounded-lg transition-colors"><Edit2 size={18} /></button>
@@ -3183,9 +2735,6 @@ const SettingsPage = () => {
             })()}
           </div>
         )}
-        {/* Inventory Tab */}
-        {activeTab === 'inventory' && <InventoryTab />}
-
         {/* Email Tab */}
         {activeTab === 'email' && <EmailTab />}
 
@@ -3335,55 +2884,53 @@ const SettingsPage = () => {
                   </button>
                 </div>
               </div>
+
+              {/* ── Doctor Schedules ── */}
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
+                <div className="flex items-center justify-between mb-5">
+                  <div>
+                    <h3 className="font-bold text-slate-800 dark:text-white text-lg">Doctor Schedules</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">Configure which doctors are bookable online and their available hours</p>
+                  </div>
+                </div>
+
+                {bookingDoctorsLoading ? (
+                  <div className="flex items-center justify-center py-10 text-slate-400">
+                    <Loader2 size={22} className="animate-spin mr-2" /> Loading doctors…
+                  </div>
+                ) : bookingDoctors.length === 0 ? (
+                  <p className="text-center py-8 text-slate-400">No doctors found. Add doctors in the Doctors tab first.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {bookingDoctors.map(doctor => (
+                      <div key={doctor._id}
+                        className="flex items-center gap-3 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-slate-800 dark:text-white truncate">{doctor.name}</p>
+                          {doctor.specialization && (
+                            <p className="text-xs text-slate-400">{doctor.specialization}</p>
+                          )}
+                        </div>
+                        <span className={`flex-shrink-0 px-2.5 py-1 text-xs font-semibold rounded-full ${
+                          doctor.isBookable
+                            ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                            : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400'
+                        }`}>
+                          {doctor.isBookable ? 'Bookable' : 'Not Bookable'}
+                        </span>
+                        <button
+                          onClick={() => setScheduleModal(doctor)}
+                          className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300">
+                          <Edit2 size={12} /> Configure
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           );
         })()}
-
-        {/* ── Doctor Schedules Tab ──────────────────────────────────────────── */}
-        {activeTab === 'doctorSchedules' && (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
-            <div className="flex items-center justify-between mb-5">
-              <div>
-                <h3 className="font-bold text-slate-800 dark:text-white text-lg">Doctor Schedules</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Configure which doctors are bookable online and their available hours</p>
-              </div>
-            </div>
-
-            {bookingDoctorsLoading ? (
-              <div className="flex items-center justify-center py-10 text-slate-400">
-                <Loader2 size={22} className="animate-spin mr-2" /> Loading doctors…
-              </div>
-            ) : bookingDoctors.length === 0 ? (
-              <p className="text-center py-8 text-slate-400">No doctors found. Add doctors in the Doctors tab first.</p>
-            ) : (
-              <div className="space-y-3">
-                {bookingDoctors.map(doctor => (
-                  <div key={doctor._id}
-                    className="flex items-center gap-3 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-slate-800 dark:text-white truncate">{doctor.name}</p>
-                      {doctor.specialization && (
-                        <p className="text-xs text-slate-400">{doctor.specialization}</p>
-                      )}
-                    </div>
-                    <span className={`flex-shrink-0 px-2.5 py-1 text-xs font-semibold rounded-full ${
-                      doctor.isBookable
-                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                        : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400'
-                    }`}>
-                      {doctor.isBookable ? 'Bookable' : 'Not Bookable'}
-                    </span>
-                    <button
-                      onClick={() => setScheduleModal(doctor)}
-                      className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300">
-                      <Edit2 size={12} /> Configure
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
 
       </div>
 
@@ -3494,14 +3041,21 @@ const SettingsPage = () => {
                   onChange={handleDoctorChange}
                   className="px-3 py-2.5 border border-slate-300 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-[#137fec] outline-none bg-white dark:bg-slate-800"
                 />
-                <input
-                  type="text"
-                  name="license_number"
-                  placeholder="License Number"
-                  value={doctorFormData.license_number}
-                  onChange={handleDoctorChange}
-                  className="px-3 py-2.5 border border-slate-300 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-[#137fec] outline-none bg-white dark:bg-slate-800"
-                />
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase block mb-1">
+                    License / Reg. Number <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    required
+                    type="text"
+                    name="license_number"
+                    placeholder="e.g. MH-12345 / A-98765"
+                    value={doctorFormData.license_number}
+                    onChange={handleDoctorChange}
+                    className="w-full px-3 py-2.5 border border-slate-300 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-[#137fec] outline-none bg-white dark:bg-slate-800"
+                  />
+                  <p className="text-[11px] text-slate-400 mt-0.5">Printed on prescriptions, reports and invoices.</p>
+                </div>
                 <input
                   type="number"
                   name="experience_years"
@@ -3525,6 +3079,25 @@ const SettingsPage = () => {
                 <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
                   Mark as Active
                 </label>
+              </div>
+
+              {/* Signature / Stamp */}
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Signature / Stamp</label>
+                <div className="flex items-center gap-3">
+                  {doctorFormData.signature_url && (
+                    <img src={doctorFormData.signature_url} alt="signature" className="h-12 w-auto object-contain border border-slate-200 rounded bg-white px-2" />
+                  )}
+                  <label className="px-3 py-2 text-sm border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-50">
+                    {sigUploading ? 'Uploading…' : (doctorFormData.signature_url ? 'Replace' : 'Upload Signature')}
+                    <input type="file" accept="image/*" className="hidden" onChange={e => uploadDoctorSignature(e.target.files[0])} />
+                  </label>
+                  {doctorFormData.signature_url && (
+                    <button type="button" onClick={() => setDoctorFormData(prev => ({ ...prev, signature_url: '' }))}
+                      className="text-xs text-red-500 hover:underline">Remove</button>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-400 mt-0.5">Printed above the doctor name on prescriptions & documents. Leave blank to hand-sign.</p>
               </div>
 
               {/* Availability */}

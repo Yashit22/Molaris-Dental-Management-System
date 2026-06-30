@@ -37,8 +37,8 @@ async function getSummary(models, start, end) {
     LabOrder.find({ status: { $in: ['Sent', 'In Process'] } }).lean(),
   ]);
 
-  const total_revenue = invoices.reduce((s, inv) => s + (inv.paid_amount || 0), 0);
-  const revenue_trend = groupByDay(invoices, 'createdAt', 'paid_amount');
+  const total_revenue = invoices.reduce((s, inv) => s + (inv.total_amount || 0), 0);
+  const revenue_trend = groupByDay(invoices, 'createdAt', 'total_amount');
 
   return {
     total_revenue,
@@ -56,19 +56,11 @@ async function getRevenue(models, start, end) {
   const visits = await Visit.find({ date: { $gte: start, $lte: end } }).populate('doctor_id', 'name').lean();
 
   const total = invoices.reduce((s, i) => s + (i.total_amount || 0), 0);
-  const collected = invoices.reduce((s, i) => s + (i.paid_amount || 0), 0);
-  const pending = invoices.reduce((s, i) => s + (i.pending_amount || 0), 0);
+  const collected = total;
+  const pending = 0;
+  const by_payment_method = [];
 
   const trend = groupByMonth(invoices, 'createdAt', 'total_amount');
-
-  // Payment method breakdown
-  const pmMap = {};
-  invoices.forEach(inv => {
-    if (inv.payment_method) {
-      pmMap[inv.payment_method] = (pmMap[inv.payment_method] || 0) + (inv.paid_amount || 0);
-    }
-  });
-  const by_payment_method = Object.entries(pmMap).map(([name, value]) => ({ name, value }));
 
   // Top patients by revenue
   const patientMap = {};
@@ -111,103 +103,6 @@ async function getRevenue(models, start, end) {
   const by_doctors = Object.values(doctorMap).sort((a, b) => b.total - a.total);
 
   return { total, collected, pending, trend, by_payment_method, top_patients, by_doctors };
-}
-
-// ── EXPENSES ──────────────────────────────────────────────────────────────────
-async function getExpenses(models, start, end) {
-  const { Transaction, Order, LabOrder } = models;
-  const [transactions, purchaseOrders, labOrders] = await Promise.all([
-    Transaction.find({ type: 'Expense', date: { $gte: start, $lte: end } }).lean(),
-    Order.find({ order_date: { $gte: start, $lte: end }, status: 'Received' }).lean(),
-    LabOrder.find({ order_date: { $gte: start, $lte: end } }).lean(),
-  ]);
-
-  const catMap = {};
-
-  transactions.forEach(t => {
-    const cat = t.category || 'Other';
-    catMap[cat] = (catMap[cat] || 0) + (t.amount || 0);
-  });
-
-  purchaseOrders.forEach(o => {
-    const cat = o.category === 'Pharmacy' ? 'Pharmacy Purchase'
-              : o.category === 'Consumable' ? 'Consumables'
-              : 'Inventory Purchase';
-    catMap[cat] = (catMap[cat] || 0) + (o.total_cost || 0);
-  });
-
-  labOrders.forEach(o => {
-    catMap['Lab Fees'] = (catMap['Lab Fees'] || 0) + (o.cost_to_clinic || 0);
-  });
-
-  const total = Object.values(catMap).reduce((s, v) => s + v, 0);
-  const by_category = Object.entries(catMap).map(([name, value]) => ({ name, value }));
-
-  const allItems = [
-    ...transactions.map(t => ({ date: t.date, amount: t.amount || 0 })),
-    ...purchaseOrders.map(o => ({ date: o.order_date, amount: o.total_cost || 0 })),
-    ...labOrders.map(o => ({ date: o.order_date, amount: o.cost_to_clinic || 0 })),
-  ];
-  const trend = groupByMonth(allItems, 'date', 'amount');
-
-  return { total, by_category, trend };
-}
-
-// ── VENDORS ───────────────────────────────────────────────────────────────────
-async function getVendors(models, start, end) {
-  const { Transaction, Order, LabOrder } = models;
-  const [transactions, purchaseOrders, labOrders] = await Promise.all([
-    Transaction.find({ type: 'Expense', date: { $gte: start, $lte: end }, party_name: { $exists: true, $ne: null } }).lean(),
-    Order.find({ order_date: { $gte: start, $lte: end } }).lean(),
-    LabOrder.find({ order_date: { $gte: start, $lte: end } })
-      .populate('vendor_id', 'name')
-      .lean(),
-  ]);
-
-  const map = {};
-
-  transactions.forEach(t => {
-    const v = t.party_name;
-    if (!map[v]) map[v] = { vendor_name: v, total_spent: 0, order_count: 0 };
-    map[v].total_spent += t.amount || 0;
-    map[v].order_count += 1;
-  });
-
-  purchaseOrders.forEach(o => {
-    const v = o.vendor || 'Unknown Vendor';
-    if (!map[v]) map[v] = { vendor_name: v, total_spent: 0, order_count: 0 };
-    map[v].total_spent += o.total_cost || 0;
-    map[v].order_count += 1;
-  });
-
-  labOrders.forEach(o => {
-    const v = o.vendor_id?.name || 'Unknown Lab';
-    if (!map[v]) map[v] = { vendor_name: v, total_spent: 0, order_count: 0 };
-    map[v].total_spent += o.cost_to_clinic || 0;
-    map[v].order_count += 1;
-  });
-
-  const rows = Object.values(map).sort((a, b) => b.total_spent - a.total_spent);
-  return { rows };
-}
-
-// ── MEDICINE ORDERS ───────────────────────────────────────────────────────────
-async function getMedOrders(models, start, end) {
-  const { Order } = models;
-  const orders = await Order.find({ order_date: { $gte: start, $lte: end } }).lean();
-
-  const rows = orders.map(o => ({
-    _id: o._id,
-    vendor_name: o.vendor || 'Unknown',
-    category: o.category,
-    order_date: o.order_date,
-    due_date: o.due_date,
-    status: o.status,
-    total_cost: o.total_cost || 0,
-    item_count: o.items?.length || 0,
-  }));
-
-  return { rows };
 }
 
 // ── DOCTORS ───────────────────────────────────────────────────────────────────
@@ -367,44 +262,6 @@ async function getRecall(models) {
   return { rows };
 }
 
-// ── MEDICINE / INVENTORY ──────────────────────────────────────────────────────
-async function getMedicine(models, start, end) {
-  const { InventoryItem, InventoryLog } = models;
-  const [items, logs] = await Promise.all([
-    InventoryItem.find().lean(),
-    InventoryLog.find({
-      type: 'Stock Out',
-      date: { $gte: start, $lte: end },
-    })
-      .populate('item_id', 'name')
-      .lean(),
-  ]);
-
-  const low_stock = items.filter(i => i.status === 'Low' || i.status === 'Critical' || i.status === 'Out of Stock');
-
-  const consumeMap = {};
-  logs.forEach(l => {
-    const name = l.item_id?.name || 'Unknown';
-    consumeMap[name] = (consumeMap[name] || 0) + (l.quantity || 0);
-  });
-  const consumed = Object.entries(consumeMap)
-    .map(([name, total]) => ({ name, total }))
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 10);
-
-  const itemLogsMap = {};
-  logs.forEach(l => {
-    const id = l.item_id?._id?.toString() || 'unknown';
-    if (!itemLogsMap[id]) itemLogsMap[id] = [];
-    itemLogsMap[id].push({
-      date: new Date(l.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }),
-      used: l.quantity || 0,
-    });
-  });
-
-  return { items, low_stock, consumed, item_logs: itemLogsMap };
-}
-
 // ── TREATMENT REVENUE ─────────────────────────────────────────────────────────
 async function getTreatmentRevenue(models, start, end) {
   const { Visit } = models;
@@ -460,15 +317,11 @@ export async function getAnalytics(req, res) {
     switch (section) {
       case 'summary':           return res.json(await getSummary(models, start, end));
       case 'revenue':           return res.json(await getRevenue(models, start, end));
-      case 'expense':           return res.json(await getExpenses(models, start, end));
-      case 'vendors':           return res.json(await getVendors(models, start, end));
-      case 'med_orders':        return res.json(await getMedOrders(models, start, end));
       case 'doctors':           return res.json(await getDoctors(models, user.tenantId, start, end));
       case 'lab':               return res.json(await getLab(models, start, end));
       case 'appointments':      return res.json(await getAppointments(models, start, end));
       case 'patients':          return res.json(await getPatients(models, start, end));
       case 'recall':            return res.json(await getRecall(models));
-      case 'medicine':          return res.json(await getMedicine(models, start, end));
       case 'treatment_revenue': return res.json(await getTreatmentRevenue(models, start, end));
       case 'no_show':           return res.json(await getNoShow(models, start, end));
       default: return res.status(400).json({ error: `Unknown section: ${section}` });

@@ -1,5 +1,4 @@
 import nodemailer from 'nodemailer';
-import PDFDocument from 'pdfkit';
 import { encrypt, decrypt } from '../utils/crypto.util.js';
 
 // Reuse WhatsApp's placeholder replacement logic
@@ -70,37 +69,6 @@ export async function buildEmailMessage({ tenantModels, eventType, data, languag
   return { subject, body };
 }
 
-// Generate PDF from report text
-export function generateReportPdf(reportText, { patientName, doctorName, date, templateName }) {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 50 });
-    const buffers = [];
-
-    doc.on('data', (chunk) => buffers.push(chunk));
-    doc.on('end', () => resolve(Buffer.concat(buffers)));
-    doc.on('error', reject);
-
-    // Header
-    doc.fontSize(16).font('Helvetica-Bold').text('Clinical Report', { align: 'center' });
-    doc.fontSize(12).font('Helvetica').text(templateName || '', { align: 'center' });
-    doc.moveDown();
-
-    // Metadata
-    doc.fontSize(10).font('Helvetica').text(`Patient: ${patientName}`);
-    doc.text(`Doctor: ${doctorName}`);
-    doc.text(`Date: ${date}`);
-    doc.moveDown();
-
-    // Separator
-    doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
-    doc.moveDown();
-
-    // Report body
-    doc.fontSize(11).font('Helvetica').text(reportText, { align: 'left', width: 450 });
-
-    doc.end();
-  });
-}
 
 // Send email via SMTP
 export async function sendEmail({

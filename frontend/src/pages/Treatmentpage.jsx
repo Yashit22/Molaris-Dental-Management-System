@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Printer, FileText, Monitor, Phone,
-  MapPin, User, Plus, ChevronDown, X, NotebookPen, Pill, TestTube, Loader2, Save, Edit2, Receipt, Mic, AlertTriangle
+  MapPin, User, Plus, X, NotebookPen, Pill, TestTube, Loader2, Save, Edit2, Receipt, Mic, AlertTriangle,
+  ClipboardList, Stethoscope, FolderOpen, Activity,
 } from 'lucide-react';
 
 // --- IMPORTS ---
@@ -11,22 +12,19 @@ import { useAuth } from '../Context/AuthContext.jsx';
 import { useTreatment } from '../Context/TreatmentContext.jsx';
 import PatientProfileModal from '../modals/PatientProfileModal.jsx';
 import RichTextEditorModal from '../modals/RichTextEditorModal.jsx';
-import PrescriptionModal from '../modals/PrescriptionModal.jsx';
 import NewInvoiceModal from '../modals/NewInvoiceModal.jsx';
 import ClinicalReportModal from '../modals/ClinicalReportModal.jsx';
+import VisitDocumentsModal from '../modals/VisitDocumentsModal.jsx';
 import TreatmentTabs from '../components/TreatmentTabs.jsx';
 import TreatmentPlanBoard from '../components/TreatmentPlanBoard.jsx';
 import ReportsNotesSection from '../components/ReportNotesSection.jsx';
-import AppointmentTimeline from '../components/AppointmentTimeline.jsx';
-import InventoryConsumption from '../components/InventoryConsumption.jsx';
-import { useInventorySettings } from '../Context/SettingsContext.jsx';
-import SendMailDropdown from '../components/SendMailDropdown.jsx';
+import MedicationsPanel from '../components/MedicationsPanel.jsx';
+import PatientHistory from '../components/PatientHistory.jsx';
 
 // --- Sub-Components ---
 
-// Updated to accept onViewProfile prop and appointments
 // eslint-disable-next-line react/prop-types
-const PatientInfoCard = ({ patient, onViewProfile, appointments = [] }) => {
+const PatientInfoCard = ({ patient, onViewProfile, appointments = [], currentVisit = null }) => {
   // Handle Loading/Empty State
   if (!patient) {
       return <div className="p-5 bg-white rounded-xl shadow-sm border border-gray-100 mb-6 h-48 animate-pulse"></div>;
@@ -66,13 +64,13 @@ const PatientInfoCard = ({ patient, onViewProfile, appointments = [] }) => {
           </button>
         </div>
 
-        {/* Chief Complaint */}
-        {patient.chief_complaint && (
+        {/* Chief Complaint — sourced from today's visit, not the patient record */}
+        {currentVisit?.chief_complaint && (
           <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 sm:px-4 py-2.5">
             <AlertTriangle size={14} className="text-red-500 mt-0.5 flex-shrink-0" />
             <div>
               <span className="text-xs font-bold text-red-500 uppercase tracking-wide">Chief Complaint</span>
-              <p className="text-sm text-red-800 font-medium mt-0.5">{patient.chief_complaint}</p>
+              <p className="text-sm text-red-800 font-medium mt-0.5">{currentVisit.chief_complaint}</p>
             </div>
           </div>
         )}
@@ -117,14 +115,16 @@ const ClinicalHistory = ({ patient, currentVisit, onSaveHistory, onSaveVisitComp
   });
   const [isEditing, setIsEditing] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null); // 'saving' | 'saved' | 'error'
+  // Raw text for medical history input — lets user type freely including spaces
+  const [medHistoryRaw, setMedHistoryRaw] = useState('');
 
   // Initialize data from patient prop and current visit
   useEffect(() => {
     if (patient) {
+      const medHistory = patient.medical_history || [];
       setFormData({
-        // chief_complaint comes from the current visit, not the patient
         chief_complaint: currentVisit?.chief_complaint || '',
-        medical_history: patient.medical_history || [],
+        medical_history: medHistory,
         dental_history: patient.dental_history || '',
         tobacco_smoking: patient.tobacco_smoking || false,
         tobacco_smokeless: patient.tobacco_smokeless || false,
@@ -132,6 +132,7 @@ const ClinicalHistory = ({ patient, currentVisit, onSaveHistory, onSaveVisitComp
         coffee_consumption: patient.coffee_consumption || '',
         dentition_type: patient.dentition_type || 'Adult'
       });
+      setMedHistoryRaw(medHistory.join(', '));
     }
   }, [patient, currentVisit]);
 
@@ -155,7 +156,12 @@ const ClinicalHistory = ({ patient, currentVisit, onSaveHistory, onSaveVisitComp
 
   const handleMedicalHistoryChange = (e) => {
     const val = e.target.value;
-    setFormData({ ...formData, medical_history: val ? val.split(',').map(s => s.trim()) : [] });
+    setMedHistoryRaw(val);
+    // Parse into array for display tags — only trim, don't strip spaces mid-word
+    setFormData(prev => ({
+      ...prev,
+      medical_history: val ? val.split(',').map(s => s.trim()).filter(Boolean) : [],
+    }));
   };
 
   return (
@@ -210,7 +216,7 @@ const ClinicalHistory = ({ patient, currentVisit, onSaveHistory, onSaveVisitComp
                 <input 
                     type="text"
                     className="w-full border border-gray-300 rounded-md p-2 text-sm focus:outline-none focus:border-[#137fec]"
-                    value={formData.medical_history.join(', ')}
+                    value={medHistoryRaw}
                     onChange={handleMedicalHistoryChange}
                     placeholder="e.g. Diabetes, Hypertension (comma separated)"
                 />
@@ -439,250 +445,8 @@ const ConsultationNotes = ({ visits, patientId, onRefresh }) => {
   );
 };
 
-const DOSAGE_OPTIONS = [
-  '1-0-0', '0-0-1', '0-1-0',
-  '1-1-0', '0-1-1', '1-0-1',
-  '1-1-1', 'SOS', 'Once daily',
-  'Twice daily', 'Thrice daily',
-];
-const DURATION_OPTIONS = [
-  '1 day', '2 days', '3 days', '4 days', '5 days',
-  '7 days', '10 days', '14 days', '1 month',
-];
-const emptyRow = () => ({ drug_name: '', dosage: '', duration: '', instructions: '' });
-
-// --- MEDICATIONS ---
-const Medications = ({ visits = [], patientId, onRefresh }) => {
-  const [showForm, setShowForm] = useState(false);
-  const [pharmacyItems, setPharmacyItems] = useState([]);
-  const [rows, setRows] = useState([emptyRow()]);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    API.get('/inventory').then(res => {
-      const data = Array.isArray(res.data) ? res.data : [];
-      setPharmacyItems(data.filter(i => i.type === 'Pharmacy'));
-    }).catch(() => {});
-  }, []);
-
-  const allPrescriptions = visits
-    .filter(v => v.prescriptions?.length > 0)
-    .flatMap(v => v.prescriptions.map(p => ({ ...p, visitId: v._id, visitDate: v.date })))
-    .sort((a, b) => new Date(b.visitDate) - new Date(a.visitDate));
-
-  const updateRow = (idx, field, value) => {
-    setRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: value } : r));
-  };
-
-  const addRow = () => setRows(prev => [...prev, emptyRow()]);
-
-  const removeRow = (idx) => setRows(prev => prev.length === 1 ? prev : prev.filter((_, i) => i !== idx));
-
-  const handleSaveAll = async () => {
-    const valid = rows.filter(r => r.drug_name.trim());
-    if (!valid.length) return;
-    setSaving(true);
-    try {
-      await Promise.all(valid.map(r =>
-        API.post(`/visits/patient/${patientId}/prescription`, r)
-      ));
-      setRows([emptyRow()]);
-      setShowForm(false);
-      onRefresh();
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDiscard = () => { setRows([emptyRow()]); setShowForm(false); };
-
-  const handleDelete = async (visitId, prescriptionId) => {
-    try {
-      await API.delete(`/visits/${visitId}/prescriptions/${prescriptionId}`);
-      onRefresh();
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  return (
-    <div className="p-5 bg-white rounded-xl shadow-sm border border-gray-100 mb-6">
-      <div className="flex justify-between items-center mb-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center text-[#137fec]">
-            <Pill size={20} />
-          </div>
-          <h3 className="font-semibold text-lg text-slate-800">Medications</h3>
-        </div>
-        {!showForm && (
-          <button
-            onClick={() => setShowForm(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors font-medium text-sm"
-          >
-            <Plus size={16} /> Prescribe Medicine
-          </button>
-        )}
-      </div>
-
-      {/* Multi-row prescription form */}
-      {showForm && (
-        <div className="mb-4 rounded-xl border border-blue-100 overflow-hidden">
-          {/* Column headers */}
-          <div className="grid grid-cols-[2fr_1.2fr_1.2fr_1.5fr_32px] gap-2 px-3 py-2 bg-blue-50/60 border-b border-blue-100">
-            <span className="text-xs font-semibold text-slate-500">Drug Name *</span>
-            <span className="text-xs font-semibold text-slate-500">Dosage</span>
-            <span className="text-xs font-semibold text-slate-500">Days</span>
-            <span className="text-xs font-semibold text-slate-500">Instructions</span>
-            <span></span>
-          </div>
-
-          <datalist id="pharmacy-drugs">
-            {pharmacyItems.map(item => <option key={item._id} value={item.name} />)}
-          </datalist>
-
-          {/* Medicine rows */}
-          <div className="flex flex-col divide-y divide-slate-100">
-            {rows.map((row, idx) => (
-              <div key={idx} className="grid grid-cols-[2fr_1.2fr_1.2fr_1.5fr_32px] gap-2 items-center px-3 py-2 bg-white">
-                {/* Drug Name */}
-                <div>
-                  <input
-                    list="pharmacy-drugs"
-                    className="w-full border border-gray-200 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:border-[#137fec]"
-                    placeholder="Medicine name..."
-                    value={row.drug_name}
-                    onChange={e => updateRow(idx, 'drug_name', e.target.value)}
-                  />
-                </div>
-                {/* Dosage dropdown */}
-                <div>
-                  <select
-                    className="w-full border border-gray-200 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:border-[#137fec] bg-white"
-                    value={row.dosage}
-                    onChange={e => updateRow(idx, 'dosage', e.target.value)}
-                  >
-                    <option value="">-- Select --</option>
-                    {DOSAGE_OPTIONS.map(d => <option key={d} value={d}>{d}</option>)}
-                  </select>
-                </div>
-                {/* Duration dropdown */}
-                <div>
-                  <select
-                    className="w-full border border-gray-200 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:border-[#137fec] bg-white"
-                    value={row.duration}
-                    onChange={e => updateRow(idx, 'duration', e.target.value)}
-                  >
-                    <option value="">-- Select --</option>
-                    {DURATION_OPTIONS.map(d => <option key={d} value={d}>{d}</option>)}
-                  </select>
-                </div>
-                {/* Instructions */}
-                <div>
-                  <input
-                    className="w-full border border-gray-200 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:border-[#137fec]"
-                    placeholder="After food..."
-                    value={row.instructions}
-                    onChange={e => updateRow(idx, 'instructions', e.target.value)}
-                  />
-                </div>
-                {/* Remove row */}
-                <button
-                  onClick={() => removeRow(idx)}
-                  disabled={rows.length === 1}
-                  className="flex items-center justify-center w-7 h-7 rounded-md text-slate-300 hover:text-red-400 hover:bg-red-50 disabled:opacity-0 transition-colors"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-
-          {/* Footer actions */}
-          <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-t border-slate-100">
-            <button
-              onClick={addRow}
-              className="flex items-center gap-1 text-xs text-[#137fec] font-medium hover:underline"
-            >
-              <Plus size={13} /> Add Medicine
-            </button>
-            <div className="flex gap-2">
-              <button onClick={handleDiscard} className="px-4 py-1.5 text-sm border border-slate-200 rounded-lg text-slate-500 hover:bg-slate-100">
-                Discard
-              </button>
-              <button
-                onClick={handleSaveAll}
-                disabled={saving || !rows.some(r => r.drug_name.trim())}
-                className="px-4 py-1.5 text-sm bg-[#137fec] text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-              >
-                {saving ? 'Saving...' : `Save ${rows.filter(r => r.drug_name.trim()).length > 1 ? `All (${rows.filter(r => r.drug_name.trim()).length})` : 'Prescription'}`}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* List */}
-      {allPrescriptions.length === 0 ? (
-        <div className="flex items-center justify-center py-8 text-slate-400 text-sm bg-slate-50 rounded-xl border border-dashed border-slate-200">
-          No prescriptions recorded.
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
-                <th className="pb-2 font-semibold">Drug</th>
-                <th className="pb-2 font-semibold">Dosage</th>
-                <th className="pb-2 font-semibold">Duration</th>
-                <th className="pb-2 font-semibold">Instructions</th>
-                <th className="pb-2 font-semibold">Date</th>
-                <th className="pb-2 font-semibold">Status</th>
-                <th className="pb-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {allPrescriptions.map(p => (
-                <tr key={p._id} className="border-b border-slate-50 hover:bg-slate-50 group">
-                  <td className="py-2 font-medium text-slate-800">{p.drug_name}</td>
-                  <td className="py-2 text-slate-600">{p.dosage || '-'}</td>
-                  <td className="py-2 text-slate-600">{p.duration || '-'}</td>
-                  <td className="py-2 text-slate-600">{p.instructions || '-'}</td>
-                  <td className="py-2 text-slate-400 text-xs">{formatVisitDate(p.visitDate)}</td>
-                  <td className="py-2">
-                    {(() => {
-                      const inv = p.invoice_id;
-                      const isPaid    = inv?.status === 'Paid';
-                      const isPartial = inv && !isPaid;
-                      return (
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
-                          isPaid    ? 'bg-green-50 text-green-600 border-green-100'
-                          : isPartial ? 'bg-yellow-50 text-yellow-600 border-yellow-100'
-                          : 'bg-orange-50 text-orange-500 border-orange-100'
-                        }`}>
-                          {isPaid ? 'Paid' : isPartial ? 'Partial' : 'Unpaid'}
-                        </span>
-                      );
-                    })()}
-                  </td>
-                  <td className="py-2">
-                    <button
-                      onClick={() => handleDelete(p.visitId, p._id)}
-                      className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 text-xs px-2 py-0.5 rounded border border-transparent hover:border-red-200 transition-all"
-                    >
-                      Remove
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-};
+// --- MEDICATIONS — delegated to shared MedicationsPanel component ---
+const Medications = (props) => <MedicationsPanel {...props} />;
 
 const LAB_STATUS_COLORS = {
   'Sent':                 'bg-blue-50 text-blue-600',
@@ -692,7 +456,7 @@ const LAB_STATUS_COLORS = {
 };
 
 // --- LAB ORDERS ---
-const LabOrders = ({ patientId, onRefresh, onOrdersLoaded }) => {
+const LabOrders = ({ patientId, onRefresh, onOrdersLoaded, refreshKey = 0 }) => {
   const [orders, setOrders] = useState([]);
   const [catalogItems, setCatalogItems] = useState([]);
   const [labVendors, setLabVendors] = useState([]);
@@ -723,7 +487,7 @@ const LabOrders = ({ patientId, onRefresh, onOrdersLoaded }) => {
       const vendors = Array.isArray(vendorRes.data) ? vendorRes.data : [];
       setLabVendors(vendors.filter(v => v.type === 'Lab'));
     }).catch(() => {});
-  }, [patientId]);
+  }, [patientId, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleItemSelect = (itemName) => {
     const selectedItem = catalogItems.find(item => item.name === itemName);
@@ -876,16 +640,14 @@ const LabOrders = ({ patientId, onRefresh, onOrdersLoaded }) => {
                     <span className="text-xs text-slate-500">₹{order.cost_to_clinic}</span>
                   )}
                   {(() => {
-                    const inv = order.invoice_id;
-                    const isPaid    = inv?.status === 'Paid';
-                    const isPartial = inv && !isPaid;
+                    const billed = !!order.invoice_id;
                     return (
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
-                        isPaid    ? 'bg-green-50 text-green-600 border-green-100'
-                        : isPartial ? 'bg-yellow-50 text-yellow-600 border-yellow-100'
-                        : 'bg-orange-50 text-orange-500 border-orange-100'
+                        billed
+                          ? 'bg-green-50 text-green-600 border-green-100'
+                          : 'bg-orange-50 text-orange-500 border-orange-100'
                       }`}>
-                        {isPaid ? 'Paid' : isPartial ? 'Partial' : 'Unpaid'}
+                        {billed ? 'Billed' : 'Unbilled'}
                       </span>
                     );
                   })()}
@@ -908,9 +670,8 @@ const LabOrders = ({ patientId, onRefresh, onOrdersLoaded }) => {
   );
 };
 
-// --- ADVICES & RECALL ---
-const AdvicesRecall = ({ visits, patientId, patient, onRefresh, onSelectDate }) => {
-  const [activeTab, setActiveTab]   = useState('Advices');
+// --- ADVICES ---
+const AdvicesRecall = ({ visits, patientId, onRefresh }) => {
   const [modalOpen, setModalOpen]   = useState(false);
   const [editTarget, setEditTarget] = useState(null);
 
@@ -939,38 +700,24 @@ const AdvicesRecall = ({ visits, patientId, patient, onRefresh, onSelectDate }) 
   return (
     <div className="p-5 bg-white rounded-xl shadow-sm border border-gray-100 mb-6">
 
-      {/* Tab Header */}
+      {/* Header */}
       <div className="flex justify-between items-center mb-5">
-        <div className="flex gap-5 border-b border-slate-100 w-full pb-3">
-          {['Advices', 'Recall'].map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`text-sm font-semibold pb-1 border-b-2 transition-all ${
-                activeTab === tab
-                  ? 'text-[#137fec] border-[#137fec]'
-                  : 'text-slate-400 border-transparent hover:text-slate-600'
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
+        <div className="flex items-center border-b border-slate-100 w-full pb-3">
+          <span className="text-sm font-semibold text-[#137fec] border-b-2 border-[#137fec] pb-1">Advices</span>
           {/* Action button aligned right */}
           <div className="ml-auto">
-            {activeTab === 'Advices' ? (
-              <button
-                onClick={openCreate}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-600 rounded-lg hover:bg-amber-100 transition-colors font-medium text-xs"
-              >
-                <Plus size={14} /> Add Advice
-              </button>
-            ) : null}
+            <button
+              onClick={openCreate}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-600 rounded-lg hover:bg-amber-100 transition-colors font-medium text-xs"
+            >
+              <Plus size={14} /> Add Advice
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Advices Tab */}
-      {activeTab === 'Advices' && (
+      {/* Advices */}
+      {(
         <>
           {allAdvices.length === 0 ? (
             <div className="flex items-center justify-center py-10 text-slate-400 text-sm bg-slate-50 rounded-xl border border-dashed border-slate-200">
@@ -1000,16 +747,6 @@ const AdvicesRecall = ({ visits, patientId, patient, onRefresh, onSelectDate }) 
         </>
       )}
 
-      {/* Recall Tab */}
-      {activeTab === 'Recall' && (
-        <AppointmentTimeline
-          patientId={patientId}
-          patient={patient}
-          buttonLabel="Add Recall"
-          onSelectDate={onSelectDate}
-        />
-      )}
-
       <RichTextEditorModal
         isOpen={modalOpen}
         onClose={handleClose}
@@ -1027,29 +764,50 @@ const AdvicesRecall = ({ visits, patientId, patient, onRefresh, onSelectDate }) 
 
 // --- MAIN PAGE COMPONENT ---
 
-// eslint-disable-next-line react/prop-types
-function Section({ number, title, description, defaultOpen = false, children }) {
-  const [open, setOpen] = useState(defaultOpen);
+// ── Clinical tabs ─────────────────────────────────────────────────────────────
+const CLINICAL_TABS = [
+  { id: 'assessment',    label: 'Assessment',     icon: Stethoscope,   desc: 'Clinical history & dental chart' },
+  { id: 'treatment',     label: 'Treatment Plan', icon: ClipboardList, desc: 'Planned treatments & lab orders' },
+  { id: 'notes',         label: 'Visit Notes',    icon: NotebookPen,   desc: 'Consultation notes & patient advice' },
+  { id: 'prescriptions', label: 'Prescriptions',  icon: Pill,          desc: 'Medications prescribed' },
+  { id: 'invoice',       label: 'Invoice',        icon: Receipt,       desc: 'Billing & payment' },
+  { id: 'files',         label: 'Files & Reports',icon: FolderOpen,    desc: 'Uploaded files and AI reports' },
+  { id: 'history',       label: 'History',        icon: Activity,      desc: 'Past visits & documents' },
+];
+
+function ClinicalTabBar({ active, onChange }) {
   return (
-    <div className="mb-3">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-3 px-4 py-3 bg-white rounded-xl border border-slate-100 shadow-sm text-left hover:bg-slate-50 transition-colors"
-      >
-        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-[#137fec] text-white text-xs font-bold flex items-center justify-center">{number}</span>
-        <div className="flex-1 min-w-0">
-          <p className="font-semibold text-slate-800 text-sm">{title}</p>
-          {description && <p className="text-xs text-slate-400 mt-0.5 hidden sm:block">{description}</p>}
-        </div>
-        <ChevronDown size={16} className={`flex-shrink-0 text-slate-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
-      </button>
-      {open && <div className="mt-3 space-y-3">{children}</div>}
+    <div className="bg-white rounded-xl border border-slate-100 shadow-sm mb-4 overflow-x-auto">
+      <div className="flex min-w-max">
+        {CLINICAL_TABS.map((tab, idx) => {
+          const Icon = tab.icon;
+          const isActive = active === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => onChange(tab.id)}
+              className={`relative flex items-center gap-2 px-4 sm:px-6 py-3.5 text-sm font-semibold transition-colors whitespace-nowrap
+                ${isActive
+                  ? 'text-[#137fec]'
+                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}
+                ${idx !== 0 ? 'border-l border-slate-100' : ''}
+              `}
+            >
+              <Icon size={15} className={isActive ? 'text-[#137fec]' : 'text-slate-400'} />
+              <span>{tab.label}</span>
+              {isActive && (
+                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#137fec] rounded-full" />
+              )}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
 // eslint-disable-next-line react/prop-types
-function MobileActionBar({ onConclude, onPrescription, onInvoice, patientId, patient }) {
+function MobileActionBar({ onConclude, onDocuments, patientId, patient }) {
   const [open, setOpen] = useState(false);
 
   // Draggable FAB position state
@@ -1125,20 +883,11 @@ function MobileActionBar({ onConclude, onPrescription, onInvoice, patientId, pat
           >
             ✓ Conclude Appointment
           </button>
-          <div onClick={() => setOpen(false)}>
-            <SendMailDropdown patientId={patientId} patient={patient} fullWidth />
-          </div>
           <button
-            onClick={() => { onPrescription(); setOpen(false); }}
+            onClick={() => { onDocuments(); setOpen(false); }}
             className="w-full flex items-center gap-2 px-4 py-3 bg-white border border-[#137fec] text-[#137fec] font-semibold rounded-xl shadow-lg text-sm"
           >
-            <FileText size={16} /> Prescription
-          </button>
-          <button
-            onClick={() => { onInvoice(); setOpen(false); }}
-            className="w-full flex items-center gap-2 px-4 py-3 bg-[#137fec] text-white font-semibold rounded-xl shadow-lg text-sm"
-          >
-            <Receipt size={16} /> Generate Invoice
+            <FileText size={16} /> Documents
           </button>
         </div>
       )}
@@ -1183,7 +932,6 @@ export default function TreatmentPage({ patientIdProp }) {
 
   const { user } = useAuth();
   const { closeTreatment, activeTreatment } = useTreatment();
-  const { inventorySettings } = useInventorySettings();
 
   const [patient, setPatient]               = useState(null);
   const [visits, setVisits]                 = useState([]);
@@ -1191,14 +939,23 @@ export default function TreatmentPage({ patientIdProp }) {
   const [labOrders, setLabOrders]           = useState([]);
   const [loading, setLoading]               = useState(true);
   const [isProfileOpen, setIsProfileOpen]   = useState(false);
-  const [isPrescriptionOpen, setIsPrescriptionOpen] = useState(false);
-  const [isInvoiceOpen, setIsInvoiceOpen]   = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [isDocumentsOpen, setIsDocumentsOpen] = useState(false);
+  const [docsReport, setDocsReport]               = useState(null); // AI report for the docs modal's visit
   const [reportRefreshKey, setReportRefreshKey]   = useState(0);
+  const [labRefreshKey, setLabRefreshKey]         = useState(0);
+  const [invoiceLoaded, setInvoiceLoaded]         = useState(false);
   const [viewingDate, setViewingDate]             = useState(null); // ISO date string or null (= today)
   const [showConcludeModal, setShowConcludeModal] = useState(false);
   const [concludingAppointment, setConcludingAppointment] = useState(null);
   const [pageBanner, setPageBanner] = useState(null); // { type: 'success'|'error', msg: string }
+  const [activeTab, setActiveTab]           = useState('assessment');
+  const [visitInvoice, setVisitInvoice]     = useState(null); // the single invoice for the current visit
+  const invoiceModalRef                     = useRef(null);
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+  };
 
   const showBanner = (type, msg) => {
     setPageBanner({ type, msg });
@@ -1214,7 +971,25 @@ export default function TreatmentPage({ patientIdProp }) {
           API.get(`/appointments/patient/${id}`)
       ]);
       setPatient(patientRes.data);
-      setVisits(visitsRes.data);
+
+      // Doctor role: scope visits to those owned by the logged-in doctor.
+      // A visit is "owned" when its doctor_id matches, OR its appointment's
+      // doctor matches. Visits with no doctor at all (auto-created for notes)
+      // stay visible so the doctor never loses their own in-progress work.
+      const scopedDoctorId = user?.role === 'Doctor'
+        ? (user?.doctorId ? String(user.doctorId) : null)
+        : null;
+      const allVisits = visitsRes.data || [];
+      const visits = scopedDoctorId
+        ? allVisits.filter(v => {
+            const vDoc = v.doctor_id && (typeof v.doctor_id === 'object' ? v.doctor_id._id : v.doctor_id);
+            const aDoc = v.appointment_id && typeof v.appointment_id === 'object' ? v.appointment_id.doctor_id : null;
+            if (vDoc) return String(vDoc) === scopedDoctorId;
+            if (aDoc) return String(aDoc) === scopedDoctorId;
+            return true; // no doctor attached anywhere — keep it
+          })
+        : allVisits;
+      setVisits(visits);
       setAppointments(appointmentsRes.data);
     } catch (err) {
       console.error("Failed to fetch treatment data", err);
@@ -1230,6 +1005,65 @@ export default function TreatmentPage({ patientIdProp }) {
         fetchPageData();
     }
   }, [id]);
+
+  // Background sync — auto-save invoice when treatments change in the dental chart.
+  // Gated on invoiceLoaded so we never overwrite an existing invoice (with custom
+  // items) before it has been fetched. The modal merges new treatments into the
+  // existing items, so custom services/lab orders are preserved.
+  const treatmentsSig = JSON.stringify(
+    (visits[0]?.treatments || []).map(t => [t._id, t.treatment_name, t.cost, t.qty])
+  );
+  const didInitTreatmentSig = useRef(false);
+  useEffect(() => {
+    if (activeTab !== 'invoice') return;
+    if (!invoiceLoaded) return;
+    // Skip the first run after load — nothing has actually changed yet.
+    if (!didInitTreatmentSig.current) { didInitTreatmentSig.current = true; return; }
+    const t = setTimeout(() => invoiceModalRef.current?.save(), 600);
+    return () => clearTimeout(t);
+  }, [treatmentsSig, invoiceLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reset the init guard whenever we leave the invoice tab.
+  useEffect(() => {
+    if (activeTab !== 'invoice') didInitTreatmentSig.current = false;
+  }, [activeTab]);
+
+  // Detect and load the visit's invoice by visit_id.
+  // invoiceLoaded gates the inline modal so it never seeds/auto-saves before the
+  // existing invoice (which may contain custom items) has been fetched.
+  const loadVisitInvoice = useCallback(() => {
+    const currentVisit = visits[0];
+    setInvoiceLoaded(false);
+    if (!currentVisit?._id) { setVisitInvoice(null); setInvoiceLoaded(true); return; }
+    return API.get(`/invoices?visit_id=${currentVisit._id}`)
+      .then(res => {
+        const list = Array.isArray(res.data) ? res.data : [];
+        setVisitInvoice(list[0] || null); // one invoice per visit
+      })
+      .catch(() => setVisitInvoice(null))
+      .finally(() => setInvoiceLoaded(true));
+  }, [visits]);
+
+  useEffect(() => { loadVisitInvoice(); }, [loadVisitInvoice]);
+
+  // Re-fetch the invoice whenever the Invoice tab is (re)opened, so edits made
+  // elsewhere (e.g. price change on a linked lab order in the Lab Orders page)
+  // are reflected here.
+  useEffect(() => {
+    if (activeTab === 'invoice') loadVisitInvoice();
+  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Pre-populate chief_complaint from appointment booking if today's visit has none yet
+  useEffect(() => {
+    const appointmentComplaint = activeTreatment?.chiefComplaint;
+    if (!appointmentComplaint || visits.length === 0) return;
+    const todayVisit = visits[0];
+    if (!todayVisit?._id || todayVisit.chief_complaint) return;
+    // Silently seed it — don't alert the user
+    API.patch(`/visits/${todayVisit._id}`, { chief_complaint: appointmentComplaint })
+      .then(() => setVisits(prev => prev.map(v => v._id === todayVisit._id ? { ...v, chief_complaint: appointmentComplaint } : v)))
+      .catch(() => {});
+  }, [visits.length, activeTreatment?.chiefComplaint]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSaveHistory = async (updatedData) => {
       try {
@@ -1275,6 +1109,32 @@ export default function TreatmentPage({ patientIdProp }) {
     }
   };
 
+  // Fetch the AI report for the docs modal's visit, strictly scoped to that
+  // visit's appointment so an unrelated report never appears. Declared before
+  // the early `loading` return so hook order stays stable across renders.
+  useEffect(() => {
+    if (!isDocumentsOpen || !id) { setDocsReport(null); return; }
+    const dv = (viewingDate
+      ? visits.filter(v => new Date(v.date).toISOString().slice(0, 10) === new Date(viewingDate).toISOString().slice(0, 10))
+      : visits)[0] || (viewingDate ? null : visits[0]) || null;
+    // Prefer the visit's own appointment, then the active session's appointment.
+    // If neither exists (walk-in), scope by the visit's day so we still only get
+    // THIS visit's report (the backend day-scopes on `date`).
+    const apptId = (typeof dv?.appointment_id === 'object' ? dv.appointment_id?._id : dv?.appointment_id)
+      || (!viewingDate ? activeTreatment?.appointmentId : null)
+      || null;
+    if (!apptId && !dv?.date) { setDocsReport(null); return; }
+    const qs = apptId
+      ? `patientId=${id}&appointmentId=${apptId}`
+      : `patientId=${id}&date=${new Date(dv.date).toISOString()}`;
+    let cancelled = false;
+    setDocsReport(null);
+    API.get(`/report/latest?${qs}`)
+      .then(r => { if (!cancelled) setDocsReport(r.data?.report || null); })
+      .catch(() => { if (!cancelled) setDocsReport(null); });
+    return () => { cancelled = true; };
+  }, [isDocumentsOpen, viewingDate, visits, id, activeTreatment?.appointmentId]);
+
   if (loading) {
       return (
           <div className="min-h-screen flex items-center justify-center bg-[#EBF2F7]">
@@ -1291,6 +1151,9 @@ export default function TreatmentPage({ patientIdProp }) {
   const viewingDateLabel = viewingDate
     ? new Date(viewingDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
     : null;
+
+  // The visit whose documents the modal shows (mirrors the modal's `visit` prop)
+  const docsVisit = displayVisits[0] || (viewingDate ? null : visits[0]) || null;
 
   const handleConclude = () => {
     const apptId = activeTreatment?.appointmentId;
@@ -1312,7 +1175,7 @@ export default function TreatmentPage({ patientIdProp }) {
           </div>
         )}
 
-        <PatientInfoCard patient={patient} onViewProfile={() => setIsProfileOpen(true)} appointments={appointments} />
+        <PatientInfoCard patient={patient} onViewProfile={() => setIsProfileOpen(true)} appointments={appointments} currentVisit={visits[0] || null} />
 
         {/* Past date banner */}
         {viewingDate && (
@@ -1324,12 +1187,15 @@ export default function TreatmentPage({ patientIdProp }) {
           </div>
         )}
 
-        {/* ── Section 1: Assessment ── */}
-        <Section number="1" title="Assessment" description="Clinical history & dental chart" defaultOpen={false}>
+        {/* ── Clinical tab bar ── */}
+        <ClinicalTabBar active={activeTab} onChange={handleTabChange} />
+
+        {/* ── Tab: Assessment ── */}
+        {activeTab === 'assessment' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             <ClinicalHistory
               patient={patient}
-              currentVisit={visits[visits.length - 1] || null}
+              currentVisit={visits[0] || null}
               onSaveHistory={handleSaveHistory}
               onSaveVisitComplaint={handleSaveVisitComplaint}
             />
@@ -1340,30 +1206,70 @@ export default function TreatmentPage({ patientIdProp }) {
               initialDentition={patient?.dentition_type || 'Adult'}
             />
           </div>
-        </Section>
+        )}
 
-        {/* ── Section 2: Treatment Plan ── */}
-        <Section number="2" title="Treatment Plan" description="Planned treatments, prescriptions & lab orders" defaultOpen={false}>
-          <TreatmentPlanBoard visits={displayVisits} onRefresh={fetchPageData} />
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            <Medications visits={displayVisits} patientId={id} onRefresh={fetchPageData} />
-            <LabOrders patientId={id} onRefresh={fetchPageData} onOrdersLoaded={setLabOrders} />
+        {/* ── Tab: Treatment Plan ── */}
+        {activeTab === 'treatment' && (
+          <div className="space-y-3">
+            <TreatmentPlanBoard visits={displayVisits} onRefresh={fetchPageData} />
+            <LabOrders patientId={id} onRefresh={fetchPageData} onOrdersLoaded={setLabOrders} refreshKey={labRefreshKey} />
           </div>
-          {inventorySettings.consumableEnabled && (
-            <InventoryConsumption visits={displayVisits} patientId={id} onRefresh={fetchPageData} />
-          )}
-        </Section>
+        )}
 
-        {/* ── Section 3: Visit Notes ── */}
-        <Section number="3" title="Visit Notes" description="Consultation notes & patient advice" defaultOpen={false}>
-          <ConsultationNotes visits={displayVisits} patientId={id} onRefresh={fetchPageData} />
-          <AdvicesRecall visits={displayVisits} patientId={id} patient={patient} onRefresh={fetchPageData} onSelectDate={setViewingDate} />
-        </Section>
+        {/* ── Tab: Prescriptions ── */}
+        {activeTab === 'prescriptions' && (
+          <Medications visits={displayVisits} patientId={id} onRefresh={fetchPageData} targetVisitId={displayVisits[0]?._id || null} />
+        )}
 
-        {/* ── Section 4: Files & Reports ── */}
-        <Section number="4" title="Files & Reports" description="Uploaded files and AI reports" defaultOpen={false}>
+        {/* ── Tab: Invoice ── */}
+        {activeTab === 'invoice' && (
+          !invoiceLoaded ? (
+            <div className="flex items-center justify-center py-12 text-slate-400 text-sm">
+              <Loader2 className="animate-spin mr-2" size={18} /> Loading invoice…
+            </div>
+          ) : (
+            // editInvoice = existing saved invoice (custom items live here).
+            // seedItems = treatments/prescriptions from the chart to MERGE in.
+            // The modal keeps existing items and adds any new treatment-backed ones.
+            <NewInvoiceModal
+              ref={invoiceModalRef}
+              inline
+              isOpen
+              initialPatient={patient}
+              visitId={displayVisits[0]?._id}
+              editInvoice={visitInvoice}
+              initialItems={[
+                ...(displayVisits[0] ? (displayVisits[0].treatments || [])
+                  .filter(t => t.status !== 'Cancelled' && t.treatment_name !== 'Missing')
+                  .map(t => ({ name: t.treatment_name, type: 'Service', quantity: t.qty || 1, rate: t.cost || 0, total: (t.cost || 0) * (t.qty || 1), item_id: null, _treatmentRef: { visitId: displayVisits[0]._id, treatmentId: t._id } }))
+                : []),
+                ...(displayVisits[0] ? (displayVisits[0].prescriptions || [])
+                  .map(p => ({ name: p.drug_name, type: 'Service', quantity: 1, rate: 0, total: 0, item_id: null, _prescriptionRef: { visitId: displayVisits[0]._id, prescriptionId: p._id } }))
+                : []),
+              ]}
+              onSuccess={() => { fetchPageData(); setLabRefreshKey(k => k + 1); }}
+              onClose={() => {}}
+            />
+          )
+        )}
+
+        {/* ── Tab: Visit Notes ── */}
+        {activeTab === 'notes' && (
+          <div className="space-y-3">
+            <ConsultationNotes visits={displayVisits} patientId={id} onRefresh={fetchPageData} />
+            <AdvicesRecall visits={displayVisits} patientId={id} onRefresh={fetchPageData} />
+          </div>
+        )}
+
+        {/* ── Tab: Files & Reports ── */}
+        {activeTab === 'files' && (
           <ReportsNotesSection patientId={id} refreshTrigger={reportRefreshKey} visits={visits} onRefresh={fetchPageData} />
-        </Section>
+        )}
+
+        {/* ── Tab: History ── */}
+        {activeTab === 'history' && (
+          <PatientHistory visits={visits} patient={patient} />
+        )}
 
         {/* Desktop bottom bar */}
         <div className="hidden sm:flex sticky bottom-4 z-10 bg-white p-3 sm:p-4 rounded-xl shadow-[0_-4px_20px_rgba(0,0,0,0.05)] border border-gray-100 justify-between items-center gap-3">
@@ -1371,12 +1277,8 @@ export default function TreatmentPage({ patientIdProp }) {
             ✓ Conclude Appointment
           </button>
           <div className="flex gap-2 sm:gap-3 flex-wrap justify-end">
-            <SendMailDropdown patientId={id} patient={patient} />
-            <button onClick={() => setIsPrescriptionOpen(true)} className="px-4 sm:px-6 py-2 border border-[#137fec] text-[#137fec] font-medium rounded-lg hover:bg-blue-50 flex items-center gap-2 transition-colors text-sm">
-              <FileText size={16} /> Prescription
-            </button>
-            <button onClick={() => setIsInvoiceOpen(true)} className="px-4 sm:px-6 py-2 bg-[#137fec] text-white font-medium rounded-lg hover:bg-blue-700 flex items-center gap-2 transition-colors text-sm">
-              <Receipt size={16} /> Generate Invoice
+            <button onClick={() => setIsDocumentsOpen(true)} className="px-4 sm:px-6 py-2 border border-[#137fec] text-[#137fec] font-medium rounded-lg hover:bg-blue-50 flex items-center gap-2 transition-colors text-sm">
+              <FileText size={16} /> Documents
             </button>
           </div>
         </div>
@@ -1385,8 +1287,7 @@ export default function TreatmentPage({ patientIdProp }) {
       {/* Mobile action FAB */}
       <MobileActionBar
         onConclude={handleConclude}
-        onPrescription={() => setIsPrescriptionOpen(true)}
-        onInvoice={() => setIsInvoiceOpen(true)}
+        onDocuments={() => setIsDocumentsOpen(true)}
         patientId={id}
         patient={patient}
       />
@@ -1409,65 +1310,17 @@ export default function TreatmentPage({ patientIdProp }) {
         patient={patient}
       />
 
-      <PrescriptionModal
-        isOpen={isPrescriptionOpen}
-        onClose={() => setIsPrescriptionOpen(false)}
+      <VisitDocumentsModal
+        isOpen={isDocumentsOpen}
+        onClose={() => setIsDocumentsOpen(false)}
+        // When viewing a specific date, show only that date's visit — no fallback
+        // to another visit's documents. Otherwise use the current (first) visit.
+        visit={docsVisit}
         patient={patient}
-        visits={visits}
-        doctorName={user?.name}
+        invoice={visitInvoice}
+        reportJob={docsReport}
       />
 
-      <NewInvoiceModal
-        isOpen={isInvoiceOpen}
-        onClose={() => setIsInvoiceOpen(false)}
-        onSuccess={() => { setIsInvoiceOpen(false); fetchPageData(); }}
-        initialPatient={patient}
-        initialItems={[
-          // Unpaid treatments (no invoice or invoice status is not 'Paid')
-          ...visits.flatMap(v =>
-            (v.treatments || [])
-              .filter(t => {
-                  const inv = t.invoice_id;
-                  const isUnpaid = !inv || inv.status !== 'Paid';
-                  return isUnpaid && t.status !== 'Cancelled' && t.treatment_name !== 'Missing';
-              })
-              .map(t => ({
-                name:           t.treatment_name,
-                type:           'Service',
-                quantity:       t.qty || 1,
-                rate:           t.cost || 0,
-                total:          (t.cost || 0) * (t.qty || 1),
-                item_id:        null,
-                _treatmentRef:  { visitId: v._id, treatmentId: t._id },
-              }))
-          ),
-          // Unpaid prescriptions (no invoice or invoice status is not 'Paid')
-          ...visits.flatMap(v =>
-            (v.prescriptions || [])
-              .filter(p => !p.invoice_id || p.invoice_id.status !== 'Paid')
-              .map(p => ({
-                name:               p.drug_name,
-                type:               'Pharmacy',
-                quantity:           1,
-                rate:               0,
-                total:              0,
-                item_id:            null,
-                _prescriptionRef:   { visitId: v._id, prescriptionId: p._id },
-              }))
-          ),
-          // Unpaid lab orders (no invoice or invoice status is not 'Paid')
-          ...labOrders
-            .filter(o => !o.invoice_id || o.invoice_id.status !== 'Paid')
-            .map(o => ({
-              name:     o.items?.[0]?.item_name || 'Lab Order',
-              type:     'Lab',
-              quantity: 1,
-              rate:     o.cost_to_clinic || 0,
-              total:    o.cost_to_clinic || 0,
-              item_id:  o._id,
-            })),
-        ]}
-      />
 
       {/* Conclude Appointment Confirmation Modal */}
       {showConcludeModal && (

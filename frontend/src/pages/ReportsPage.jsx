@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  LayoutDashboard, Banknote, Receipt, Stethoscope,
-  Store, Users, Calendar, Microscope, Pill,
-  RotateCcw, ShoppingCart, Download, Calendar as CalendarIcon,
+  LayoutDashboard, Banknote, Stethoscope,
+  Users, Calendar, Microscope,
+  RotateCcw, Download, Calendar as CalendarIcon,
   ChevronDown, TrendingUp, Menu, X
 } from 'lucide-react';
 
@@ -10,7 +10,6 @@ import ReportSummary from '../components/ReportSummary.jsx';
 import ReportFinancials from '../components/ReportFinancials.jsx';
 import ReportClinical from '../components/ReportClinical.jsx';
 import ReportPatients from '../components/ReportPatients.jsx';
-import ReportInventory from '../components/ReportInventory.jsx';
 
 // ── Date preset helpers ──────────────────────────────────────────────────────
 function toIso(d) { return d.toISOString().slice(0, 10); }
@@ -46,10 +45,7 @@ const REPORTS_NAV = [
 
   { type: 'divider', label: 'Financials' },
   { id: 'revenue',          label: 'Revenue Report',     icon: Banknote,     component: ReportFinancials },
-  { id: 'expense',          label: 'Expense Report',     icon: Receipt,      component: ReportFinancials },
   { id: 'treatment_revenue',label: 'Treatment Revenue',  icon: TrendingUp,   component: ReportFinancials },
-  { id: 'vendors',          label: 'Vendors Report',     icon: Store,        component: ReportFinancials },
-  { id: 'med_orders',       label: 'Medicine Orders',    icon: ShoppingCart, component: ReportFinancials },
 
   { type: 'divider', label: 'Clinical & Staff' },
   { id: 'doctors', label: 'Doctor Report', icon: Stethoscope, component: ReportClinical },
@@ -61,8 +57,6 @@ const REPORTS_NAV = [
   { id: 'no_show',      label: 'No-Show Report',     icon: RotateCcw,  component: ReportPatients },
   { id: 'recall',       label: 'Recall Report',      icon: RotateCcw,  component: ReportPatients },
 
-  { type: 'divider', label: 'Inventory' },
-  { id: 'medicine', label: 'Medicine Stock', icon: Pill, component: ReportInventory },
 ];
 
 // ── Main Page ────────────────────────────────────────────────────────────────

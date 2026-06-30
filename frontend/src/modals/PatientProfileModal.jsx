@@ -7,7 +7,7 @@ import {
 import API from '../services/api';
 import TreatmentPlanBoard from '../components/TreatmentPlanBoard.jsx';
 import ReportsNotesSection from '../components/ReportNotesSection.jsx';
-import AppointmentTimeline from '../components/AppointmentTimeline.jsx';
+import PatientHistory from '../components/PatientHistory.jsx';
 
 
 const PatientProfileModal = ({ isOpen, onClose, patient: initialPatient }) => {
@@ -20,10 +20,6 @@ const PatientProfileModal = ({ isOpen, onClose, patient: initialPatient }) => {
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(false);
   
-  // Notes State
-  const [notes, setNotes] = useState('');
-  const [isEditingNotes, setIsEditingNotes] = useState(false);
-
   // Edit Patient State
   const [isEditingPatient, setIsEditingPatient] = useState(false);
   const [editFormData, setEditFormData] = useState({
@@ -38,9 +34,8 @@ const PatientProfileModal = ({ isOpen, onClose, patient: initialPatient }) => {
   const tabs = [
     { name: 'General', icon: null },
     { name: 'Treatments', icon: null }, // Shows the Board
+    { name: 'History', icon: null }, // Past visits + documents
     { name: 'Medical Records', icon: null }, // X-Rays/Files
-    { name: 'Appointments', icon: null },
-    { name: 'Notes', icon: null }, // General Notes
     { name: 'Financials', icon: null },
   ];
 
@@ -53,14 +48,11 @@ const PatientProfileModal = ({ isOpen, onClose, patient: initialPatient }) => {
     }
   }, [isOpen, initialPatient]);
 
-  // Appointments tab is handled by AppointmentTimeline component directly
-
   const fetchPatientDetails = async () => {
     setLoading(true);
     try {
       const res = await API.get(`/patients/${initialPatient._id}`);
       setPatientData(res.data);
-      setNotes(res.data.general_notes || '');
       setEditFormData({
         address: res.data.contact?.address || '',
         email: res.data.contact?.email || '',
@@ -90,16 +82,6 @@ const PatientProfileModal = ({ isOpen, onClose, patient: initialPatient }) => {
   };
 
   // --- Actions ---
-  const handleSaveNotes = async () => {
-      try {
-          await API.put(`/patients/${initialPatient._id}`, { general_notes: notes });
-          setIsEditingNotes(false);
-          // Optional: Show toast success
-      } catch (err) {
-          alert("Failed to save notes");
-      }
-  };
-
   const handleContinueTreatment = () => {
       onClose(); // Close modal first
       navigate(`/treatment/${initialPatient._id}`); // Go to full page
@@ -301,49 +283,18 @@ const PatientProfileModal = ({ isOpen, onClose, patient: initialPatient }) => {
                  </div>
               )}
 
+              {/* === HISTORY TAB === */}
+              {activeTab === 'History' && (
+                  <PatientHistory
+                    visits={visits}
+                    patient={patientData || initialPatient}
+                    invoices={invoices}
+                  />
+              )}
+
               {/* === MEDICAL RECORDS TAB === */}
               {activeTab === 'Medical Records' && (
                   <ReportsNotesSection patientId={initialPatient._id} />
-              )}
-
-              {/* === NOTES TAB === */}
-              {activeTab === 'Notes' && (
-                  <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-full">
-                      <div className="flex justify-between items-center mb-4">
-                          <h4 className="font-bold text-slate-800">General Clinical Notes</h4>
-                          {!isEditingNotes ? (
-                              <button onClick={() => setIsEditingNotes(true)} className="flex items-center gap-1 text-xs font-bold text-[#137fec] bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors">
-                                  <Edit2 size={12}/> Edit Notes
-                              </button>
-                          ) : (
-                              <div className="flex gap-2">
-                                  <button onClick={() => setIsEditingNotes(false)} className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg hover:bg-slate-200">Cancel</button>
-                                  <button onClick={handleSaveNotes} className="text-xs font-bold text-white bg-[#137fec] px-3 py-1.5 rounded-lg hover:bg-blue-600">Save</button>
-                              </div>
-                          )}
-                      </div>
-                      
-                      {isEditingNotes ? (
-                          <textarea 
-                              value={notes} 
-                              onChange={(e) => setNotes(e.target.value)}
-                              className="w-full h-64 p-4 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#137fec] focus:outline-none text-sm leading-relaxed resize-none"
-                              placeholder="Type patient observations, habits, or private notes here..."
-                          ></textarea>
-                      ) : (
-                          <div className="prose prose-sm max-w-none text-slate-600 bg-slate-50 p-6 rounded-xl min-h-[200px] border border-slate-100">
-                              {notes ? notes : <span className="italic text-slate-400">No notes added yet.</span>}
-                          </div>
-                      )}
-                  </div>
-              )}
-
-              {/* === APPOINTMENTS TAB === */}
-              {activeTab === 'Appointments' && (
-                <AppointmentTimeline
-                  patientId={initialPatient._id}
-                  patient={patientData || initialPatient}
-                />
               )}
 
               {/* === FINANCIALS TAB === */}
@@ -352,22 +303,16 @@ const PatientProfileModal = ({ isOpen, onClose, patient: initialPatient }) => {
                   <h4 className="font-bold text-slate-800 mb-4">Financial Overview</h4>
                   
                   {/* Summary Cards */}
-                  <div className="grid grid-cols-2 gap-4 mb-6">
+                  <div className="grid grid-cols-1 gap-4 mb-6">
                     <div className="p-4 bg-blue-50 border border-blue-100 rounded-lg">
                       <p className="text-sm text-blue-600 font-semibold">Total Billed</p>
                       <h2 className="text-2xl font-bold text-blue-900">
                         ₹{invoices.reduce((sum, inv) => sum + (inv.total_amount || 0), 0).toLocaleString()}
                       </h2>
                     </div>
-                    <div className="p-4 bg-orange-50 border border-orange-100 rounded-lg">
-                      <p className="text-sm text-orange-600 font-semibold">Total Pending</p>
-                      <h2 className="text-2xl font-bold text-orange-900">
-                        ₹{invoices.reduce((sum, inv) => sum + (inv.pending_amount || 0), 0).toLocaleString()}
-                      </h2>
-                    </div>
                   </div>
 
-                  {/* Transactions / Invoices List */}
+                  {/* Invoices List */}
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse min-w-[600px]">
                       <thead>
@@ -375,9 +320,6 @@ const PatientProfileModal = ({ isOpen, onClose, patient: initialPatient }) => {
                           <th className="p-3 font-semibold text-slate-600">Date</th>
                           <th className="p-3 font-semibold text-slate-600">Invoice ID</th>
                           <th className="p-3 font-semibold text-slate-600">Total Bill</th>
-                          <th className="p-3 font-semibold text-slate-600">Paid Amount</th>
-                          <th className="p-3 font-semibold text-slate-600">Pending Amount</th>
-                          <th className="p-3 font-semibold text-slate-600">Status</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -387,18 +329,11 @@ const PatientProfileModal = ({ isOpen, onClose, patient: initialPatient }) => {
                               <td className="p-3 text-slate-800">{formatDate(inv.date)}</td>
                               <td className="p-3 font-mono text-slate-600">{inv.invoice_id}</td>
                               <td className="p-3 font-medium text-slate-800">₹{inv.total_amount?.toLocaleString() || 0}</td>
-                              <td className="p-3 text-green-600 font-medium">₹{inv.paid_amount?.toLocaleString() || 0}</td>
-                              <td className="p-3 text-orange-600 font-medium">₹{inv.pending_amount?.toLocaleString() || 0}</td>
-                              <td className="p-3">
-                                <span className={`px-2 py-1 text-xs font-bold rounded-full ${inv.status === 'Paid' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
-                                  {inv.status}
-                                </span>
-                              </td>
                             </tr>
                           ))
                         ) : (
                           <tr>
-                            <td colSpan="6" className="p-4 text-center text-slate-500 italic">No transactions found.</td>
+                            <td colSpan="3" className="p-4 text-center text-slate-500 italic">No invoices found.</td>
                           </tr>
                         )}
                       </tbody>

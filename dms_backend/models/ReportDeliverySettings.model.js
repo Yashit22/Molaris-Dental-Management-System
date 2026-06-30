@@ -43,8 +43,6 @@ export const ReportDeliverySettingsSchema = new mongoose.Schema(
     defaults: {
       cloud: { type: Boolean, default: true },
       email: { type: Boolean, default: false },
-      whatsappPersonal: { type: Boolean, default: false },
-      whatsappShared: { type: Boolean, default: false },
     },
 
     // Branded PDF generation (used by both systems for email/cloud)

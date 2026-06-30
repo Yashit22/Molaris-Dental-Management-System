@@ -234,13 +234,11 @@ const TreatmentCard = ({ data, status, onClick }) => {
         <p className="text-xs font-medium text-slate-400">{data.date}</p>
         <div className="flex items-center gap-1.5">
           <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded border ${
-            data.invoiceStatus === 'Paid'
+            data.invoiceStatus === 'Billed'
               ? 'bg-green-50 text-green-600 border-green-100'
-              : data.invoiceStatus === 'Partial'
-              ? 'bg-yellow-50 text-yellow-600 border-yellow-100'
               : 'bg-orange-50 text-orange-500 border-orange-100'
           }`}>
-            {data.invoiceStatus === 'Paid' ? 'Paid' : data.invoiceStatus === 'Partial' ? 'Partial' : 'Unpaid'}
+            {data.invoiceStatus === 'Billed' ? 'Billed' : 'Unbilled'}
           </span>
           <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded border ${
               status === 'Completed' ? 'bg-green-50 text-green-600 border-green-100' :
@@ -297,11 +295,7 @@ const TreatmentPlanBoard = ({ visits = [], onRefresh }) => {
 
         if (visit.treatments) {
             visit.treatments.filter(t => t.treatment_name !== 'Missing').forEach(treatment => {
-                const inv = treatment.invoice_id;
-                const invoiceStatus =
-                  inv?.status === 'Paid'    ? 'Paid'
-                  : inv                     ? 'Partial'
-                  :                           'Unpaid';
+                const invoiceStatus = treatment.invoice_id ? 'Billed' : 'Unbilled';
 
                 const item = {
                     visitId: visit._id,

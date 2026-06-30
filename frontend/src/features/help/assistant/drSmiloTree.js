@@ -7,7 +7,6 @@ export const NODES = {
       { id: 'go-appt',      label: 'Book or manage appointments',     emoji: '📅', next: 'appt' },
       { id: 'go-billing',   label: 'Billing & payments',              emoji: '🧾', next: 'billing' },
       { id: 'go-clinical',  label: 'Clinical records & treatment',    emoji: '🦷', next: 'clinical' },
-      { id: 'go-inventory', label: 'Inventory & stock',               emoji: '📦', next: 'inventory' },
       { id: 'go-lab',       label: 'Lab orders',                      emoji: '🧪', next: 'lab' },
       { id: 'go-whatsapp',  label: 'WhatsApp & messages',             emoji: '💬', next: 'whatsapp' },
       { id: 'go-email',     label: 'Email setup',                     emoji: '📧', next: 'email' },
@@ -65,17 +64,6 @@ export const NODES = {
       { id: 'c-notes',        label: 'Write clinical notes',      slug: '03-clinical-charting', hint: 'Clinical notes are permanent once saved — write accurately. Add a dated correction note to fix errors.' },
       { id: 'c-xray',         label: 'Attach X-rays or documents', slug: '03-clinical-charting', hint: 'Open the visit → Attachments → upload the file directly to that visit record.' },
       { id: 'back',           label: '← Back',                   back: true },
-    ],
-  },
-
-  inventory: {
-    smilo: "Inventory — what do you need to do?",
-    avatarState: 'thinking',
-    options: [
-      { id: 'i-add',     label: 'Add a new inventory item',    slug: '05-inventory' },
-      { id: 'i-usage',   label: 'Record stock usage',          slug: '05-inventory', hint: 'Open the item → Record Usage → enter quantity used. Link to a visit if possible.' },
-      { id: 'i-restock', label: 'Record a purchase / restock', slug: '05-inventory', hint: 'Open the item → Add Purchase → enter quantity received, supplier name and cost.' },
-      { id: 'back',      label: '← Back',                     back: true },
     ],
   },
 
@@ -176,7 +164,6 @@ export const NODES = {
       { id: 's-library',     label: 'Import from the starter library', slug: '09-clinical-data-setup', hint: 'Settings → Clinical Data → Add → Import from Library. Pick the items you want, edit before importing, click Import.' },
       { id: 's-errors',      label: 'Fix bulk upload errors',          slug: '09-clinical-data-setup', hint: 'The result modal shows every failed row with its row number, the column that failed, the value you typed, and the reason. Open your sheet at those rows, fix, then re-upload — duplicates from the first pass are skipped.' },
       { id: 's-doctor',      label: 'Add or edit a doctor',            slug: '09-clinical-data-setup', hint: 'Settings → Doctors → Add Doctor. You can save up to 10 doctors per clinic.' },
-      { id: 's-medicines',   label: 'Add medicines / consumables',     slug: '05-inventory', hint: 'Settings → Inventory tab. The same Bulk Upload pattern works there too — sample CSV, upload, see row-level errors.' },
       { id: 'back',          label: '← Back',                          back: true },
     ],
   },
@@ -225,17 +212,6 @@ export const NODES = {
       { id: 'cb-payment', label: 'Record a payment / clear balance', slug: '04-invoicing-billing', hint: 'Outstanding tab → find patient → Record Payment.' },
       { id: 'cb-fix',     label: 'Fix or refund a paid invoice',     slug: 'billing', hint: 'Use a Credit Note — paid invoices cannot be edited.' },
       { id: 'other',      label: 'Something else',                   next: 'root' },
-    ],
-  },
-
-  'ctx-inventory': {
-    smilo: "I see you're on Inventory — what do you need?",
-    avatarState: 'idle',
-    options: [
-      { id: 'ci-add',     label: 'Add a new item',           slug: '05-inventory' },
-      { id: 'ci-usage',   label: 'Record stock usage',       slug: '05-inventory' },
-      { id: 'ci-restock', label: 'Record a purchase',        slug: '05-inventory' },
-      { id: 'other',      label: 'Something else',           next: 'root' },
     ],
   },
 

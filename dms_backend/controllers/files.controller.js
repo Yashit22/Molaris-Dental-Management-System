@@ -2,6 +2,7 @@ import {
   createPatientDriveFolders,
   uploadFileToDrive,
   deleteFileFromDrive,
+  downloadFileFromDrive,
   SUBFOLDER_KEY,
   DRIVE_SUBFOLDERS,
   getDriveStorageInfo,
@@ -220,5 +221,20 @@ export async function bulkDeleteFile(req, res) {
   } catch (err) {
     console.error('[Files] Bulk Delete error:', err.message);
     res.status(500).json({ error: err.message });
+  }
+}
+
+// GET /api/files/proxy/:driveFileId
+// Proxies a Google Drive file through the backend so the client can fetch it
+// with JWT auth and embed images without Drive authentication.
+export async function proxyDriveFile(req, res) {
+  const credentials = req.tenantConfig;
+  try {
+    const { data, mimeType } = await downloadFileFromDrive(credentials, req.params.driveFileId);
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.send(data);
+  } catch (err) {
+    res.status(502).json({ error: `Could not fetch file from Drive: ${err.message}` });
   }
 }

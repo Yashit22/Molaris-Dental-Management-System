@@ -11,9 +11,7 @@ import InvoicesPage from './pages/InvoicePage.jsx';
 import AppointmentsPage from './pages/AppointmentsPage.jsx';
 import PatientsPage from './pages/PatientsPage.jsx';
 import PatientFilesPage from './pages/PatientFilesPage.jsx';
-import TransactionsPage from './pages/TransactionsPage.jsx';
 import LabPage from './pages/LabOrdersPage.jsx';
-import InventoryPage from './pages/InventoryPage.jsx';
 import ReportsPage from './pages/ReportsPage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
 import WhatsAppPage from './pages/WhatsAppPage.jsx';
@@ -25,12 +23,15 @@ import BookingPage from './pages/BookingPage.jsx';
 import BookingConfirmPage from './pages/BookingConfirmPage.jsx';
 import HelpPage from './features/help/components/HelpPage.jsx';
 import ImportCatalogPage from './pages/ImportCatalogPage/index.jsx';
+import ConnectDeskLoginPage from './pages/connectdesk/ConnectDeskLoginPage.jsx';
+import ConnectDeskLayout from './pages/connectdesk/ConnectDeskLayout.jsx';
+import ConnectDeskTenantsTab from './pages/connectdesk/ConnectDeskTenantsTab.jsx';
+import ConnectDeskUsersTab from './pages/connectdesk/ConnectDeskUsersTab.jsx';
 
 // Context
 import { TreatmentProvider } from './Context/TreatmentContext.jsx';
 import { AuthProvider, useAuth } from './Context/AuthContext.jsx';
 import { UserProvider } from './Context/UserContext.jsx';
-import { SettingsProvider } from './Context/SettingsContext.jsx';
 import { IntegrationProvider } from './Context/IntegrationContext.jsx';
 
 // Redirect to /login if not authenticated
@@ -82,6 +83,20 @@ const router = createBrowserRouter([
     path: '/help',
     element: <HelpPage />,
   },
+  // Connect Desk — super admin console (independent auth via cd_token)
+  {
+    path: '/connect-desk/login',
+    element: <ConnectDeskLoginPage />,
+  },
+  {
+    path: '/connect-desk',
+    element: <ConnectDeskLayout />,
+    children: [
+      { index: true,    element: <Navigate to="/connect-desk/tenants" replace /> },
+      { path: 'tenants', element: <ConnectDeskTenantsTab /> },
+      { path: 'users',   element: <ConnectDeskUsersTab /> },
+    ],
+  },
   {
     path: '/',
     element: <ProtectedRoute />,
@@ -90,10 +105,8 @@ const router = createBrowserRouter([
       { path: 'treatment/:id',  element: <TreatmentPage /> },
       { path: 'patients',       element: <PatientsPage /> },
       { path: 'files',          element: <RoleRoute allow={['Owner','Assistant','Doctor']}><PatientFilesPage /></RoleRoute> },
-      { path: 'transactions',   element: <RoleRoute allow={['Owner','Assistant']}><TransactionsPage /></RoleRoute> },
       { path: 'invoices',       element: <RoleRoute allow={['Owner','Assistant']}><InvoicesPage /></RoleRoute> },
       { path: 'lab',            element: <RoleRoute allow={['Owner','Assistant','Doctor']}><LabPage /></RoleRoute> },
-      { path: 'inventory',      element: <RoleRoute allow={['Owner','Assistant']}><InventoryPage /></RoleRoute> },
       { path: 'insights',       element: <RoleRoute allow={['Owner']}><ReportsPage /></RoleRoute> },
       { path: 'whatsapp',       element: <RoleRoute allow={['Owner']}><WhatsAppPage /></RoleRoute> },
       { path: 'settings',       element: <RoleRoute allow={['Owner']}><SettingsPage /></RoleRoute> },
@@ -107,13 +120,11 @@ function App() {
   return (
     <AuthProvider>
       <UserProvider>
-        <SettingsProvider>
           <IntegrationProvider>
             <TreatmentProvider>
               <RouterProvider router={router} />
             </TreatmentProvider>
           </IntegrationProvider>
-        </SettingsProvider>
       </UserProvider>
     </AuthProvider>
   );

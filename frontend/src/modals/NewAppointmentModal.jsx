@@ -90,7 +90,7 @@ const NewAppointmentModal = ({ isOpen, onClose, onSave, appointmentToEdit, defau
     time: getIndiaTime(),
     duration: '30',
     type: 'Consultation',
-    notes: '',
+    chief_complaint: '',
     whatsapp_language: '',
   });
 
@@ -113,7 +113,7 @@ const NewAppointmentModal = ({ isOpen, onClose, onSave, appointmentToEdit, defau
             time: timeStr,
             duration: '30',
             type: appointmentToEdit.type,
-            notes: appointmentToEdit.notes || '',
+            chief_complaint: appointmentToEdit.chief_complaint || appointmentToEdit.notes || '',
             whatsapp_language: appointmentToEdit.whatsapp_language || '',
         });
 
@@ -129,7 +129,7 @@ const NewAppointmentModal = ({ isOpen, onClose, onSave, appointmentToEdit, defau
             time: getIndiaTime(),
             duration: '30',
             type: 'Consultation',
-            notes: '',
+            chief_complaint: '',
             whatsapp_language: '',
         });
         setSearchTerm(defaultPatient
@@ -254,7 +254,7 @@ const NewAppointmentModal = ({ isOpen, onClose, onSave, appointmentToEdit, defau
         type: formData.type,
         status: appointmentToEdit ? appointmentToEdit.status : 'Scheduled',
         room_number: 'Room 1',
-        notes: formData.notes,
+        chief_complaint: formData.chief_complaint,
         ...(formData.whatsapp_language ? { whatsapp_language: formData.whatsapp_language } : {}),
       };
 
@@ -508,17 +508,17 @@ const NewAppointmentModal = ({ isOpen, onClose, onSave, appointmentToEdit, defau
                 </div>
               </div>
 
-              {/* --- NOTES --- */}
+              {/* --- CHIEF COMPLAINT --- */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-slate-500 uppercase">Notes (Optional)</label>
+                <label className="text-xs font-semibold text-slate-500 uppercase">Chief Complaint</label>
                 <div className="relative">
                   <FileText className="absolute left-3 top-3 text-slate-400" size={18} />
-                  <textarea 
+                  <textarea
                     rows="3"
                     className="w-full pl-10 pr-4 py-2.5 border border-slate-300 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-[#137fec] outline-none bg-white dark:bg-slate-800 resize-none"
-                    placeholder="Add specific instructions..."
-                    value={formData.notes}
-                    onChange={(e) => setFormData({...formData, notes: e.target.value})}
+                    placeholder="Reason for visit / patient's main complaint..."
+                    value={formData.chief_complaint}
+                    onChange={(e) => setFormData({...formData, chief_complaint: e.target.value})}
                   ></textarea>
                 </div>
               </div>

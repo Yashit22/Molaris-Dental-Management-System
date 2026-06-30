@@ -9,6 +9,7 @@ const ReportJobSchema = new mongoose.Schema({
   transcript:    { type: String },
   reportText:    { type: String },
   driveLinks:    { type: mongoose.Schema.Types.Mixed, default: {} },
+  driveFileIds:  { type: mongoose.Schema.Types.Mixed, default: {} }, // template.id -> drive_file_id (for overwrite on regenerate)
   autofillData:  { type: mongoose.Schema.Types.Mixed },
   templateId:    { type: String },
   detailLevel:   { type: String, enum: ['brief', 'standard', 'detailed'], default: 'standard' },

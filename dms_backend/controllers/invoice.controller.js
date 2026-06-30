@@ -18,6 +18,7 @@ export async function getInvoices(req, res) {
   try {
     const filter = {};
     if (req.query.patient_id) filter.patient_id = req.query.patient_id;
+    if (req.query.visit_id)   filter.visit_id   = req.query.visit_id;
     const invoices = await Invoice.find(filter).sort({ createdAt: -1 });
     res.json(invoices);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -35,83 +36,47 @@ export async function getInvoiceById(req, res) {
 
 // POST /api/invoices
 export async function createInvoice(req, res) {
-  const { Invoice, InventoryItem, InventoryLog, Transaction, LabOrder } = req.tenantModels;
+  const { Invoice, LabOrder } = req.tenantModels;
   try {
     const {
         patient_id, patient_name, patient_phone, date, items,
-        subtotal, total_amount, paid_amount, payment_method
+        subtotal, total_amount, visit_id,
     } = req.body;
 
     // 1. Generate ID
     const invoice_id = await generateInvoiceId(Invoice);
 
-    // 2. INVENTORY LOGIC: Deduct Stock
-    for (const item of items) {
-        if (item.type === 'Pharmacy' && item.item_id) {
-            const inventoryItem = await InventoryItem.findById(item.item_id);
-            if (inventoryItem) {
-                inventoryItem.stock_on_hand -= Number(item.quantity);
-                
-                // Recalculate Status - pre-save hook on model should handle this if configured, 
-                // but we'll manually set it as per original controller logic
-                if(inventoryItem.stock_on_hand <= 0) inventoryItem.status = 'Out of Stock';
-                else if(inventoryItem.stock_on_hand <= inventoryItem.min_stock_level) inventoryItem.status = 'Low';
-                else inventoryItem.status = 'Good';
-
-                await inventoryItem.save();
-
-                await InventoryLog.create({
-                    item_id: item.item_id,
-                    type: 'Stock Out',
-                    quantity: Number(item.quantity),
-                    reason: 'Sold to Patient',
-                    notes: `Invoice: ${invoice_id} - Sold to ${patient_name}`,
-                    date: new Date()
-                });
-            }
-        }
-    }
-
-    // 3. Save Invoice
+    // 2. Save Invoice
     const newInvoice = new Invoice({
         invoice_id,
         patient_id,
         patient_name,
         patient_phone,
+        visit_id: visit_id || null,
         date,
         items,
         subtotal,
         total_amount,
-        paid_amount: Number(paid_amount),
-        payment_method
     });
 
     await newInvoice.save();
 
-    // 4. Mark Lab Orders as invoiced
+    // 4. Create LabOrder documents for each Lab item so they appear in Lab Orders section
     for (const item of items) {
-      if (item.type === 'Lab' && item.item_id) {
-        await LabOrder.findByIdAndUpdate(item.item_id, { invoice_id: newInvoice._id });
-      }
-    }
-
-    // 5. Record Initial Transaction
-    if (Number(paid_amount) > 0) {
-        await Transaction.create({
-            type: 'Income',
-            category: 'Invoice Payment',
-            amount: Number(paid_amount),
-            payment_method: payment_method,
-            date: new Date(),
-            party_name: patient_name,
-            invoice_id: newInvoice._id,
-            notes: `Initial payment for ${invoice_id}`
+      if (item.type === 'Lab') {
+        await LabOrder.create({
+          patient_id,
+          visit_id:       visit_id || null,
+          invoice_id:     newInvoice._id,
+          order_date:     date || new Date(),
+          items: [{
+            item_name:    item.name,
+            cost:         item.rate,
+          }],
+          cost_to_clinic: item.rate * (item.quantity || 1),
+          status:         'Sent',
         });
-
-        // Log to analytics if status becomes 'Paid' or at least we record a payment
-        if (newInvoice.status === 'Paid') {
-            logEvent(req.user.tenantId, 'invoice_paid', { invoiceId: newInvoice.invoice_id, amount: newInvoice.total_amount });
-        }
+      }
     }
 
     // Fire-and-forget WhatsApp notification (invoice + latest prescription)
@@ -143,9 +108,6 @@ export async function createInvoice(req, res) {
               patientId: patient.patientId,
               mobile: patient.contact?.mobile || '',
               amount: formatted,
-              paidAmount: String(newInvoice.paid_amount),
-              pendingAmount: String(newInvoice.pending_amount),
-              paymentMethod: newInvoice.payment_method || '',
               invoiceId: newInvoice.invoice_id,
               drug: rx?.drug_name || '',
               dosage: rx?.dosage || '',
@@ -169,95 +131,56 @@ export async function createInvoice(req, res) {
 
 // PUT /api/invoices/:id (Manual Update)
 export async function updateInvoice(req, res) {
-  const { Invoice, Transaction } = req.tenantModels;
+  const { Invoice, LabOrder } = req.tenantModels;
   try {
       const invoice = await Invoice.findById(req.params.id);
-      if(!invoice) return res.status(404).json({error: "Invoice not found"});
+      if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+      const { subtotal, total_amount, items, notes, date } = req.body;
+      if (subtotal !== undefined)     invoice.subtotal     = subtotal;
+      if (total_amount !== undefined) invoice.total_amount = total_amount;
+      if (items !== undefined)        invoice.items        = items;
+      if (notes !== undefined)        invoice.notes        = notes;
+      if (date !== undefined)         invoice.date         = date;
+      await invoice.save();
 
-      if (req.body.paid_amount !== undefined) {
-          const oldPaid = invoice.paid_amount || 0;
-          const newPaid = Number(req.body.paid_amount);
-          const delta   = newPaid - oldPaid;
+      // Reconcile LabOrder documents with the invoice's current Lab items.
+      // Preserve existing orders (and their status) matched by item name; create
+      // only genuinely new ones; remove orders whose item no longer appears.
+      if (items !== undefined) {
+        const labItems = items.filter(it => it.type === 'Lab' && it.name?.trim());
+        const existing = await LabOrder.find({ invoice_id: invoice._id });
 
-          invoice.paid_amount = newPaid;
+        const wantNames = new Set(labItems.map(it => it.name.trim().toLowerCase()));
+        const haveNames = new Set();
 
-          // Record a transaction for any additional payment collected
-          if (delta > 0) {
-              await Transaction.create({
-                  type: 'Income',
-                  category: 'Invoice Payment',
-                  amount: delta,
-                  payment_method: req.body.payment_method || invoice.payment_method,
-                  date: new Date(),
-                  party_name: invoice.patient_name,
-                  invoice_id: invoice._id,
-                  notes: `Payment update for ${invoice.invoice_id}`,
-              });
-
-              // Log to analytics
-              if (invoice.status === 'Paid') {
-                  logEvent(req.user.tenantId, 'invoice_paid', { invoiceId: invoice.invoice_id, amount: invoice.total_amount });
-              }
+        // Remove orders no longer on the invoice
+        for (const ord of existing) {
+          const nm = (ord.items?.[0]?.item_name || '').trim().toLowerCase();
+          if (!wantNames.has(nm)) {
+            await LabOrder.deleteOne({ _id: ord._id });
+          } else {
+            haveNames.add(nm);
           }
+        }
+
+        // Create orders for new lab items only
+        for (const item of labItems) {
+          const nm = item.name.trim().toLowerCase();
+          if (haveNames.has(nm)) continue;
+          await LabOrder.create({
+            patient_id:     invoice.patient_id,
+            visit_id:       invoice.visit_id || null,
+            invoice_id:     invoice._id,
+            order_date:     invoice.date || new Date(),
+            items: [{ item_name: item.name, cost: item.rate }],
+            cost_to_clinic: item.rate * (item.quantity || 1),
+            status:         'Sent',
+          });
+          haveNames.add(nm);
+        }
       }
 
-      await invoice.save();
       res.json(invoice);
   } catch (err) { res.status(400).json({ error: err.message }); }
 }
 
-// ==========================================
-//             TRANSACTION LOGIC
-// ==========================================
-
-// GET /api/transactions
-export async function getTransactions(req, res) {
-  const { Transaction } = req.tenantModels;
-  try {
-      const filter = {};
-      if (req.query.invoice_id) filter.invoice_id = req.query.invoice_id;
-      const transactions = await Transaction.find(filter).sort({ date: -1 });
-      res.json(transactions);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-}
-
-// POST /api/transactions (Record new payment / expense)
-export async function recordTransaction(req, res) {
-  const { Transaction, Invoice } = req.tenantModels;
-  try {
-    const { 
-        type, category, amount, payment_method, 
-        date, party_name, invoice_id, vendor_id, notes 
-    } = req.body;
-    
-    // 1. Create the Transaction Record
-    const txn = new Transaction({
-        type, 
-        category, 
-        amount, 
-        payment_method,
-        date: date || new Date(),
-        party_name,
-        invoice_id,
-        vendor_id,
-        notes
-    });
-    await txn.save();
-
-    // 2. Link to Invoice (If Income)
-    if (type === 'Income' && invoice_id) {
-      const invoice = await Invoice.findById(invoice_id);
-      if(invoice) {
-          invoice.paid_amount += Number(amount);
-          await invoice.save(); // Updates status to Paid/Partially Paid
-
-          // Log to analytics if paid
-          if (invoice.status === 'Paid') {
-            logEvent(req.user.tenantId, 'invoice_paid', { invoiceId: invoice.invoice_id, amount: invoice.total_amount });
-          }
-      }
-    }
-
-    res.status(201).json(txn);
-  } catch (err) { res.status(400).json({ error: err.message }); }
-}

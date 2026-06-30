@@ -69,7 +69,7 @@ export const AddLogModal = ({ isOpen, onClose, onSave }) => {
 
         <form className="p-6 space-y-4" onSubmit={handleSubmit}>
           
-          {/* Transaction Type Toggle */}
+          {/* Log Type Toggle */}
           <div className="flex p-1 bg-slate-100 rounded-xl">
             <button 
               type="button"
@@ -206,12 +206,12 @@ const InventoryLogs = ({ medicineEnabled = true, consumableEnabled = true, searc
       {/* ── Mobile: cards ── */}
       <div className="sm:hidden flex flex-col gap-0 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
         <div className="p-3 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center">
-          <h3 className="font-bold text-slate-700 text-sm">Inventory Transactions</h3>
+          <h3 className="font-bold text-slate-700 text-sm">Inventory Logs</h3>
           <button onClick={fetchLogs} className="text-xs text-blue-600 hover:underline">Refresh</button>
         </div>
         <div className="divide-y divide-slate-100">
           {visibleLogs.length === 0
-            ? <p className="p-4 text-center text-xs text-slate-400">No transactions found.</p>
+            ? <p className="p-4 text-center text-xs text-slate-400">No logs found.</p>
             : visibleLogs.map(log => (
               <div key={log._id} className="p-3 flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
@@ -234,7 +234,7 @@ const InventoryLogs = ({ medicineEnabled = true, consumableEnabled = true, searc
       {/* ── Desktop: table ── */}
       <div className="hidden sm:flex flex-col bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden h-full">
         <div className="p-4 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center">
-          <h3 className="font-bold text-slate-700">Inventory Transactions</h3>
+          <h3 className="font-bold text-slate-700">Inventory Logs</h3>
           <button onClick={fetchLogs} className="text-xs text-blue-600 hover:underline">Refresh</button>
         </div>
         <div className="overflow-auto flex-1">
@@ -268,7 +268,7 @@ const InventoryLogs = ({ medicineEnabled = true, consumableEnabled = true, searc
                   <td className="p-4 text-right font-mono text-slate-600">{new Date(log.date).toLocaleDateString()}</td>
                 </tr>
               ))}
-              {logs.length === 0 && <tr><td colSpan="6" className="p-6 text-center text-slate-400">No transactions found.</td></tr>}
+              {logs.length === 0 && <tr><td colSpan="6" className="p-6 text-center text-slate-400">No logs found.</td></tr>}
             </tbody>
           </table>
         </div>

@@ -89,7 +89,13 @@ api.interceptors.response.use(
       if (error.response.status === 401) {
         localStorage.removeItem('dms_token');
         localStorage.removeItem('dms_user');
-        if (!window.location.pathname.startsWith('/login')) {
+        // Don't bounce users away from public auth pages — they have no token
+        // by design, and a stray 401 here would interrupt the reset flow.
+        const publicAuthPaths = ['/login', '/forgot-password', '/reset-password', '/register'];
+        const onPublicAuthPage = publicAuthPaths.some((p) =>
+          window.location.pathname.startsWith(p)
+        );
+        if (!onPublicAuthPage) {
           window.location.href = '/login';
         }
       }

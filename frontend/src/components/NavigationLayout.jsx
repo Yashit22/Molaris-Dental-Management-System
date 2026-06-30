@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../Context/AuthContext.jsx';
 import { useUser } from '../Context/UserContext.jsx';
-import { useInventorySettings } from '../Context/SettingsContext.jsx';
 import DrSmilo from '../features/help/assistant/DrSmilo.jsx';
 
 const SidebarItem = ({ icon, label, to = "#", active = false, onClick }) => {
@@ -54,44 +53,98 @@ const DrawerItem = ({ icon, label, to, active, onClick }) => (
 
 const ClinicInfoModal = ({ isOpen, onClose, tenant }) => {
   if (!isOpen) return null;
+
+  const addressLine = [tenant?.address, tenant?.city, tenant?.state, tenant?.zipCode]
+    .filter(Boolean).join(', ');
+
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-[#1a2634] rounded-lg p-6 max-w-md w-full mx-4 max-h-96 overflow-y-auto">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-white">{tenant?.name || 'Clinic'}</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
-            <span className="material-symbols-outlined">close</span>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+      <div
+        className="bg-white dark:bg-[#1a2634] rounded-2xl shadow-2xl max-w-sm w-full mx-4 overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="px-6 pt-6 pb-8 relative" style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}>
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 text-blue-200 hover:text-white transition-colors"
+          >
+            <span className="material-symbols-outlined text-[20px]">close</span>
           </button>
-        </div>
-        <div className="space-y-3">
-          {tenant?.address && (
-            <div className="flex gap-3">
-              <span className="material-symbols-outlined text-slate-400 flex-shrink-0 text-sm">location_on</span>
-              <p className="text-slate-600 dark:text-slate-300 text-sm">{tenant.address}</p>
+          <div className="flex items-center gap-4">
+            <div className="size-14 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center flex-shrink-0">
+              <img src="/MolarisCubicLogoSmall.png" alt="Logo" className="size-10 object-contain" />
             </div>
-          )}
-          {tenant?.city && tenant?.state && (
-            <div className="flex gap-3">
-              <span className="material-symbols-outlined text-slate-400 flex-shrink-0 text-sm">apartment</span>
-              <p className="text-slate-600 dark:text-slate-300 text-sm">{tenant.city}, {tenant.state}{tenant.zipCode ? ` ${tenant.zipCode}` : ''}</p>
+            <div>
+              <h2 className="text-lg font-bold leading-tight" style={{ color: '#fff' }}>{tenant?.name || 'Clinic'}</h2>
+              {tenant?.country && (
+                <p className="text-blue-200 text-xs mt-0.5">{tenant.country}</p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="px-6 py-5 space-y-4">
+          {addressLine && (
+            <div className="flex items-start gap-3">
+              <span className="material-symbols-outlined text-blue-500 text-[18px] flex-shrink-0 mt-0.5">location_on</span>
+              <p className="text-slate-700 dark:text-slate-300 text-sm">{addressLine}</p>
             </div>
           )}
           {tenant?.phone && (
-            <div className="flex gap-3">
-              <span className="material-symbols-outlined text-slate-400 flex-shrink-0 text-sm">phone</span>
-              <a href={`tel:${tenant.phone}`} className="text-blue-600 hover:underline text-sm">{tenant.phone}</a>
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-blue-500 text-[18px] flex-shrink-0">phone</span>
+              <a href={`tel:${tenant.phone}`} className="text-slate-700 dark:text-slate-300 hover:text-blue-600 text-sm transition-colors">
+                {tenant.phone}
+              </a>
             </div>
           )}
           {tenant?.email && (
-            <div className="flex gap-3">
-              <span className="material-symbols-outlined text-slate-400 flex-shrink-0 text-sm">mail</span>
-              <a href={`mailto:${tenant.email}`} className="text-blue-600 hover:underline text-sm truncate">{tenant.email}</a>
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-blue-500 text-[18px] flex-shrink-0">mail</span>
+              <a href={`mailto:${tenant.email}`} className="text-slate-700 dark:text-slate-300 hover:text-blue-600 text-sm transition-colors truncate">
+                {tenant.email}
+              </a>
+            </div>
+          )}
+          {tenant?.website && (
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-blue-500 text-[18px] flex-shrink-0">language</span>
+              <a href={tenant.website} target="_blank" rel="noopener noreferrer" className="text-slate-700 dark:text-slate-300 hover:text-blue-600 text-sm transition-colors truncate">
+                {tenant.website}
+              </a>
+            </div>
+          )}
+
+          {(tenant?.currency || tenant?.timezone) && (
+            <div className="border-t border-slate-100 dark:border-slate-700 pt-4 grid grid-cols-2 gap-3">
+              {tenant?.currency && (
+                <div className="bg-slate-50 dark:bg-slate-800 rounded-xl px-3 py-2.5">
+                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Currency</p>
+                  <p className="text-slate-800 dark:text-slate-200 text-sm font-semibold">{tenant.currency}</p>
+                </div>
+              )}
+              {tenant?.timezone && (
+                <div className="bg-slate-50 dark:bg-slate-800 rounded-xl px-3 py-2.5">
+                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Timezone</p>
+                  <p className="text-slate-800 dark:text-slate-200 text-sm font-semibold truncate" title={tenant.timezone}>
+                    {tenant.timezone}
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>
-        <button onClick={onClose} className="w-full mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium">
-          Close
-        </button>
+
+        <div className="px-6 pb-5">
+          <button
+            onClick={onClose}
+            className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition-colors text-sm font-semibold"
+          >
+            Close
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -102,7 +155,6 @@ const NavigationLayout = ({ children }) => {
   const navigate = useNavigate();
   const { user: authUser, logout } = useAuth();
   const { user, tenant } = useUser();
-  const { inventorySettings } = useInventorySettings();
   const [showClinicModal, setShowClinicModal] = React.useState(false);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [showSupportPopover, setShowSupportPopover] = useState(false);
@@ -114,15 +166,12 @@ const NavigationLayout = ({ children }) => {
     setTimeout(() => setCopied(false), 2000);
   }
 
-  const showInventoryNav =
-    inventorySettings.medicineEnabled || inventorySettings.consumableEnabled;
-
   const role = authUser?.role;
   const isOwner     = role === 'Owner';
   const isAssistant = role === 'Assistant';
   const isDoctor    = role === 'Doctor';
   const showDoctorRoutes    = isOwner || isAssistant || isDoctor;  // Files, Lab
-  const showAssistantRoutes = isOwner || isAssistant;              // + Transactions, Invoices, Inventory
+  const showAssistantRoutes = isOwner || isAssistant;
   const showOwnerRoutes     = isOwner;                             // + Insights, WhatsApp, Settings
 
   function handleLogout() {
@@ -143,7 +192,6 @@ const NavigationLayout = ({ children }) => {
     { icon: 'person', label: 'Patients', to: '/patients' },
     ...(showAssistantRoutes ? [
       { icon: 'receipt_long', label: 'Invoices', to: '/invoices' },
-      { icon: 'credit_card', label: 'Finance', to: '/transactions' },
     ] : []),
   ];
 
@@ -171,12 +219,8 @@ const NavigationLayout = ({ children }) => {
               <SidebarItem icon="calendar_month" label="Appointments" to="/"          active={isActive('/')} />
               <SidebarItem icon="person"         label="Patients"     to="/patients"  active={isActive('/patients')} />
               {showDoctorRoutes    && <SidebarItem icon="folder"       label="Files"        to="/files"        active={isActive('/files')} />}
-              {showAssistantRoutes && <SidebarItem icon="credit_card"  label="Transactions" to="/transactions" active={isActive('/transactions')} />}
               {showAssistantRoutes && <SidebarItem icon="receipt_long" label="Invoices"     to="/invoices"     active={isActive('/invoices')} />}
               {showDoctorRoutes    && <SidebarItem icon="science"      label="Lab"          to="/lab"          active={isActive('/lab')} />}
-              {showAssistantRoutes && showInventoryNav && (
-                <SidebarItem icon="inventory" label="Inventory" to="/inventory" active={isActive('/inventory')} />
-              )}
               {showOwnerRoutes && <SidebarItem icon="dashboard"   label="Insights"     to="/insights"  active={isActive('/insights')} />}
               {showOwnerRoutes && <SidebarItem icon="chat"        label="WhatsApp"     to="/whatsapp"  active={isActive('/whatsapp')} />}
               {showOwnerRoutes && <SidebarItem icon="settings"    label="Settings"     to="/settings"  active={isActive('/settings')} />}
@@ -335,12 +379,8 @@ const NavigationLayout = ({ children }) => {
               <DrawerItem icon="calendar_month" label="Appointments" to="/"          active={isActive('/')}           onClick={closeDrawer} />
               <DrawerItem icon="person"         label="Patients"     to="/patients"  active={isActive('/patients')}   onClick={closeDrawer} />
               {showDoctorRoutes    && <DrawerItem icon="folder"       label="Files"        to="/files"        active={isActive('/files')}        onClick={closeDrawer} />}
-              {showAssistantRoutes && <DrawerItem icon="credit_card"  label="Transactions" to="/transactions" active={isActive('/transactions')} onClick={closeDrawer} />}
               {showAssistantRoutes && <DrawerItem icon="receipt_long" label="Invoices"     to="/invoices"     active={isActive('/invoices')}     onClick={closeDrawer} />}
               {showDoctorRoutes    && <DrawerItem icon="science"      label="Lab"          to="/lab"          active={isActive('/lab')}          onClick={closeDrawer} />}
-              {showAssistantRoutes && showInventoryNav && (
-                <DrawerItem icon="inventory" label="Inventory" to="/inventory" active={isActive('/inventory')} onClick={closeDrawer} />
-              )}
               {showOwnerRoutes && <DrawerItem icon="dashboard"   label="Insights"     to="/insights"  active={isActive('/insights')}  onClick={closeDrawer} />}
               {showOwnerRoutes && <DrawerItem icon="chat"        label="WhatsApp"     to="/whatsapp"  active={isActive('/whatsapp')}  onClick={closeDrawer} />}
               {showOwnerRoutes && <DrawerItem icon="settings"    label="Settings"     to="/settings"  active={isActive('/settings')}  onClick={closeDrawer} />}

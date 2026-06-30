@@ -4,8 +4,6 @@ import {
   updateSettings,
   testSend,
   sendReportEmail,
-  getPatientEmailStatus,
-  sendTreatmentSummary,
   getLogs,
 } from '../controllers/email.controller.js';
 
@@ -16,10 +14,8 @@ router.get('/settings', getSettings);
 router.put('/settings', updateSettings);
 router.post('/test', testSend);
 
-// Send (must register specific paths before /:id wildcards)
-router.get('/patient-status/:patientId', getPatientEmailStatus);
+// Send
 router.post('/send-report', sendReportEmail);
-router.post('/send-treatment-summary', sendTreatmentSummary);
 
 // Logs
 router.get('/logs', getLogs);

@@ -10,7 +10,7 @@ export async function getOrders(req, res) {
     const orders = await LabOrder.find()
       .populate('patient_id', 'first_name last_name patientId')
       .populate('vendor_id', 'name')
-      .populate('invoice_id', 'status paid_amount total_amount')
+      .populate('invoice_id', 'total_amount')
       .sort({ createdAt: -1 });
     res.json(orders);
   } catch (err) {
@@ -64,9 +64,14 @@ export async function updateOrderStatus(req, res) {
 
 // PUT /api/labs/orders/:id — full update (from edit modal)
 export async function updateOrderFull(req, res) {
-  const { LabOrder } = req.tenantModels;
+  const { LabOrder, Invoice } = req.tenantModels;
   try {
     const { patient_id, vendor_id, item_name, shade, cost_to_clinic, order_date, expected_delivery, notes, status } = req.body;
+
+    // Capture the previous order (and its item name + invoice link) so we can
+    // propagate name/price changes back to the matching invoice line.
+    const prev = await LabOrder.findById(req.params.id).lean();
+    const prevName = prev?.items?.[0]?.item_name || '';
 
     const updated = await LabOrder.findByIdAndUpdate(
       req.params.id,
@@ -85,6 +90,26 @@ export async function updateOrderFull(req, res) {
       .populate('vendor_id', 'name');
 
     if (!updated) return res.status(404).json({ error: 'Order not found' });
+
+    // Sync the change back to the linked invoice's Lab line (match by old name).
+    if (prev?.invoice_id) {
+      const invoice = await Invoice.findById(prev.invoice_id);
+      if (invoice) {
+        const line = invoice.items.find(it =>
+          it.type === 'Lab' &&
+          (it.name || '').trim().toLowerCase() === prevName.trim().toLowerCase()
+        );
+        if (line) {
+          line.name  = item_name;
+          line.rate  = cost_to_clinic;
+          line.total = cost_to_clinic * (line.quantity || 1);
+          invoice.subtotal     = invoice.items.reduce((s, it) => s + (it.total || 0), 0);
+          invoice.total_amount = invoice.subtotal;
+          await invoice.save();
+        }
+      }
+    }
+
     res.json(updated);
   } catch (err) {
     res.status(400).json({ error: err.message });

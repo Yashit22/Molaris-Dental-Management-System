@@ -307,6 +307,27 @@ All routes prefixed with `/api`. All routes except `/api/users/register` and `/a
 
 ---
 
+## AI Clinical Report — Live Voice → Report Flow
+
+Voice dictation is transcribed **live over a WebSocket relay** (Sarvam streaming) — there is no batch upload-and-poll STT. If the socket fails, the user re-records; there is no fallback.
+
+**Backend pieces:**
+- `ws/reportStream.ws.js` — WS relay mounted on the HTTP server at `wss://<host>/api/report/stream?token=<JWT>`. On upgrade: origin allow-list (`WS_ALLOWED_ORIGINS`), `jwt.verify`, tenant resolution (via shared `config/resolveTenantContext.js`), require `sarvamApiKey`. Distinct close codes: 4401 auth / 4404 tenant / 4422 no-key. Per session it spawns `ffmpeg` (bundled `ffmpeg-static`, webm/opus → 16 kHz mono PCM s16le) → Sarvam `speechToTextTranslateStreaming` (`sarvamai` SDK, model `saaras:v2.5`). Protocol → client: `ready` / `data` / `final` / `error`; client → relay: binary chunks + `{type:'stop'}`.
+- `config/resolveTenantContext.js` — shared tenant resolver used by both the Express `resolveTenant` middleware and the WS upgrade handler (identical resolution).
+- `controllers/report.controller.js` — `POST /api/report/transcribe` is now **text-only** (JSON `transcript_text` + `audio_duration_seconds`), creates a `ReportJob{status:'transcribed'}`. `POST /api/report/generate` streams the report via SSE (model `sarvam-105b`). Multi-template, autofill extraction, PDF/Drive save, delivery settings are unchanged.
+- `index.js` — uses `http.createServer(app)` (not `app.listen`) so the WS relay can attach via `server.on('upgrade')`.
+- **Removed:** old `routes/transcribe.routes.js` + `controllers/transcribe.controller.js` (synchronous `saaras:v2.5` `/api/transcribe`), and batch STT job/poll code.
+
+**Frontend pieces:**
+- `hooks/useLiveTranscriptionSocket.js` — WS client: `connect()` (resolves on `ready`), `sendChunk()` (re-sends EBML-header first chunk on reconnect, queues pre-`ready` chunks, backoff `[500,1500]`), `stop()` (resolves with finalized transcript), `close()`. Derives `wss://` host from `VITE_API_BASE_URL`.
+- `modals/ClinicalReportModal.jsx` — MediaRecorder@100 ms feeds both local playback buffer and `liveSocket.sendChunk`; shows rolling live transcript; on stop awaits the socket `final`, posts text to `/report/transcribe`, then generates via SSE.
+
+**Billing:** intentionally NOT implemented (no credit/getBalance/debit gates). The Vital reference flow bills `duration/60` per dictation; that plumbing was skipped here.
+
+**Deploy requirement:** `ffmpeg` ships via the `ffmpeg-static` npm package (no system ffmpeg needed). `WS_ALLOWED_ORIGINS` (comma-separated) should be set in production; empty = allow any origin (dev only).
+
+---
+
 ## Environment Variables
 
 ### Backend (`dms_backend/.env`)

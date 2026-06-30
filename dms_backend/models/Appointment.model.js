@@ -22,6 +22,7 @@ const AppointmentSchema = new mongoose.Schema({
   
   room_number: String,
   token_number: Number,
+  chief_complaint: { type: String, default: '' },
   notes: { type: String },
   whatsapp_language: { type: String, enum: ['en', 'hi', 'mr'], default: null },
 }, { timestamps: true });

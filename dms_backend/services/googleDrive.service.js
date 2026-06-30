@@ -97,6 +97,24 @@ export async function uploadFileToDrive(credentials, folderId, fileBuffer, fileN
 }
 
 /**
+ * Overwrites the content (and optionally the name/mimeType) of an existing Drive
+ * file in place. The file id and webViewLink are preserved — useful for
+ * regenerating a report without creating a duplicate.
+ */
+export async function updateFileInDrive(credentials, driveFileId, fileBuffer, fileName, mimeType) {
+  const d = drive(credentials);
+
+  const res = await d.files.update({
+    fileId:      driveFileId,
+    requestBody: fileName ? { name: fileName } : {},
+    media:       { mimeType, body: Readable.from(fileBuffer) },
+    fields:      'id, name, webViewLink, mimeType',
+  });
+
+  return res.data;
+}
+
+/**
  * Permanently deletes a file from Drive.
  */
 export async function deleteFileFromDrive(credentials, driveFileId) {
@@ -131,6 +149,22 @@ export async function createSubfolder(credentials, parentId, folderName) {
     fields: 'id',
   });
   return res.data.id;
+}
+
+/**
+ * Downloads a file from Drive and returns its content as a Buffer.
+ * Returns: { data: Buffer, mimeType: string }
+ */
+export async function downloadFileFromDrive(credentials, driveFileId) {
+  const d = drive(credentials);
+  const response = await d.files.get(
+    { fileId: driveFileId, alt: 'media' },
+    { responseType: 'arraybuffer' }
+  );
+  return {
+    data: Buffer.from(response.data),
+    mimeType: response.headers['content-type'] || 'application/octet-stream',
+  };
 }
 
 /**

@@ -98,7 +98,7 @@ export default function DrSmilo() {
   const PANEL_W  = 380;
   const PANEL_H  = 560;
   const GAP      = 12; // gap between FAB and panel
-  const FAB_H    = 44; // approximate FAB height
+  const FAB_H    = 48; // FAB circle height
 
   // Clamp panel so it stays within viewport
   const panelRight  = Math.max(8, Math.min(window.innerWidth  - PANEL_W  - 8, pos.right));
@@ -107,29 +107,36 @@ export default function DrSmilo() {
   return (
     <>
       {/* ── Floating launcher button ── */}
-      <button
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onClick={handleFabClick}
+      <div
         style={{ right: pos.right, bottom: pos.bottom, touchAction: 'none' }}
-        className={`fixed z-50 flex items-center gap-2.5 shadow-lg transition-shadow duration-300 select-none ${
-          dragging ? 'cursor-grabbing shadow-xl' : 'cursor-grab'
-        } ${
-          smilo.isOpen
-            ? 'bg-white border border-slate-200 rounded-full px-3 py-2 text-slate-600 hover:bg-slate-50'
-            : 'bg-white border-2 border-[#137fec] rounded-2xl px-3 py-2 hover:shadow-xl'
-        }`}
-        title={smilo.isOpen ? 'Close Dr. Smilo' : 'Ask Dr. Smilo'}
+        className="fixed z-50 flex flex-col items-center gap-1.5 select-none"
       >
-        <SmiloAvatar state={smilo.isOpen ? 'idle' : (hasOpened ? 'happy' : 'idle')} size={28} />
-        {!smilo.isOpen && (
-          <span className="text-sm font-semibold text-[#137fec] pr-1">Ask Dr. Smilo</span>
+        {/* Speech bubble — only when closed */}
+        {!smilo.isOpen && !dragging && (
+          <div className="relative bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-md pointer-events-none">
+            <span className="text-xs font-semibold text-[#137fec] whitespace-nowrap">Ask Dr. Smilo</span>
+            {/* tail */}
+            <span className="absolute left-1/2 -translate-x-1/2 -bottom-[7px] w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[7px] border-t-white" />
+            <span className="absolute left-1/2 -translate-x-1/2 -bottom-[8px] w-0 h-0 border-l-[7px] border-l-transparent border-r-[7px] border-r-transparent border-t-[8px] border-t-slate-200" style={{ zIndex: -1 }} />
+          </div>
         )}
-        {smilo.isOpen && (
-          <span className="material-symbols-outlined text-[18px]">close</span>
-        )}
-      </button>
+        <button
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onClick={handleFabClick}
+          className={`flex items-center justify-center w-12 h-12 rounded-full shadow-lg transition-shadow duration-300 ${
+            dragging ? 'cursor-grabbing shadow-xl' : 'cursor-grab'
+          } ${
+            smilo.isOpen
+              ? 'bg-white border border-slate-200 hover:bg-slate-50'
+              : 'bg-white border-2 border-[#137fec] hover:shadow-xl'
+          }`}
+          title={smilo.isOpen ? 'Close Dr. Smilo' : 'Ask Dr. Smilo'}
+        >
+          <SmiloAvatar state={smilo.isOpen ? 'idle' : (hasOpened ? 'happy' : 'idle')} size={30} />
+        </button>
+      </div>
 
       {/* ── Chat panel ── */}
       <div

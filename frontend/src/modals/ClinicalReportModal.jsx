@@ -2,13 +2,13 @@ import { useRef, useState, useEffect } from 'react';
 import {
   X, Mic, MicOff, Loader2, CheckCircle, ExternalLink,
   FileText, Minimize2, Maximize2, Sparkles, Save, SendHorizonal,
-  ChevronDown, Mail, MessageSquare, XCircle, Pause, Play, Edit3,
-  RefreshCw, Headphones, HelpCircle, Settings2, AlertCircle,
+  ChevronDown, XCircle, Pause, Play, Edit3,
+  RefreshCw, Headphones, HelpCircle, Settings2,
 } from 'lucide-react';
 import { openExternal } from '../utils/openExternal';
 import API from '../services/api';
 import { useAuth } from '../Context/AuthContext.jsx';
-import { useIntegration } from '../Context/IntegrationContext.jsx';
+import { useLiveTranscriptionSocket } from '../hooks/useLiveTranscriptionSocket.js';
 
 // Substitute {{placeholder}} tokens; unknown tokens collapse to ''.
 export function applyVars(str, vars) {
@@ -171,7 +171,6 @@ const DETAIL_LEVELS = [
 
 export default function ClinicalReportModal({ isOpen, onClose, patientId, appointmentId, patient, onSuccess }) {
   const { user } = useAuth();
-  const { integrations } = useIntegration();
   const mediaRecorderRef  = useRef(null);
   const audioChunksRef    = useRef([]);
   const cancelledRef      = useRef(false);
@@ -182,6 +181,9 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
   const playbackUrlRef    = useRef(null);
   const isGeneratingRef   = useRef(false);
   const generateAbortRef  = useRef(null);
+
+  // Live transcription over WebSocket (browser → ffmpeg → Sarvam).
+  const liveSocket = useLiveTranscriptionSocket();
 
   // stages: idle | recording | paused | transcribing | editing | generating | done
   const [stage, setStage]               = useState('idle');
@@ -214,10 +216,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
   const [playbackProgress, setPlaybackProgress]     = useState(0);
   const [playbackDuration, setPlaybackDuration]     = useState(0);
 
-  // Delivery panel state (Approve & Send)
-  const [emailForm, setEmailForm]   = useState({ to: '', subject: '', body: '' });
-  const [deliver, setDeliver]       = useState({ cloud: true, email: false, whatsapp: false });
-  const [waForm, setWaForm]         = useState({ to: '', text: '' });
+  // Approve (save-to-Cloud) state
   const [delivering, setDelivering] = useState(false);
   const [deliverResults, setDeliverResults] = useState({});
 
@@ -273,50 +272,17 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
     }
   }, [stage]);
 
-  // Pre-fill delivery forms when report is done
+  // Load delivery settings (for the Branded PDF panel) when the report is done.
   useEffect(() => {
     if (stage !== 'done') return;
-    const patientEmail = patient?.contact?.email  || '';
-    const patientPhone = patient?.contact?.mobile || '';
-    const vars = reportDeliveryVars(patient, user, selectedTemplate);
-
-    setEmailForm({ to: patientEmail, subject: '', body: '' });
-    setWaForm({ to: patientPhone, text: '' });
     setDeliverResults({});
 
     API.get('/report/delivery-settings')
       .then(res => {
-        const s = res.data || {};
-        console.log('[ClinicalReportModal] Delivery settings loaded in done stage:', s);
-        setDeliverySettings(s);
-        setEmailForm(f => ({
-          ...f,
-          subject: applyVars(s.email?.subject || 'Your visit summary — {{date}}', vars),
-          body:    applyVars(s.email?.body    || 'Hi {{patientName}},\n\nPlease find your {{templateName}} attached.\n\nWarm regards,\n{{doctorName}}', vars),
-        }));
-        setWaForm(f => ({
-          ...f,
-          text: applyVars(s.whatsapp?.text || 'Hi {{patientName}}, please find your {{templateName}} from {{doctorName}}.', vars),
-        }));
-        setDeliver({
-          cloud:    s.defaults?.cloud    ?? true,
-          email:    s.defaults?.email    ?? false,
-          whatsapp: s.defaults?.whatsapp ?? false,
-        });
+        setDeliverySettings(res.data || {});
       })
       .catch(err => {
-        console.warn('[ClinicalReportModal] Failed to load delivery settings in done stage, using defaults:', {
-          status: err.response?.status,
-          data: err.response?.data,
-          message: err.message
-        });
-        setEmailForm(f => ({
-          ...f,
-          subject: applyVars('Your visit summary — {{date}}', vars),
-          body:    applyVars('Hi {{patientName}},\n\nPlease find your {{templateName}} attached.\n\nWarm regards,\n{{doctorName}}', vars),
-        }));
-        setWaForm(f => ({ ...f, text: applyVars('Hi {{patientName}}, please find your {{templateName}} from {{doctorName}}.', vars) }));
-        setDeliver({ cloud: true, email: false, whatsapp: false });
+        console.warn('[ClinicalReportModal] Failed to load delivery settings in done stage:', err.response?.status, err.message);
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage]);
@@ -357,9 +323,6 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
     setTextInput('');
     setJobId(null);
     setCachedTranscript(false);
-    setEmailForm({ to: '', subject: '', body: '' });
-    setDeliver({ cloud: true, email: false, whatsapp: false });
-    setWaForm({ to: '', text: '' });
     setDelivering(false);
     setDeliverResults({});
     setCancelling(false);
@@ -374,8 +337,9 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
   function handleClose() {
     if (stage === 'recording' || stage === 'paused') {
       cancelledRef.current = true;
-      stopRecording();
+      try { mediaRecorderRef.current?.stop(); } catch { /* ignore */ }
     }
+    liveSocket.disconnect();   // hard-close the WS without finalizing
     cleanupAudio();
     resetState();
     cancelledRef.current = false;
@@ -411,64 +375,23 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
     setCancelling(false);
   }
 
-  async function handleApproveAndSend() {
+  // Approve = save the report to Connect Cloud (Google Drive). Sharing (email /
+  // WhatsApp) is handled elsewhere in the app — not from this modal.
+  async function handleApprove() {
     setDelivering(true);
     const results = {};
-    let cloudLink = driveLinks[templateId] || '';
+    const existingLink = driveLinks[templateId] || '';
 
-    if (deliver.cloud) {
-      try {
-        if (cloudLink) {
-          results.cloud = { status: 'ok', message: 'Already saved to Connect Cloud' };
-        } else {
-          const { data } = await API.post(`/report/jobs/${jobId}/save-to-drive`, { report_text: reportText });
-          cloudLink = data.webViewLink;
-          setDriveLinks(d => ({ ...d, [data.templateId || templateId]: data.webViewLink }));
-          results.cloud = { status: 'ok', message: 'Saved to Connect Cloud' };
-        }
-      } catch (err) {
-        results.cloud = { status: 'fail', message: err.response?.data?.error || err.message };
-      }
-    }
-
-    if (deliver.email) {
-      if (!emailForm.to.trim()) {
-        results.email = { status: 'fail', message: 'Patient email is required.' };
+    try {
+      if (existingLink) {
+        results.cloud = { status: 'ok', message: 'Already saved to Connect Cloud' };
       } else {
-        try {
-          await API.post('/email/send-report', {
-            patient_id:    patientId,
-            to:            emailForm.to.trim(),
-            subject:       emailForm.subject,
-            body:          emailForm.body,
-            report_text:   reportText,
-            template_name: selectedTemplate?.name || 'Clinical Report',
-          });
-          results.email = { status: 'ok', message: `Emailed to ${emailForm.to.trim()}` };
-        } catch (err) {
-          results.email = { status: 'fail', message: err.response?.data?.error || err.message };
-        }
+        const { data } = await API.post(`/report/jobs/${jobId}/save-to-drive`, { report_text: reportText });
+        setDriveLinks(d => ({ ...d, [data.templateId || templateId]: data.webViewLink }));
+        results.cloud = { status: 'ok', message: 'Saved to Connect Cloud' };
       }
-    }
-
-    if (deliver.whatsapp) {
-      if (!waForm.to.trim()) {
-        results.whatsapp = { status: 'fail', message: 'Patient phone is required.' };
-      } else {
-        try {
-          const text = waForm.text + (cloudLink ? `\n\n${cloudLink}` : '');
-          await API.post('/whatsapp/send-report', {
-            patient_id:    patientId,
-            to:            waForm.to.trim(),
-            caption:       text,
-            report_text:   reportText,
-            template_name: selectedTemplate?.name || 'Clinical Report',
-          });
-          results.whatsapp = { status: 'ok', message: `Sent on WhatsApp to ${waForm.to.trim()}` };
-        } catch (err) {
-          results.whatsapp = { status: 'fail', message: err.response?.data?.message || err.response?.data?.error || err.message };
-        }
-      }
+    } catch (err) {
+      results.cloud = { status: 'fail', message: err.response?.data?.error || err.message };
     }
 
     setDeliverResults(results);
@@ -498,9 +421,15 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
   }
 
   async function startRecording() {
+    console.log('[ClinicalReport] startRecording called. canRecord=', canRecord, 'stage=', stage, 'template=', selectedTemplate?.id);
     setError('');
     try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw Object.assign(new Error('mediaDevices unavailable'), { name: 'NotSupportedError' });
+      }
+      console.log('[ClinicalReport] requesting microphone...');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log('[ClinicalReport] microphone granted');
       streamRef.current = stream;
 
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -523,6 +452,9 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
         };
       }
 
+      // Clean slate in case a previous take left a stale connection (re-record).
+      liveSocket.disconnect();
+
       audioChunksRef.current = [];
       const mimeType = pickMimeType();
       let recorder;
@@ -531,26 +463,47 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
       } catch {
         recorder = new MediaRecorder(stream);
       }
-      recorder.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
-      recorder.onstop = () => { stream.getTracks().forEach(t => t.stop()); processRecording(); };
+      recorder.ondataavailable = e => {
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data); // kept only for error-recovery playback
+          liveSocket.sendChunk(e.data);        // no-op/buffered until the socket is 'ready'
+        }
+      };
+      recorder.onstop = processRecording;
       mediaRecorderRef.current = recorder;
       recorder.start(100);
       setStage('recording');
+
+      // Open the live socket. The first MediaRecorder chunk (EBML header) is tracked
+      // by the hook and resent on 'ready'; chunks during connect are buffered, so we
+      // don't need to await this. If it fails, transcription can't proceed.
+      liveSocket.connect().catch(sockErr => {
+        console.error('[ClinicalReport] live connect failed:', sockErr.message);
+        setError(sockErr?.message || 'Could not connect to live transcription. Please try again.');
+      });
 
       if ('mediaSession' in navigator) {
         navigator.mediaSession.metadata = new MediaMetadata({ title: 'Recording — Dental DMS' });
         navigator.mediaSession.playbackState = 'playing';
       }
     } catch (err) {
+      console.error('[ClinicalReport] startRecording failed:', err?.name, err?.message, err);
       const name = err?.name || '';
-      if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
-        setError('Microphone access was denied. Please allow microphone permissions in your browser settings and try again.');
-      } else if (name === 'NotFoundError') {
+      const inIframe = window.self !== window.top;
+      if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError') {
+        if (inIframe) {
+          setError('Microphone is blocked because this app is embedded. The embedding page must allow it (iframe allow="microphone"). Open the app in its own browser tab and try again.');
+        } else {
+          setError('Microphone access is blocked for this site. Click the 🔒/camera icon in the address bar → set Microphone to "Allow" → reload and try again.');
+        }
+      } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
         setError('No microphone found. Please connect a microphone and try again.');
       } else if (name === 'NotReadableError') {
         setError('Microphone is in use by another app. Close it and try again.');
+      } else if (name === 'NotSupportedError') {
+        setError('Microphone access requires a secure (HTTPS) connection.');
       } else {
-        setError('Could not access the microphone. Please try again.');
+        setError(`Could not access the microphone: ${err?.message || 'unknown error'}.`);
       }
     }
   }
@@ -609,21 +562,27 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
   }
 
   function stopRecording() {
+    // Flush the recorder's final buffered audio (a last `dataavailable` → sendChunk),
+    // then stop. recorder.onstop calls processRecording, which awaits liveSocket.stop()
+    // to retrieve the finalized transcript from the relay.
+    try { mediaRecorderRef.current?.requestData(); } catch { /* not all browsers */ }
     mediaRecorderRef.current?.stop();
     cleanupAudio();
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'none';
   }
 
-  function buildFormData(overrides = {}) {
-    const fd = new FormData();
-    fd.append('patient_id',   patientId);
-    fd.append('template_id',  selectedTemplate.id);
-    fd.append('detail_level', detailLevel);
-    fd.append('save_report',  String(saveReport));
-    fd.append('autofill',     String(autofillEnabled));
-    if (appointmentId) fd.append('appointment_id', appointmentId);
-    Object.entries(overrides).forEach(([k, v]) => fd.append(k, v));
-    return fd;
+  // Build the JSON body for /report/transcribe. Audio is transcribed live over
+  // the WS relay, so this endpoint now takes plain JSON (no multipart upload).
+  function buildTranscribeBody(overrides = {}) {
+    return {
+      patient_id:   patientId,
+      template_id:  selectedTemplate.id,
+      detail_level: detailLevel,
+      save_report:  String(saveReport),
+      autofill:     String(autofillEnabled),
+      ...(appointmentId ? { appointment_id: appointmentId } : {}),
+      ...overrides,
+    };
   }
 
   // ── Consume SSE stream from /api/report/generate ───────────────────────────
@@ -676,61 +635,57 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
     return finalData;
   }
 
+  // Live transcription via the WS socket is the only audio path. If it fails, the
+  // user re-records — there is no upload-and-poll fallback. Mirrors Vital's flow.
   async function processRecording() {
-    if (cancelledRef.current) return;
-    if (audioChunksRef.current.length === 0) return;
+    if (cancelledRef.current) { liveSocket.disconnect(); return; }
+
+    if (audioChunksRef.current.length === 0) {
+      console.warn('[ClinicalReport] No audio chunks captured');
+      setError('No audio was recorded. Please try again.');
+      setStage('idle');
+      setMinimized(false);
+      liveSocket.disconnect();
+      return;
+    }
+
+    // Kept only so the error-recovery screen can play back what was recorded.
     const chunks = [...audioChunksRef.current];
     audioChunksRef.current = [];
+    const mimeType = mediaRecorderRef.current?.mimeType || 'audio/webm';
+    revokePlaybackUrl();
+    const url = URL.createObjectURL(new Blob(chunks, { type: mimeType }));
+    playbackUrlRef.current = url;
+    setPlaybackUrl(url);
 
     setStage('transcribing');
     setError('');
 
     try {
-      const actualMime = mediaRecorderRef.current?.mimeType || 'audio/webm';
-      const ext  = actualMime.startsWith('audio/mp4') ? 'mp4' : actualMime.startsWith('audio/ogg') ? 'ogg' : 'webm';
-      const blob = new Blob(chunks, { type: actualMime });
-      const fd   = buildFormData();
-      fd.append('file', blob, `dictation.${ext}`);
-
-      const { data: transcribeData } = await API.post('/report/transcribe', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-
-      const newJobId = transcribeData.jobId;
-      setJobId(newJobId);
-      setCachedTranscript(!!transcribeData.cachedTranscript);
-
-      if (transcribeData.status === 'transcribed') {
-        await runGeneration(newJobId, null);
-        return;
+      const { transcript: liveTranscript, duration_seconds } = await liveSocket.stop();
+      if (!liveTranscript?.trim()) {
+        throw new Error('No speech was detected in the recording.');
+      }
+      if (!patientId || !selectedTemplate?.id) {
+        throw new Error('Missing patient or template context.');
       }
 
-      await new Promise((resolve, reject) => {
-        jobPollRef.current = setInterval(async () => {
-          try {
-            const { data: jobData } = await API.get(`/report/jobs/${newJobId}`);
-            if (jobData.status === 'transcribed') {
-              clearInterval(jobPollRef.current); jobPollRef.current = null;
-              resolve(jobData);
-            } else if (jobData.status === 'failed') {
-              clearInterval(jobPollRef.current); jobPollRef.current = null;
-              reject(new Error(jobData.errorMessage || 'Transcription failed'));
-            }
-          } catch (pollErr) {
-            clearInterval(jobPollRef.current); jobPollRef.current = null;
-            reject(pollErr);
-          }
-        }, 5000);
-      });
+      const { data } = await API.post('/report/transcribe', buildTranscribeBody({
+        transcript_text:        liveTranscript,
+        audio_duration_seconds: String(duration_seconds ?? 0),
+      }));
 
-      const { data: jobData } = await API.get(`/report/jobs/${newJobId}`);
-      setTranscript(jobData.transcript);
-      setEditedTranscript(jobData.transcript);
+      setJobId(data.jobId);
+      setTranscript(liveTranscript);
+      setEditedTranscript(liveTranscript);
       setStage('editing');
     } catch (err) {
-      setError(err.response?.data?.error || err.message || 'Unknown error');
+      console.warn('[ClinicalReport] Live transcription failed:', err.message);
+      setError(err.response?.data?.error || err.message || 'Live transcription failed. Please try recording again.');
       setStage('idle');
       setMinimized(false);
+    } finally {
+      liveSocket.disconnect();
     }
   }
 
@@ -793,10 +748,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
     setStage('transcribing');
     setError('');
     try {
-      const fd = buildFormData({ transcript_text: textInput.trim() });
-      const { data: transcribeData } = await API.post('/report/transcribe', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      const { data: transcribeData } = await API.post('/report/transcribe', buildTranscribeBody({ transcript_text: textInput.trim() }));
       const newJobId = transcribeData.jobId;
       setJobId(newJobId);
       setTranscript(textInput.trim());
@@ -909,16 +861,6 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
   return (
     <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm sm:p-4 overflow-hidden">
       <div className="bg-white w-full sm:max-w-3xl shadow-2xl h-[95dvh] sm:h-[92vh] rounded-t-2xl sm:rounded-2xl flex flex-col">
-
-        {/* Integration Status Banner */}
-        {!integrations.google_drive?.isVerified && (
-          <div className="flex-shrink-0 bg-amber-50 border-b border-amber-200 px-4 sm:px-6 py-2.5 sm:py-3">
-            <div className="flex items-center gap-2 text-amber-700 text-sm">
-              <AlertCircle size={16} className="flex-shrink-0" />
-              <span>⚠️ Connect Cloud integration not verified. <a href="#" className="underline font-semibold hover:text-amber-900">Complete setup</a> to enable report saving.</span>
-            </div>
-          </div>
-        )}
 
         {/* Header */}
         <div className="flex-shrink-0 flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100">
@@ -1087,6 +1029,17 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
               {(stage === 'recording' || stage === 'paused') && (
                 <div className="w-full max-w-sm flex flex-col items-center gap-3">
                   <WaveformBar analyserRef={analyserRef} active={stage === 'recording'} />
+
+                  {/* Live transcript preview (rolling last ~7 words) */}
+                  {stage === 'recording' && (
+                    <div className="w-full bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 min-h-[2.5rem] flex items-center">
+                      <p className="text-xs text-blue-800 leading-relaxed">
+                        {liveSocket.liveTranscript
+                          ? <>…{liveSocket.liveTranscript.split(/\s+/).slice(-7).join(' ')}<span className="inline-block w-1.5 h-3.5 ml-0.5 bg-blue-500 align-middle animate-pulse" /></>
+                          : <span className="italic text-blue-400">Listening… speak now</span>}
+                      </p>
+                    </div>
+                  )}
 
                   {stage === 'paused' && playbackUrl && (
                     <div className="w-full bg-amber-50 border border-amber-200 rounded-xl p-3">
@@ -1426,21 +1379,6 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
                   <p className="text-sm font-bold text-slate-700 flex items-center gap-1.5"><Settings2 size={14} /> Report Delivery Settings</p>
 
                   <div>
-                    <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Default Channels</p>
-                    <div className="flex flex-wrap gap-3">
-                      {[['cloud','Save to Drive'],['email','Email'],['whatsapp','WhatsApp']].map(([key, label]) => (
-                        <label key={key} className="flex items-center gap-2.5 text-sm cursor-pointer select-none">
-                          <input type="checkbox"
-                            checked={deliverySettings.defaults?.[key] ?? false}
-                            onChange={() => setDeliverySettings(s => ({ ...s, defaults: { ...s.defaults, [key]: !(s.defaults?.[key]) } }))}
-                            className="accent-[#137fec] w-5 h-5 cursor-pointer" />
-                          <span className="text-slate-700">{label}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
                     <label className="flex items-center gap-3 cursor-pointer mb-2">
                       <div onClick={() => setDeliverySettings(s => ({ ...s, pdf: { ...s.pdf, enabled: !s.pdf?.enabled } }))}
                         className={`relative w-9 h-5 rounded-full transition-colors cursor-pointer ${deliverySettings.pdf?.enabled ? 'bg-[#137fec]' : 'bg-slate-300'}`}>
@@ -1481,108 +1419,34 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
                 </div>
               )}
 
-              {/* Approve & Send delivery panel */}
+              {/* Approve → save to Connect Cloud */}
               <div className="border border-slate-200 rounded-xl overflow-hidden">
                 <div className="px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-50 border-b border-slate-200">
-                  <p className="text-sm font-semibold text-slate-700">Approve &amp; Send</p>
-                  <p className="text-xs text-slate-400 mt-0.5">Pick where this report should go, review each message, then approve.</p>
+                  <p className="text-sm font-semibold text-slate-700">Approve</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Approving saves this report to Connect Cloud. You can share it from the patient's documents afterwards.</p>
                 </div>
 
                 <div className="p-3 sm:p-4 space-y-2.5 sm:space-y-3">
-                  {/* Save to Connect Cloud */}
-                  <label className="flex items-start gap-3 p-3.5 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors select-none">
-                    <input type="checkbox" checked={deliver.cloud}
-                      onChange={e => setDeliver(d => ({ ...d, cloud: e.target.checked }))}
-                      className="mt-0.5 w-5 h-5 rounded accent-[#137fec] cursor-pointer flex-shrink-0" />
+                  <div className="flex items-start gap-3 p-3.5 rounded-xl border border-slate-200 bg-slate-50/60">
                     <Save size={16} className="text-slate-400 mt-0.5 flex-shrink-0 hidden sm:block" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-slate-700">Save to Connect Cloud</p>
                       {driveLinks[templateId]
                         ? <button onClick={(e) => { e.preventDefault(); openExternal(driveLinks[templateId]); }}
                             className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-800 underline underline-offset-2 mt-0.5">
-                            <ExternalLink size={11} /> Already saved — view file
+                            <ExternalLink size={11} /> Saved — view file
                           </button>
                         : <p className="text-xs text-slate-400 mt-0.5">Stores the report in the patient's Drive folder.</p>}
                     </div>
-                  </label>
-
-                  {/* Email to patient */}
-                  <div className="rounded-xl border border-slate-200 overflow-hidden">
-                    <label className="flex items-start gap-3 p-3.5 cursor-pointer hover:bg-slate-50 transition-colors select-none">
-                      <input type="checkbox" checked={deliver.email}
-                        onChange={e => setDeliver(d => ({ ...d, email: e.target.checked }))}
-                        className="mt-0.5 w-5 h-5 rounded accent-[#137fec] cursor-pointer flex-shrink-0" />
-                      <Mail size={16} className="text-slate-400 mt-0.5 flex-shrink-0 hidden sm:block" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-slate-700">Email to patient</p>
-                        <p className="text-xs text-slate-400 mt-0.5">PDF attached. Review the message below.</p>
-                      </div>
-                    </label>
-                    {deliver.email && (
-                      <div className="px-3 sm:px-4 pb-3 sm:pb-4 pt-1 space-y-1.5 sm:space-y-2 bg-slate-50/60 border-t border-slate-100">
-                        <div>
-                          <label className="text-xs font-semibold text-slate-500 block mb-0.5">To</label>
-                          <input type="email" value={emailForm.to} onChange={e => setEmailForm(f => ({ ...f, to: e.target.value }))}
-                            placeholder="patient@example.com"
-                            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#137fec] outline-none" />
-                        </div>
-                        <div>
-                          <label className="text-xs font-semibold text-slate-500 block mb-0.5">Subject</label>
-                          <input type="text" value={emailForm.subject} onChange={e => setEmailForm(f => ({ ...f, subject: e.target.value }))}
-                            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#137fec] outline-none" />
-                        </div>
-                        <div>
-                          <label className="text-xs font-semibold text-slate-500 block mb-0.5">Message</label>
-                          <textarea value={emailForm.body} onChange={e => setEmailForm(f => ({ ...f, body: e.target.value }))} rows={2}
-                            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#137fec] outline-none resize-none" />
-                        </div>
-                        <p className="text-xs text-slate-400">
-                          Attachment: {selectedTemplate?.name || 'Report'}_{(patient?.first_name || 'patient')}_{new Date().toISOString().slice(0,10)}.pdf
-                        </p>
-                      </div>
-                    )}
                   </div>
 
-                  {/* WhatsApp to patient (text-only) */}
-                  <div className="rounded-xl border border-slate-200 overflow-hidden">
-                    <label className="flex items-start gap-3 p-3.5 cursor-pointer hover:bg-slate-50 transition-colors select-none">
-                      <input type="checkbox" checked={deliver.whatsapp}
-                        onChange={e => setDeliver(d => ({ ...d, whatsapp: e.target.checked }))}
-                        className="mt-0.5 w-5 h-5 rounded accent-[#137fec] cursor-pointer flex-shrink-0" />
-                      <MessageSquare size={16} className="text-slate-400 mt-0.5 flex-shrink-0 hidden sm:block" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-slate-700">WhatsApp to patient</p>
-                        <p className="text-xs text-slate-400 mt-0.5">Text notification{driveLinks[templateId] ? ' with the Cloud link' : ''}. Review below.</p>
-                      </div>
-                    </label>
-                    {deliver.whatsapp && (
-                      <div className="px-3 sm:px-4 pb-3 sm:pb-4 pt-1 space-y-1.5 sm:space-y-2 bg-slate-50/60 border-t border-slate-100">
-                        <div>
-                          <label className="text-xs font-semibold text-slate-500 block mb-0.5">Phone</label>
-                          <input type="text" value={waForm.to} onChange={e => setWaForm(f => ({ ...f, to: e.target.value }))}
-                            placeholder="+91 98765 43210"
-                            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#137fec] outline-none" />
-                        </div>
-                        <div>
-                          <label className="text-xs font-semibold text-slate-500 block mb-0.5">Message</label>
-                          <textarea value={waForm.text} onChange={e => setWaForm(f => ({ ...f, text: e.target.value }))} rows={2}
-                            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#137fec] outline-none resize-none" />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Per-channel results */}
-                  {Object.keys(deliverResults).length > 0 && (
-                    <div className="space-y-1.5 pt-1">
-                      {Object.entries(deliverResults).map(([channel, r]) => (
-                        <div key={channel} className={`text-sm flex items-center gap-2 px-3 py-2 rounded-lg ${
-                          r.status === 'ok' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-                        }`}>
-                          {r.status === 'ok' ? <CheckCircle size={14} /> : <XCircle size={14} />}
-                          <span className="capitalize font-semibold">{channel === 'cloud' ? 'Cloud' : channel}:</span> {r.message}
-                        </div>
-                      ))}
+                  {/* Result */}
+                  {deliverResults.cloud && (
+                    <div className={`text-sm flex items-center gap-2 px-3 py-2 rounded-lg ${
+                      deliverResults.cloud.status === 'ok' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+                    }`}>
+                      {deliverResults.cloud.status === 'ok' ? <CheckCircle size={14} /> : <XCircle size={14} />}
+                      <span className="font-semibold">Cloud:</span> {deliverResults.cloud.message}
                     </div>
                   )}
                 </div>
@@ -1598,8 +1462,8 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
           <p className="hidden sm:block text-xs text-slate-400 truncate">
             {stage === 'done'
               ? deliverySucceeded
-                ? 'Report delivered successfully'
-                : 'Tick a channel, then Approve & Send'
+                ? 'Report saved to Connect Cloud'
+                : 'Click Approve to save to Connect Cloud'
               : stage === 'editing'
               ? 'Review or edit the transcript, then click Generate'
               : 'You can minimize this window while recording or processing'}
@@ -1612,12 +1476,12 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
                   Record Again
                 </button>
                 <button
-                  onClick={handleApproveAndSend}
-                  disabled={delivering || (!deliver.cloud && !deliver.email && !deliver.whatsapp)}
+                  onClick={handleApprove}
+                  disabled={delivering}
                   className="flex items-center justify-center gap-2 px-5 py-3 sm:py-2 text-sm font-semibold text-white bg-[#137fec] rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-1 sm:flex-none"
                 >
-                  {delivering ? <Loader2 size={14} className="animate-spin" /> : <SendHorizonal size={14} />}
-                  {delivering ? 'Sending…' : 'Approve & Send'}
+                  {delivering ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                  {delivering ? 'Saving…' : 'Approve'}
                 </button>
               </>
             )}

@@ -406,7 +406,7 @@ export async function updateAppointment(req, res) {
 // GET /api/appointments/dashboard-stats?date=YYYY-MM-DD
 // Returns today's revenue (treatments + lab orders done on that date) and monthly outstanding
 export async function getDashboardStats(req, res) {
-  const { Visit, LabOrder, Invoice } = req.tenantModels;
+  const { Visit, LabOrder } = req.tenantModels;
   try {
     const { date } = req.query;
     const searchDate = date ? new Date(date) : new Date();
@@ -415,16 +415,9 @@ export async function getDashboardStats(req, res) {
     const dayStart = new Date(searchDate); dayStart.setHours(0, 0, 0, 0);
     const dayEnd = new Date(searchDate); dayEnd.setHours(23, 59, 59, 999);
 
-    const [visits, labOrders, monthlyInvoices] = await Promise.all([
-      // Visits on the selected date
+    const [visits, labOrders] = await Promise.all([
       Visit.find({ date: { $gte: dayStart, $lte: dayEnd } }, 'treatments').lean(),
-      // Lab orders on the selected date
       LabOrder.find({ order_date: { $gte: dayStart, $lte: dayEnd } }, 'cost_to_clinic items').lean(),
-      // Outstanding invoices overall
-      Invoice.find({
-        pending_amount: { $gt: 0 },
-        status: { $ne: 'Cancelled' },
-      }, 'pending_amount').lean(),
     ]);
 
     // Today's revenue: completed treatments cost (excl Missing)
@@ -445,18 +438,12 @@ export async function getDashboardStats(req, res) {
       }
     }
 
-    // Monthly outstanding
-    let outstandingAmount = 0;
-    for (const inv of monthlyInvoices) {
-      outstandingAmount += Number(inv.pending_amount) || 0;
-    }
-
     res.json({
       todays_revenue: treatmentRevenue + labRevenue,
       treatment_revenue: treatmentRevenue,
       lab_revenue: labRevenue,
-      outstanding_amount: outstandingAmount,
-      outstanding_count: monthlyInvoices.length,
+      outstanding_amount: 0,
+      outstanding_count: 0,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 }

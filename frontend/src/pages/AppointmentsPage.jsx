@@ -2,16 +2,20 @@
 import axios from '../services/api';
 import { API_BASE_URL } from '../config/env.js';
 import {
-  MoreVertical, Calendar, TrendingUp, Users, CreditCard, FileText, Plus,
-  Clock, PlayCircle, AlertCircle, XCircle, DollarSign, Loader2, Edit, Trash2, Mail, Phone, User
+  MoreVertical, Calendar, TrendingUp, Users, CreditCard, Plus,
+  Clock, PlayCircle, AlertCircle, XCircle, Loader2, Edit, Trash2, Mail, Phone, User,
+  CheckCircle2, FolderOpen, Receipt, Pill
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom'; 
+import { useNavigate } from 'react-router-dom';
 
 // --- IMPORTS ---
-import NewAppointmentModal from '../modals/NewAppointmentModal.jsx'; 
-import PatientProfileModal from '../modals/PatientProfileModal.jsx'; 
-import CashTransactionModal from '../modals/CashTransactionModal.jsx';
-import { useTreatment } from '../Context/TreatmentContext.jsx'; // IMPORT CONTEXT
+import NewAppointmentModal from '../modals/NewAppointmentModal.jsx';
+import PatientProfileModal from '../modals/PatientProfileModal.jsx';
+import VisitDocumentsModal from '../modals/VisitDocumentsModal.jsx';
+import NewInvoiceModal from '../modals/NewInvoiceModal.jsx';
+import EditPrescriptionsModal from '../modals/EditPrescriptionsModal.jsx';
+import { useTreatment } from '../Context/TreatmentContext.jsx';
+import { useAuth } from '../Context/AuthContext.jsx';
 
 // --- HELPER: Calendar Math ---
 const START_HOUR = 9; 
@@ -86,14 +90,16 @@ const calcCalendarPos = (dateObj, durationMins = 30) => {
 
 const AppointmentsPage = () => {
   const { startTreatment, activeTreatment } = useTreatment(); // Use Context Hook
+  const { user } = useAuth();
+  // When the logged-in user is a Doctor, scope all data to their linked doctorId.
+  const scopedDoctorId = user?.role === 'Doctor' ? (user?.doctorId ? String(user.doctorId) : null) : null;
   const navigate = useNavigate();
   const [isNewApptOpen, setIsNewApptOpen] = useState(false);
   const [viewMode, setViewMode] = useState('table'); // 'table' | 'calendar'
 
   // --- STATE ---
   const [appointments, setAppointments] = useState([]);
-  const [dashStats, setDashStats] = useState({ todays_revenue: 0, outstanding_amount: 0, outstanding_count: 0 });
-  const [isCashModalOpen, setIsCashModalOpen] = useState(false);
+  const [dashStats, setDashStats] = useState({ todays_revenue: 0 });
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [doctors, setDoctors] = useState([]);
@@ -122,6 +128,12 @@ const AppointmentsPage = () => {
   const [editingAppointment, setEditingAppointment] = useState(null);
   const [editPatientModal, setEditPatientModal] = useState(null); // { patientId, first_name, last_name, email, mobile }
   const [editPatientSaving, setEditPatientSaving] = useState(false);
+
+  // Completed visits panel
+  const [completedDocsState, setCompletedDocsState] = useState(null);
+  const [completedInvoiceState, setCompletedInvoiceState] = useState(null);
+  const [completedRxState, setCompletedRxState] = useState(null);
+  // { patient } — drives EditPrescriptionsModal
 
   const ALL_STATUSES = ['Requested', 'Scheduled', 'Checked In', 'In Progress', 'Completed', 'Cancelled', 'No Show'];
 
@@ -161,7 +173,11 @@ const AppointmentsPage = () => {
         axios.get(`${API_BASE_URL}/appointments/dashboard-stats?date=${selectedDate}`)
       ]);
 
-      const doctorsMap = doctorsRes.data.slice(0, 10);
+      // Doctor role: restrict the doctors list to just the logged-in doctor.
+      const allDoctors = scopedDoctorId
+        ? doctorsRes.data.filter(d => String(d._id) === scopedDoctorId)
+        : doctorsRes.data;
+      const doctorsMap = allDoctors.slice(0, 10);
       setDoctors(doctorsMap);
       // Initialize selectedDoctorId to first doctor on mobile
       if (!selectedDoctorId && doctorsMap.length > 0) {
@@ -169,7 +185,15 @@ const AppointmentsPage = () => {
       }
       setDashStats(statsRes.data);
 
-      const mappedAppts = appointmentsRes.data.map(apt => {
+      // Doctor role: only keep appointments belonging to this doctor.
+      const scopedAppts = scopedDoctorId
+        ? appointmentsRes.data.filter(apt => {
+            const did = typeof apt.doctor_id === 'object' ? apt.doctor_id?._id : apt.doctor_id;
+            return String(did) === scopedDoctorId;
+          })
+        : appointmentsRes.data;
+
+      const mappedAppts = scopedAppts.map(apt => {
         const patientName = apt.patient_id ? `${apt.patient_id.first_name} ${apt.patient_id.last_name}` : 'Unknown';
 
         // Look up doctor from the doctors array
@@ -201,6 +225,7 @@ const AppointmentsPage = () => {
           doctorId: doctorId,
           status: apt.status,
           statusColor: getStatusColor(apt.status),
+          chief_complaint: apt.chief_complaint || apt.notes || '',
           notes: apt.notes
         };
       });
@@ -263,7 +288,7 @@ const AppointmentsPage = () => {
       }
     }
 
-    startTreatment(patientId, appointment.id, appointment.patient);
+    startTreatment(patientId, appointment.id, appointment.patient, appointment.chief_complaint);
   };
 
   // FIX 3: Correctly set patient data for Modal
@@ -277,11 +302,120 @@ const AppointmentsPage = () => {
     }
   };
 
-  const handleSaveTransaction = (transactionData) => {
-    console.log("Transaction Saved:", transactionData);
-    alert("Transaction recorded successfully.");
+  // Resolve the invoice tied to a visit/appointment — used by both the docs
+  // preview and the invoice editor so they always show the same invoice.
+  // Resolve ONLY the invoice that genuinely belongs to this visit — no fallback to
+  // a same-day / latest invoice. If nothing matches, return null (no invoice shown).
+  const resolveVisitInvoice = (visit, invoices) => {
+    if (!visit || !invoices.length) return null;
+
+    // 1. Invoice explicitly linked to this visit.
+    const byVisit = invoices.find(inv => String(inv.visit_id?._id || inv.visit_id) === String(visit._id));
+    if (byVisit) return byVisit;
+
+    // 2. A treatment/prescription on the visit points to an invoice.
+    const ids = new Set();
+    (visit.treatments || []).forEach(t => {
+      const id = t.invoice_id?._id || t.invoice_id;
+      if (id) ids.add(String(id));
+    });
+    (visit.prescriptions || []).forEach(p => {
+      const id = p.invoice_id?._id || p.invoice_id;
+      if (id) ids.add(String(id));
+    });
+    const byRef = invoices.find(inv => ids.has(String(inv._id)));
+    return byRef || null;
   };
-  
+
+  // Open docs for a completed appointment
+  const handleOpenCompletedDocs = async (apt) => {
+    const patientId = apt.patientId || apt.rawPatient?._id;
+    if (!patientId) return;
+    setCompletedDocsState({ visit: null, patient: null, invoice: null, reportJob: null, loading: true });
+    try {
+      const [patientRes, visitsRes, invoicesRes, reportRes] = await Promise.all([
+        axios.get(`${API_BASE_URL}/patients/${patientId}`),
+        axios.get(`${API_BASE_URL}/visits/patient/${patientId}`),
+        axios.get(`${API_BASE_URL}/invoices?patient_id=${patientId}`),
+        // AI report scoped to THIS appointment (returns { report: null } if none)
+        axios.get(`${API_BASE_URL}/report/latest?patientId=${patientId}&appointmentId=${apt.id}`)
+          .catch(() => ({ data: { report: null } })),
+      ]);
+      const patient  = patientRes.data;
+      const visits   = visitsRes.data || [];
+      const invoices = invoicesRes.data || [];
+      const reportJob = reportRes.data?.report || null;
+
+      // Resolve THIS appointment's visit. Prefer an explicit appointment_id link
+      // (populated to an object by the visits API, so read its _id). Many visits
+      // are auto-created for notes/prescriptions WITHOUT an appointment_id, so
+      // fall back to a visit dated the same day as the appointment.
+      const apptKey = String(apt.id);
+      const apptDay = (apt.utcStartIso || apt.rawTime) ? new Date(apt.utcStartIso || apt.rawTime).toDateString() : null;
+      const matchingVisit =
+        visits.find(v => {
+          const vApptId = typeof v.appointment_id === 'object' ? v.appointment_id?._id : v.appointment_id;
+          return String(vApptId) === apptKey;
+        })
+        || (apptDay ? visits.find(v => v.date && new Date(v.date).toDateString() === apptDay) : null)
+        || null;
+      const matchingInvoice = resolveVisitInvoice(matchingVisit, invoices);
+
+      setCompletedDocsState({ visit: matchingVisit, patient, invoice: matchingInvoice, reportJob, loading: false });
+    } catch (err) {
+      console.error('[CompletedDocs] fetch error:', err);
+      setCompletedDocsState(null);
+    }
+  };
+
+  // Open invoice for a completed appointment with suggested treatments pre-filled
+  const handleOpenCompletedInvoice = async (apt) => {
+    const patientId = apt.patientId || apt.rawPatient?._id;
+    if (!patientId) return;
+    try {
+      // Fetch fresh patient + visits + invoices in parallel to ensure complete data
+      const [patientRes, visitsRes, invoicesRes] = await Promise.all([
+        axios.get(`${API_BASE_URL}/patients/${patientId}`),
+        axios.get(`${API_BASE_URL}/visits/patient/${patientId}`),
+        axios.get(`${API_BASE_URL}/invoices?patient_id=${patientId}`),
+      ]);
+      const patient  = patientRes.data;
+      const visits   = visitsRes.data || [];
+      const invoices = invoicesRes.data || [];
+      const visit    = visits.find(v => String(v.appointment_id) === String(apt.id)) || visits[0];
+
+      // Existing invoice for this visit — same resolution the docs preview uses
+      const editInvoice = resolveVisitInvoice(visit, invoices, apt);
+
+      // Suggested = this visit's not-yet-billed treatments (no invoice link, not cancelled/missing)
+      const suggested = (visit?.treatments || []).filter(t =>
+        !t.invoice_id &&
+        t.status !== 'Cancelled' &&
+        t.treatment_name !== 'Missing'
+      );
+
+      setCompletedInvoiceState({
+        apt, patient, suggestedTreatments: suggested,
+        visitId: visit?._id || null,
+        editInvoice,
+      });
+    } catch (err) {
+      console.error('[CompletedInvoice] fetch error:', err);
+      setCompletedInvoiceState({ apt, patient: apt.rawPatient, suggestedTreatments: [], visitId: null, editInvoice: null });
+    }
+  };
+
+  const handleOpenCompletedRx = async (apt) => {
+    const patientId = apt.patientId || apt.rawPatient?._id;
+    if (!patientId) return;
+    try {
+      const { data: patient } = await axios.get(`${API_BASE_URL}/patients/${patientId}`);
+      setCompletedRxState({ patient, appointmentId: apt.id });
+    } catch {
+      setCompletedRxState({ patient: apt.rawPatient, appointmentId: apt.id });
+    }
+  };
+
   const handleSaveAppointment = () => {
     fetchData();
     setIsNewApptOpen(false);
@@ -345,6 +479,7 @@ const AppointmentsPage = () => {
         // Do NOT use rawTime â€” it's already IST-shifted and would cause a double +5:30 offset.
         start_time: appointment.utcStartIso,
         type: appointment.treatment,
+        chief_complaint: appointment.chief_complaint || '',
         notes: appointment.notes,
         status: appointment.status
     };
@@ -397,9 +532,6 @@ const AppointmentsPage = () => {
         <div className="flex items-center justify-between gap-4">
           <h1 className="text-xl md:text-3xl font-bold text-slate-900 tracking-tight">Today</h1>
           <div className="flex gap-2 md:gap-3">
-            <button onClick={() => setIsCashModalOpen(true)} className="hidden md:flex px-4 py-2.5 rounded-lg bg-white border border-blue-300 text-slate-600 text-sm font-semibold hover:bg-slate-50 hover:text-[#137fec] transition-all items-center gap-2">
-              <DollarSign size={18} /> Add Expense
-            </button>
             <button onClick={() => setIsNewApptOpen(true)} className="px-3 md:px-4 py-2 md:py-2.5 rounded-lg bg-[#137fec] text-white text-sm font-semibold shadow-lg shadow-blue-500/30 hover:bg-blue-600 transition-all flex items-center gap-2">
               <Plus size={18} /> <span className="hidden sm:inline">New Appointment</span><span className="sm:hidden">New</span>
             </button>
@@ -410,7 +542,6 @@ const AppointmentsPage = () => {
           <StatCard icon={<Calendar />} colorClass="text-[#137fec]" title="Total Appointments" value={appointments.length} subtext="For selected date" />
           <StatCard icon={<Users />} colorClass="text-orange-500" title="Pending Check-ins" value={appointments.filter(a => !['Checked In', 'In Progress', 'Completed', 'Cancelled', 'No Show'].includes(a.status)).length} subtext={`${appointments.filter(a => a.status === 'Checked In' || a.status === 'In Progress').length} Checked in`} />
           <StatCard icon={<CreditCard />} colorClass="text-[#137fec]" title="Today's Revenue" value={`₹${(dashStats.todays_revenue || 0).toLocaleString('en-IN')}`} subtext="Services + Labs for the day" />
-          <StatCard icon={<FileText />} colorClass="text-red-500" title="Outstanding" value={`₹${(dashStats.outstanding_amount || 0).toLocaleString('en-IN')}`} trend={`${dashStats.outstanding_count} Invoice${dashStats.outstanding_count !== 1 ? 's' : ''}`} trendUp={false} subtext="Overall pending" />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
@@ -849,6 +980,69 @@ const AppointmentsPage = () => {
               )}
             </div>
 
+            {/* ── Completed Visits ── */}
+            {(() => {
+              const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+              const completed = appointments
+                .filter(a => a.status === 'Completed')
+                .sort((a, b) => new Date(b.rawTime) - new Date(a.rawTime));
+              return (
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 size={16} className="text-green-500" />
+                      <h3 className="text-sm font-bold text-slate-900">Completed</h3>
+                    </div>
+                    <span className="text-xs font-semibold text-slate-400">{completed.length} visit{completed.length !== 1 ? 's' : ''}</span>
+                  </div>
+                  <div className="overflow-y-auto" style={{ maxHeight: '320px' }}>
+                    {completed.length === 0 ? (
+                      <div className="py-8 text-center text-sm text-slate-400">No completed visits today</div>
+                    ) : completed.map(apt => (
+                      <div key={apt.id} className="flex items-center gap-3 px-4 py-3 border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors group">
+                        {/* Avatar */}
+                        <div className="size-9 rounded-full bg-green-50 border border-green-200 flex items-center justify-center text-xs font-bold text-green-700 flex-shrink-0">
+                          {apt.patient?.charAt(0) || '?'}
+                        </div>
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-slate-800 truncate">{apt.patient}</p>
+                          <p className="text-xs text-slate-400">{apt.time} · {apt.treatment}</p>
+                        </div>
+                        {/* Actions */}
+                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {/* All docs — print / share / save / email */}
+                          <button
+                            title="Documents (print, share, save)"
+                            onClick={() => handleOpenCompletedDocs(apt)}
+                            className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-[#137fec] transition-colors"
+                          >
+                            <FolderOpen size={14} />
+                          </button>
+                          {/* Invoice editor */}
+                          <button
+                            title="Edit Invoice"
+                            onClick={() => handleOpenCompletedInvoice(apt)}
+                            className="p-1.5 rounded-lg hover:bg-amber-50 text-slate-400 hover:text-amber-600 transition-colors"
+                          >
+                            <Receipt size={14} />
+                          </button>
+                          {/* Prescription editor */}
+                          <button
+                            title="Edit Prescription"
+                            onClick={() => handleOpenCompletedRx(apt)}
+                            className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors"
+                          >
+                            <Pill size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
               <div className="flex items-center justify-between mb-4"><h3 className="text-base font-bold text-slate-900">Dentists</h3><button className="text-xs font-semibold text-[#137fec]">See All</button></div>
               <div className="flex flex-col gap-4">
@@ -887,8 +1081,52 @@ const AppointmentsPage = () => {
         </div>
         
         <NewAppointmentModal isOpen={isNewApptOpen} onClose={handleModalClose} onSave={handleSaveAppointment} appointmentToEdit={editingAppointment} />
-        <CashTransactionModal isOpen={isCashModalOpen} onClose={() => setIsCashModalOpen(false)} onSave={handleSaveTransaction} />
         <PatientProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} patient={selectedPatient} />
+
+        {/* Completed visit — all documents available for print / share / save / email */}
+        {completedDocsState && !completedDocsState.loading && (
+          <VisitDocumentsModal
+            isOpen
+            onClose={() => setCompletedDocsState(null)}
+            visit={completedDocsState.visit}
+            patient={completedDocsState.patient}
+            invoice={completedDocsState.invoice}
+            reportJob={completedDocsState.reportJob}
+          />
+        )}
+        {/* Loading indicator while fetching visit data */}
+        {completedDocsState?.loading && (
+          <div className="fixed inset-0 z-[900] flex items-center justify-center bg-black/20">
+            <div className="bg-white rounded-xl px-6 py-4 flex items-center gap-3 shadow-xl">
+              <Loader2 className="animate-spin text-[#137fec]" size={20} />
+              <span className="text-sm font-medium text-slate-700">Loading visit data…</span>
+            </div>
+          </div>
+        )}
+
+        {/* Completed visit — invoice editor with suggested treatments */}
+        <NewInvoiceModal
+          isOpen={!!completedInvoiceState}
+          onClose={() => setCompletedInvoiceState(null)}
+          onSuccess={() => {
+            const apt = completedInvoiceState?.apt;
+            setCompletedInvoiceState(null);
+            fetchData();
+            if (apt) handleOpenCompletedDocs(apt);
+          }}
+          initialPatient={completedInvoiceState?.patient}
+          suggestedTreatments={completedInvoiceState?.suggestedTreatments}
+          suggestedVisitId={completedInvoiceState?.visitId}
+          editInvoice={completedInvoiceState?.editInvoice}
+        />
+
+        {/* Prescription editor for completed appointment */}
+        <EditPrescriptionsModal
+          isOpen={!!completedRxState}
+          onClose={() => setCompletedRxState(null)}
+          patient={completedRxState?.patient}
+          appointmentId={completedRxState?.appointmentId}
+        />
 
         {/* Edit Patient Details Modal */}
         {editPatientModal && (

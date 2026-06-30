@@ -20,8 +20,6 @@ import {
   addPrescription,
   deletePrescription,
   addTreatments,
-  addConsumableToVisit,
-  removeConsumableFromVisit,
 } from '../controllers/visit.controller.js';
 
 router.post('/', createVisit);
@@ -52,9 +50,5 @@ router.post('/patient/:patientId/prescription', addPrescription);
 // AI autofill — bulk add treatments to today's visit
 router.post('/patient/:patientId/treatments', addTreatments);
 router.delete('/:visitId/prescriptions/:prescriptionId', deletePrescription);
-
-// Inventory consumption tracking
-router.post('/patient/:patientId/consumable', addConsumableToVisit);
-router.delete('/:visitId/consumables/:itemId', removeConsumableFromVisit);
 
 export default router;

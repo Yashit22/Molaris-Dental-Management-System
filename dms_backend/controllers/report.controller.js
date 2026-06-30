@@ -1,14 +1,25 @@
-import multer from 'multer';
 import {
   uploadFileToDrive,
+  updateFileInDrive,
   createPatientDriveFolders,
   createSubfolder,
 } from '../services/googleDrive.service.js';
 import { TEMPLATES, getTemplateById } from '../config/templates.config.js';
-import { generateReportPdf } from '../services/reportPdf.service.js';
+import { buildSingleDocPdf } from '../services/documentPdf.service.js';
 
-const upload = multer({ storage: multer.memoryStorage() });
-export const uploadMiddleware = upload.single('file');
+// ─── Emoji stripping ───────────────────────────────────────────────────────────
+// PDFKit's standard fonts can't render emoji/pictographs, so they corrupt the
+// output. Remove them (and tidy the whitespace they leave behind) from any text
+// that may reach the PDF or be saved.
+const EMOJI_RE = /[\u{1F000}-\u{1FAFF}\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}\u{1F1E6}-\u{1F1FF}\u{200D}\u{20E3}\u{2122}\u{2139}]/gu;
+
+function stripEmojis(text) {
+  if (!text) return text;
+  return text
+    .replace(EMOJI_RE, '')
+    .replace(/[ \t]{2,}/g, ' ')   // collapse double spaces left behind
+    .replace(/ +$/gm, '');         // trim trailing spaces per line
+}
 
 // ─── Structured error classification ───────────────────────────────────────────
 function classifyError(err, source) {
@@ -37,100 +48,6 @@ function serializeError(classified) {
   return JSON.stringify(classified);
 }
 
-// ─── In-memory audio buffer store (keyed by jobId, TTL ~1h) ───────────────────
-// We can't persist audio to MongoDB (too large). Buffer lives in memory between
-// POST /transcribe (stores it) and the async Sarvam polling (reads it).
-const audioBuffers = new Map(); // jobId -> { buffer, mimetype, filename, expiresAt }
-setInterval(() => {
-  const now = Date.now();
-  for (const [id, v] of audioBuffers) {
-    if (v.expiresAt < now) audioBuffers.delete(id);
-  }
-}, 5 * 60 * 1000); // purge expired every 5 min
-
-// ─── Sarvam Batch STT ──────────────────────────────────────────────────────────
-async function startSarvamJob(apiKey, buffer, mimetype, filename) {
-  const BASE = 'https://api.sarvam.ai';
-  const HEADERS = { 'api-subscription-key': apiKey };
-  const audioFile = filename || 'dictation.webm';
-
-  const createRes = await fetch(`${BASE}/speech-to-text/job/v1`, {
-    method: 'POST',
-    headers: { ...HEADERS, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      job_parameters: { model: 'saaras:v3', mode: 'translate', language_code: 'unknown' },
-    }),
-  });
-  if (!createRes.ok) throw new Error(`[Batch] Create job failed ${createRes.status}: ${await createRes.text()}`);
-  const { job_id } = await createRes.json();
-
-  const uploadUrlRes = await fetch(`${BASE}/speech-to-text/job/v1/upload-files`, {
-    method: 'POST',
-    headers: { ...HEADERS, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ job_id, files: [audioFile] }),
-  });
-  if (!uploadUrlRes.ok) throw new Error(`[Batch] Upload URL failed ${uploadUrlRes.status}: ${await uploadUrlRes.text()}`);
-  const { upload_urls } = await uploadUrlRes.json();
-  const signedUploadUrl = upload_urls[audioFile]?.file_url;
-  if (!signedUploadUrl) throw new Error('[Batch] No signed upload URL returned');
-
-  const putRes = await fetch(signedUploadUrl, {
-    method: 'PUT',
-    headers: { 'Content-Type': mimetype, 'x-ms-blob-type': 'BlockBlob' },
-    body: buffer,
-  });
-  if (!putRes.ok) throw new Error(`[Batch] File PUT to storage failed: ${putRes.status}`);
-
-  const startRes = await fetch(`${BASE}/speech-to-text/job/v1/${job_id}/start`, {
-    method: 'POST',
-    headers: { ...HEADERS, 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
-  });
-  if (!startRes.ok) throw new Error(`[Batch] Start job failed ${startRes.status}: ${await startRes.text()}`);
-
-  return job_id;
-}
-
-async function pollSarvamJob(apiKey, sarvamJobId) {
-  const BASE = 'https://api.sarvam.ai';
-  const HEADERS = { 'api-subscription-key': apiKey };
-  const MAX_POLLS = 75;
-
-  let outputFilename = null;
-  for (let i = 0; i < MAX_POLLS; i++) {
-    await new Promise(r => setTimeout(r, 8000));
-    const statusRes = await fetch(`${BASE}/speech-to-text/job/v1/${sarvamJobId}/status`, { headers: HEADERS });
-    if (!statusRes.ok) continue;
-    const status = await statusRes.json();
-
-    if (status.job_state === 'Completed') {
-      const detail = status.job_details?.[0];
-      const outputsArr = Array.isArray(detail?.outputs) ? detail.outputs : [];
-      outputFilename = outputsArr[0]?.file_name || outputsArr[0]?.file_id;
-      break;
-    }
-    if (status.job_state === 'Failed') {
-      throw new Error(`[Batch] Job failed: ${status.error_message || 'Unknown error'}`);
-    }
-  }
-  if (!outputFilename) throw new Error('[Batch] Timed out waiting for transcription (10 min)');
-
-  const downloadUrlRes = await fetch(`${BASE}/speech-to-text/job/v1/download-files`, {
-    method: 'POST',
-    headers: { ...HEADERS, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ job_id: sarvamJobId, files: [outputFilename] }),
-  });
-  if (!downloadUrlRes.ok) throw new Error(`[Batch] Download URL failed ${downloadUrlRes.status}: ${await downloadUrlRes.text()}`);
-  const { download_urls } = await downloadUrlRes.json();
-  const signedDownloadUrl = download_urls[outputFilename]?.file_url;
-  if (!signedDownloadUrl) throw new Error('[Batch] No signed download URL returned');
-
-  const resultRes = await fetch(signedDownloadUrl);
-  if (!resultRes.ok) throw new Error(`[Batch] Result download failed: ${resultRes.status}`);
-  const result = await resultRes.json();
-  return result.transcript || '';
-}
-
 // ─── LLM: Generate a single document (non-streaming) ──────────────────────────
 async function generateFromTemplate(apiKey, transcript, patientName, patientGender, doctorName, date, template, detailLevel) {
   if (!apiKey) throw new Error('Sarvam API Key not configured for this tenant.');
@@ -144,6 +61,7 @@ async function generateFromTemplate(apiKey, transcript, patientName, patientGend
   };
 
   const systemPrompt = `IMPORTANT: Write your entire response EXCLUSIVELY in English. Do not write in Hindi, Hinglish, or any other language.
+IMPORTANT: Do NOT use any emojis, emoticons, or pictographic symbols anywhere in the response. Use plain text only.
 
 ${template.systemInstruction}
 
@@ -185,7 +103,7 @@ Generate the document now following the structure and detail level above. Return
 
   if (!res.ok) throw new Error(`LLM API error ${res.status}: ${await res.text()}`);
   const data = await res.json();
-  return data.choices?.[0]?.message?.content?.trim() || '';
+  return stripEmojis(data.choices?.[0]?.message?.content?.trim() || '');
 }
 
 // ─── LLM: Stream response to frontend via SSE ─────────────────────────────────
@@ -201,6 +119,7 @@ async function streamFromTemplate(apiKey, transcript, patientName, patientGender
   };
 
   const systemPrompt = `IMPORTANT: Write your entire response EXCLUSIVELY in English. Do not write in Hindi, Hinglish, or any other language.
+IMPORTANT: Do NOT use any emojis, emoticons, or pictographic symbols anywhere in the response. Use plain text only.
 
 ${template.systemInstruction}
 
@@ -257,12 +176,15 @@ Generate the document now following the structure and detail level above. Return
         const token = parsed.choices?.[0]?.delta?.content || '';
         if (token) {
           fullText += token;
-          res.write(`data: ${JSON.stringify({ token })}\n\n`);
+          // Best-effort strip for the live stream; the returned fullText below is
+          // stripped authoritatively (handles emoji split across token boundaries).
+          const cleanToken = stripEmojis(token);
+          if (cleanToken) res.write(`data: ${JSON.stringify({ token: cleanToken })}\n\n`);
         }
       } catch { /* skip malformed SSE lines */ }
     }
   }
-  return fullText;
+  return stripEmojis(fullText);
 }
 
 // ─── LLM: Structured autofill extraction ──────────────────────────────────────
@@ -311,6 +233,83 @@ Return JSON:
   return JSON.parse(data.choices?.[0]?.message?.content || '{}');
 }
 
+// ─── Resolve the visit to pair the report file with ────────────────────────────
+// Prefer the visit linked to the job's appointment; otherwise fall back to the
+// patient's visit dated today (creating one if none exists), matching how
+// uploaded documents and notes/advice attach to a visit. Returns the visit _id
+// or null if it can't be resolved (the file still saves, just unpaired).
+async function resolveReportVisitId(models, { patientId, appointmentId }) {
+  const { Visit, Patient } = models;
+  try {
+    if (appointmentId) {
+      const apptVisit = await Visit.findOne({ appointment_id: appointmentId }).select('_id');
+      if (apptVisit) return apptVisit._id;
+    }
+    const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay   = new Date(); endOfDay.setHours(23, 59, 59, 999);
+    let visit = await Visit.findOne({
+      patient_id: patientId,
+      date: { $gte: startOfDay, $lte: endOfDay },
+    }).sort({ date: -1 }).select('_id');
+    if (!visit) {
+      visit = await Visit.create({ patient_id: patientId, appointment_id: appointmentId || undefined, date: new Date() });
+      await Patient.findByIdAndUpdate(patientId, { last_visit_date: new Date() });
+    }
+    return visit._id;
+  } catch (err) {
+    console.warn('[Report] resolveReportVisitId failed:', err.message);
+    return null;
+  }
+}
+
+// Resolve the Doctor record affiliated with this report's visit/appointment.
+// The report's signing doctor must be the treating doctor on the visit — NOT
+// the logged-in user (who may be a receptionist/assistant). Resolution order:
+//   1. visit.doctor_id  (the visit's treating doctor)
+//   2. the doctor on the visit's appointment
+//   3. fallback: { name: fallbackName } using the logged-in user's name
+async function resolveReportDoctor(models, { patientId, appointmentId, fallbackName }) {
+  const { Visit, Doctor, Appointment } = models;
+  const fallback = { name: fallbackName || 'Attending Doctor' };
+  if (!Doctor) return fallback;
+  try {
+    let doctorId = null;
+
+    // Find the visit (by appointment, else most recent today) to read its doctor.
+    let visit = null;
+    if (appointmentId) {
+      visit = await Visit.findOne({ appointment_id: appointmentId }).select('doctor_id appointment_id');
+    }
+    if (!visit) {
+      const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay   = new Date(); endOfDay.setHours(23, 59, 59, 999);
+      visit = await Visit.findOne({
+        patient_id: patientId,
+        date: { $gte: startOfDay, $lte: endOfDay },
+      }).sort({ date: -1 }).select('doctor_id appointment_id');
+    }
+    if (visit?.doctor_id) doctorId = visit.doctor_id;
+
+    // Fall back to the doctor on the visit's (or report's) appointment.
+    if (!doctorId && Appointment) {
+      const apptId = appointmentId || visit?.appointment_id;
+      if (apptId) {
+        const appt = await Appointment.findById(apptId).select('doctor_id');
+        if (appt?.doctor_id) doctorId = appt.doctor_id;
+      }
+    }
+
+    if (doctorId) {
+      const doctor = await Doctor.findById(doctorId).lean().catch(() => null);
+      if (doctor) return doctor;
+    }
+    return fallback;
+  } catch (err) {
+    console.warn('[Report] resolveReportDoctor failed:', err.message);
+    return fallback;
+  }
+}
+
 // ─── Upload report text to Drive ────────────────────────────────────────────────
 async function uploadTextToDrive(credentials, folderId, text, filename) {
   const buffer = Buffer.from(text, 'utf-8');
@@ -326,11 +325,13 @@ export function listTemplates(req, res) {
 }
 
 // ─── POST /api/report/transcribe ───────────────────────────────────────────────
-// Accepts multipart audio OR transcript_text. Returns { jobId } immediately.
-// Kicks off async Sarvam polling in background.
+// Creates a ReportJob from a finalized transcript. Audio is transcribed live over
+// the WebSocket relay (/api/report/stream); by the time this is called the client
+// already holds the full transcript text. The typed "Quick Notes" path also lands
+// here with transcript_text and no audio_duration_seconds.
+// Returns { jobId, status:'transcribed' }.
 export async function transcribeAudio(req, res) {
-  const { Patient, ReportJob } = req.tenantModels;
-  const credentials = req.tenantConfig;
+  const { Patient, ReportJob, Visit } = req.tenantModels;
 
   try {
     const { patient_id, template_id, detail_level, save_report, autofill, appointment_id } = req.body;
@@ -340,82 +341,33 @@ export async function transcribeAudio(req, res) {
     const template = getTemplateById(template_id);
     if (!template) return res.status(400).json({ error: `Unknown template_id: ${template_id}` });
 
-    const directText = (req.body.transcript_text || '').trim();
-    if (!req.file && !directText) return res.status(400).json({ error: 'No audio file or transcript_text provided' });
+    const transcript = (req.body.transcript_text || '').trim();
+    if (!transcript) return res.status(400).json({ error: 'transcript_text is required' });
 
     const patient = await Patient.findById(patient_id);
     if (!patient) return res.status(404).json({ error: 'Patient not found' });
 
-    // Check if visit already has a transcript for today (cache hit)
-    const { Visit } = req.tenantModels;
-    const todayStart = new Date(); todayStart.setHours(0,0,0,0);
-    const todayEnd   = new Date(); todayEnd.setHours(23,59,59,999);
-    const todayVisit = await Visit.findOne({
-      patient_id,
-      date: { $gte: todayStart, $lte: todayEnd },
-      ai_transcript: { $exists: true, $ne: '' },
-    });
-    const cachedTranscript = todayVisit?.ai_transcript || null;
+    // Cache the transcript on today's visit (if one exists) for reuse.
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const todayEnd   = new Date(); todayEnd.setHours(23, 59, 59, 999);
+    const todayVisit = await Visit.findOne({ patient_id, date: { $gte: todayStart, $lte: todayEnd } });
+    if (todayVisit) {
+      await Visit.findByIdAndUpdate(todayVisit._id, { ai_transcript: transcript });
+    }
 
     const job = await ReportJob.create({
       patientId:     patient._id,
       appointmentId: appointment_id || null,
-      status:        directText || cachedTranscript ? 'transcribed' : 'pending',
-      transcript:    directText || cachedTranscript || '',
+      status:        'transcribed',
+      transcript,
       templateId:    template_id,
       detailLevel:   detail_level || 'standard',
       saveReport:    save_report !== 'false',
       runAutofill:   autofill === 'true',
-      audioFilename: req.file?.originalname || null,
-      audioMimetype: req.file?.mimetype     || null,
       createdBy:     req.user?.name || 'unknown',
     });
 
-    if (directText || cachedTranscript) {
-      // No Sarvam call needed — return immediately
-      return res.json({ jobId: job._id, status: 'transcribed', cachedTranscript: !!cachedTranscript });
-    }
-
-    // Store audio buffer in memory (will be consumed by async Sarvam call)
-    audioBuffers.set(String(job._id), {
-      buffer:    req.file.buffer,
-      mimetype:  req.file.mimetype,
-      filename:  req.file.originalname,
-      expiresAt: Date.now() + 60 * 60 * 1000, // 1h TTL
-    });
-
-    // Respond immediately, then do Sarvam async
-    res.json({ jobId: job._id, status: 'pending' });
-
-    // ── Async background: Sarvam transcription ──
-    (async () => {
-      try {
-        await ReportJob.findByIdAndUpdate(job._id, { status: 'transcribing' });
-        const audio = audioBuffers.get(String(job._id));
-        if (!audio) throw new Error('Audio buffer expired before Sarvam could process it');
-
-        const sarvamJobId = await startSarvamJob(credentials.sarvamApiKey, audio.buffer, audio.mimetype, audio.filename);
-        await ReportJob.findByIdAndUpdate(job._id, { sarvamJobId });
-        audioBuffers.delete(String(job._id));
-
-        const transcript = await pollSarvamJob(credentials.sarvamApiKey, sarvamJobId);
-        if (!transcript) throw new Error('Transcription returned empty.');
-
-        // Cache transcript on today's visit
-        const todayVisitForUpdate = await Visit.findOne({ patient_id, date: { $gte: todayStart, $lte: todayEnd } });
-        if (todayVisitForUpdate) {
-          await Visit.findByIdAndUpdate(todayVisitForUpdate._id, { ai_transcript: transcript });
-        }
-
-        await ReportJob.findByIdAndUpdate(job._id, { status: 'transcribed', transcript });
-      } catch (err) {
-        console.error('[Report] Sarvam error:', err.message);
-        audioBuffers.delete(String(job._id));
-        const classified = classifyError(err, 'sarvam');
-        await ReportJob.findByIdAndUpdate(job._id, { status: 'failed', errorMessage: serializeError(classified) });
-      }
-    })();
-
+    return res.json({ jobId: job._id, status: 'transcribed', transcript });
   } catch (err) {
     console.error('[Report] transcribeAudio error:', err.message);
     res.status(500).json({ error: err.message });
@@ -434,6 +386,42 @@ export async function getJobStatus(req, res) {
       transcript: job.transcript || '',
       errorMessage: job.errorMessage || null,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ─── GET /api/report/latest?patientId=&appointmentId= ──────────────────────────
+// Returns the most recent completed AI report for a patient (optionally scoped to
+// an appointment). Used by the unified Documents modal to attach the AI report.
+export async function getLatestReport(req, res) {
+  const { ReportJob } = req.tenantModels;
+  try {
+    const { patientId, appointmentId, date } = req.query;
+    if (!patientId) return res.status(400).json({ error: 'patientId is required' });
+
+    const filter = { patientId, status: 'done', reportText: { $nin: [null, ''] } };
+    if (appointmentId) {
+      // Strictly scoped to the appointment — no fallback, so the Documents modal
+      // never shows another visit's report.
+      filter.appointmentId = appointmentId;
+    } else if (date) {
+      // No appointment (e.g. walk-in visit): scope to reports created on the
+      // visit's own day so we still only return THIS visit's report.
+      const d = new Date(date);
+      if (!isNaN(d)) {
+        const start = new Date(d); start.setHours(0, 0, 0, 0);
+        const end   = new Date(d); end.setHours(23, 59, 59, 999);
+        filter.createdAt = { $gte: start, $lte: end };
+      }
+    }
+
+    const job = await ReportJob.findOne(filter).sort({ createdAt: -1 })
+      .select('reportText templateId createdAt').lean();
+
+    if (!job) return res.json({ report: null });
+    const templateName = getTemplateById(job.templateId)?.name || 'Clinical Report';
+    res.json({ report: { _id: job._id, templateId: job.templateId, templateName, reportText: job.reportText, createdAt: job.createdAt } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -482,7 +470,7 @@ export async function editTranscript(req, res) {
 // Streams the LLM response via SSE.
 // Supports single template (backward compat) or multiple templates (sequential generation)
 export async function generateReport(req, res) {
-  const { Patient, ReportJob, Visit } = req.tenantModels;
+  const { Patient, ReportJob } = req.tenantModels;
   const credentials = req.tenantConfig;
 
   try {
@@ -492,7 +480,9 @@ export async function generateReport(req, res) {
     if (jobId) {
       const job = await ReportJob.findById(jobId);
       if (!job) return res.status(404).json({ error: 'Job not found' });
-      if (job.status !== 'transcribed') {
+      // Allow generation from 'transcribed' (first run) or 'done' (regenerate —
+      // user wasn't satisfied and is re-running with the same/edited transcript).
+      if (job.status !== 'transcribed' && job.status !== 'done') {
         return res.status(400).json({ error: `Job is not ready for generation (status: ${job.status})` });
       }
 
@@ -523,7 +513,12 @@ export async function generateReport(req, res) {
       if (!patient) return res.status(404).json({ error: 'Patient not found' });
 
       const patientName = `${patient.first_name} ${patient.last_name || ''}`.trim();
-      const doctorName  = req.user?.name || 'Attending Doctor';
+      // Use the treating doctor affiliated with the visit/appointment — not the
+      // logged-in user (who may be a receptionist/assistant).
+      const reportDoctor = await resolveReportDoctor(req.tenantModels, {
+        patientId: job.patientId, appointmentId: job.appointmentId, fallbackName: req.user?.name,
+      });
+      const doctorName  = reportDoctor.name || 'Attending Doctor';
       const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
       await ReportJob.findByIdAndUpdate(jobId, { status: 'generating' });
@@ -554,10 +549,16 @@ export async function generateReport(req, res) {
         }
       }
 
+      // Visit to pair the report file(s) with (same way uploaded docs attach).
+      const reportVisitId = await resolveReportVisitId(req.tenantModels, {
+        patientId: job.patientId, appointmentId: job.appointmentId,
+      });
+
       // Autofill (once, parallel with Drive save)
       let autofill_v2 = null;
       const drive_links = {};
-      const fileRecords = [];
+      const fileRecords = [];                            // NEW files to add to patient.files[]
+      const drive_file_ids = { ...(job.driveFileIds || {}) }; // template.id -> drive_file_id (carried across regenerations)
 
       const [autofillResult, driveResult] = await Promise.allSettled([
         runAutofill ? parseAutofillWithLLM(credentials.sarvamApiKey, transcript) : Promise.resolve(null),
@@ -577,41 +578,54 @@ export async function generateReport(req, res) {
           const ds = await fetchDeliverySettings(req.tenantModels);
           const pdfEnabled = ds.pdf?.enabled ?? false;
 
-          // Upload each report to Drive
+          // Upload each report to Drive — sign with the visit's treating doctor
+          const driveDoctor = reportDoctor;
           for (const template of templates) {
             const reportText = reports[template.id];
             if (!reportText) continue;
 
+            const mimeType = pdfEnabled ? 'application/pdf' : 'text/plain';
+            const filename = `${template.name}_${patientName}_${dateStr}.${pdfEnabled ? 'pdf' : 'txt'}`;
+            const buffer = pdfEnabled
+              ? await buildSingleDocPdf(req.tenantModels, {
+                  type: 'report', reportText,
+                  patient: { first_name: patientName },
+                  doctor: driveDoctor,
+                  reportTemplateName: template.name,
+                })
+              : Buffer.from(reportText, 'utf-8');
+
+            // Regenerate → overwrite the existing Drive file in place (same id/link,
+            // no duplicate). First run → create a new file.
+            const existingFileId = job.driveFileIds?.[template.id];
             let uploaded;
-            if (pdfEnabled) {
-              // Generate branded PDF
-              const pdfBuffer = await generateReportPdf(reportText, {
-                templateName: template.name,
-                patientName,
-                doctorName: req.user?.name || 'Attending Doctor',
-                clinicName:    ds.pdf?.clinicName    || '',
-                clinicTagline: ds.pdf?.clinicTagline || '',
-                clinicAddress: ds.pdf?.clinicAddress || '',
-                clinicPhone:   ds.pdf?.clinicPhone   || '',
-                clinicEmail:   ds.pdf?.clinicEmail   || '',
-              });
-              const filename = `${template.name}_${patientName}_${dateStr}.pdf`;
-              uploaded = await uploadPdfToDrive(credentials, dateFolderId, pdfBuffer, filename);
+            if (existingFileId) {
+              try {
+                uploaded = await updateFileInDrive(credentials, existingFileId, buffer, filename, mimeType);
+              } catch (err) {
+                // File was moved/deleted in Drive — fall back to creating a fresh one.
+                console.warn(`[Report] overwrite failed for ${existingFileId}, creating new:`, err.message);
+                uploaded = await uploadFileToDrive(credentials, dateFolderId, buffer, filename, mimeType);
+              }
             } else {
-              // Upload as plain text
-              const filename = `${template.name}_${patientName}_${dateStr}.txt`;
-              uploaded = await uploadTextToDrive(credentials, dateFolderId, reportText, filename);
+              uploaded = await uploadFileToDrive(credentials, dateFolderId, buffer, filename, mimeType);
             }
 
             if (uploaded) {
-              drive_links[template.id] = uploaded.webViewLink;
-              fileRecords.push({
-                file_name:     uploaded.name,
-                category:      'Clinical Notes',
-                drive_file_id: uploaded.id,
-                web_view_link: uploaded.webViewLink,
-                mime_type:     pdfEnabled ? 'application/pdf' : 'text/plain',
-              });
+              drive_links[template.id]    = uploaded.webViewLink;
+              drive_file_ids[template.id] = uploaded.id;
+              // Only register a NEW patient.files[] record on first creation;
+              // overwrites reuse the existing id, so don't duplicate the record.
+              if (!existingFileId) {
+                fileRecords.push({
+                  file_name:     uploaded.name,
+                  category:      'Clinical Notes',
+                  drive_file_id: uploaded.id,
+                  web_view_link: uploaded.webViewLink,
+                  mime_type:     mimeType,
+                  ...(reportVisitId ? { visit_id: reportVisitId } : {}),
+                });
+              }
             }
           }
         })(),
@@ -625,6 +639,7 @@ export async function generateReport(req, res) {
 
       await ReportJob.findByIdAndUpdate(jobId, {
         status: 'done', reportText: reports[templateIds[0]], driveLinks: drive_links,
+        driveFileIds: drive_file_ids,
         autofillData: autofill_v2, transcript,
       });
 
@@ -641,7 +656,7 @@ export async function generateReport(req, res) {
     }
 
     // ── Legacy path: direct transcript_text (no jobId) ──
-    const { patient_id, template_id, template_ids, detail_level, save_report, autofill, transcript_text } = req.body;
+    const { patient_id, template_id, template_ids, detail_level, save_report, autofill, transcript_text, appointment_id } = req.body;
     if (!patient_id)  return res.status(400).json({ error: 'patient_id required' });
 
     const templateIds = template_ids || (template_id ? [template_id] : []);
@@ -649,8 +664,8 @@ export async function generateReport(req, res) {
       return res.status(400).json({ error: 'template_id or template_ids required' });
     }
 
-    const directText = (transcript_text || '').trim();
-    if (!req.file && !directText) return res.status(400).json({ error: 'No audio file or transcript_text provided' });
+    const transcript = (transcript_text || '').trim();
+    if (!transcript) return res.status(400).json({ error: 'transcript_text is required' });
 
     // Validate all templates exist
     const templates = [];
@@ -664,18 +679,15 @@ export async function generateReport(req, res) {
     if (!patient) return res.status(404).json({ error: 'Patient not found' });
 
     const patientName = `${patient.first_name} ${patient.last_name || ''}`.trim();
-    const doctorName  = req.user?.name || 'Attending Doctor';
+    // Sign the report with the visit's treating doctor, not the logged-in user.
+    const reportDoctor = await resolveReportDoctor(req.tenantModels, {
+      patientId: patient_id, appointmentId: appointment_id, fallbackName: req.user?.name,
+    });
+    const doctorName  = reportDoctor.name || 'Attending Doctor';
     const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
     const detailLevel = detail_level || 'standard';
     const saveRep     = save_report !== 'false';
     const runAuto     = autofill === 'true';
-
-    let transcript = directText;
-    if (!transcript && req.file) {
-      const sarvamJobId = await startSarvamJob(credentials.sarvamApiKey, req.file.buffer, req.file.mimetype, req.file.originalname);
-      transcript = await pollSarvamJob(credentials.sarvamApiKey, sarvamJobId);
-    }
-    if (!transcript) return res.status(422).json({ error: 'Transcription returned empty.' });
 
     // Set up SSE
     res.setHeader('Content-Type', 'text/event-stream');
@@ -752,11 +764,6 @@ export async function generateReport(req, res) {
       res.end();
     }
   }
-}
-
-// ─── PDF upload helper ─────────────────────────────────────────────────────────
-async function uploadPdfToDrive(credentials, folderId, pdfBuffer, filename) {
-  return uploadFileToDrive(credentials, folderId, pdfBuffer, filename, 'application/pdf');
 }
 
 // ─── Delivery settings helper ──────────────────────────────────────────────────
@@ -839,7 +846,10 @@ export async function saveReportToDrive(req, res) {
     const template     = getTemplateById(job.templateId);
     const templateName = template?.name || 'Clinical Report';
     const patientName  = `${patient.first_name} ${patient.last_name || ''}`.trim();
-    const doctorName   = req.user?.name || 'Attending Doctor';
+    // Sign with the visit's treating doctor, not the logged-in user.
+    const saveDoctor   = await resolveReportDoctor(req.tenantModels, {
+      patientId: job.patientId, appointmentId: job.appointmentId, fallbackName: req.user?.name,
+    });
     const ds = await fetchDeliverySettings(req.tenantModels);
     const pdfEnabled = ds.pdf?.enabled ?? false;
     console.log('[Report] Delivery Settings:', { pdfEnabled, clinicName: ds.pdf?.clinicName, clinicEmail: ds.pdf?.clinicEmail });
@@ -852,22 +862,61 @@ export async function saveReportToDrive(req, res) {
     const dateFolderName = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
     const dateFolderId   = await createSubfolder(credentials, clinicalNotesFolderId, dateFolderName);
     const dateStr        = new Date().toISOString().slice(0, 10);
+
+    const mimeType = pdfEnabled ? 'application/pdf' : 'text/plain';
+    const filename = `${templateName}_${patientName}_${dateStr}.${pdfEnabled ? 'pdf' : 'txt'}`;
+    const buffer = pdfEnabled
+      ? await buildSingleDocPdf(req.tenantModels, {
+          type: 'report', reportText, patient, doctor: saveDoctor, reportTemplateName: templateName,
+        })
+      : Buffer.from(reportText, 'utf-8');
+
+    // Overwrite the existing Drive file for this template if one exists (avoids
+    // duplicates when re-saving after a regenerate); otherwise create a new file.
+    const existingFileId = job.driveFileIds?.[job.templateId];
     let uploaded;
-    if (pdfEnabled) {
-      const pdfBuffer = await generateReportPdf(reportText, {
-        templateName, patientName, doctorName,
-        clinicName:    ds.pdf?.clinicName    || '',
-        clinicTagline: ds.pdf?.clinicTagline || '',
-        clinicAddress: ds.pdf?.clinicAddress || '',
-        clinicPhone:   ds.pdf?.clinicPhone   || '',
-        clinicEmail:   ds.pdf?.clinicEmail   || '',
-      });
-      uploaded = await uploadPdfToDrive(credentials, dateFolderId, pdfBuffer, `${templateName}_${patientName}_${dateStr}.pdf`);
+    if (existingFileId) {
+      try {
+        uploaded = await updateFileInDrive(credentials, existingFileId, buffer, filename, mimeType);
+      } catch (err) {
+        console.warn(`[Report] overwrite failed for ${existingFileId}, creating new:`, err.message);
+        uploaded = await uploadFileToDrive(credentials, dateFolderId, buffer, filename, mimeType);
+      }
     } else {
-      const textBuffer = Buffer.from(reportText, 'utf-8');
-      uploaded = await uploadFileToDrive(credentials, dateFolderId, textBuffer, `${templateName}_${patientName}_${dateStr}.txt`, 'text/plain');
+      uploaded = await uploadFileToDrive(credentials, dateFolderId, buffer, filename, mimeType);
     }
-    await ReportJob.findByIdAndUpdate(jobId, { $set: { [`driveLinks.${templateName}`]: uploaded.webViewLink } });
+
+    await ReportJob.findByIdAndUpdate(jobId, {
+      $set: {
+        [`driveLinks.${templateName}`]: uploaded.webViewLink,
+        [`driveFileIds.${job.templateId}`]: uploaded.id,
+      },
+    });
+
+    // Register the report in patient.files[] (paired to the visit, like other
+    // documents) — only on first creation. An overwrite reuses the same Drive id,
+    // so don't add a duplicate record; refresh the existing one's link instead.
+    if (!existingFileId) {
+      const reportVisitId = await resolveReportVisitId(req.tenantModels, {
+        patientId: job.patientId, appointmentId: job.appointmentId,
+      });
+      patient.files.push({
+        file_name:     uploaded.name,
+        category:      'Clinical Notes',
+        drive_file_id: uploaded.id,
+        web_view_link: uploaded.webViewLink,
+        mime_type:     mimeType,
+        ...(reportVisitId ? { visit_id: reportVisitId } : {}),
+      });
+      await patient.save();
+    } else {
+      const existing = patient.files.find(f => f.drive_file_id === uploaded.id);
+      if (existing) {
+        existing.file_name = uploaded.name;
+        existing.web_view_link = uploaded.webViewLink;
+        await patient.save();
+      }
+    }
 
     // Auto-verify Google Drive integration since save succeeded
     try {

@@ -1,9 +1,11 @@
 import React, { createContext, useState, useCallback, useEffect, useContext } from 'react';
 import API from '../services/api';
+import { useAuth } from './AuthContext.jsx';
 
 export const IntegrationContext = createContext();
 
 export function IntegrationProvider({ children }) {
+  const { isAuthenticated } = useAuth();
   const [integrations, setIntegrations] = useState({
     google_drive: { isConfigured: false, isVerified: false, storageGB: null, lastError: null },
     gmail: { isConfigured: false, isVerified: false, lastError: null },
@@ -96,10 +98,12 @@ export function IntegrationProvider({ children }) {
     }
   }, []);
 
-  // Check integrations on mount
+  // Check integrations on mount — only when authenticated.
+  // Running this on public pages (e.g. /reset-password) would fire an
+  // authenticated request, get a 401, and trigger the global redirect to /login.
   useEffect(() => {
-    checkAllIntegrations();
-  }, [checkAllIntegrations]);
+    if (isAuthenticated) checkAllIntegrations();
+  }, [isAuthenticated, checkAllIntegrations]);
 
   const value = {
     integrations,

@@ -126,8 +126,8 @@ function LabOrderModal({ isOpen, onClose, order, patients, labVendors, catalogIt
             </div>
 
             <div className="space-y-1">
-              <label className="text-sm font-medium text-slate-700">Lab Vendor *</label>
-              <select required value={form.vendor_id} onChange={e => set('vendor_id', e.target.value)}
+              <label className="text-sm font-medium text-slate-700">Lab Vendor</label>
+              <select value={form.vendor_id} onChange={e => set('vendor_id', e.target.value)}
                 className="w-full p-2.5 border rounded-xl focus:ring-2 focus:ring-[#137fec] outline-none">
                 <option value="">Select lab</option>
                 {labVendors.map(v => <option key={v._id} value={v._id}>{v.name}</option>)}

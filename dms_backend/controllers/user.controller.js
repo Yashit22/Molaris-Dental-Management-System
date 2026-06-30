@@ -96,6 +96,9 @@ export async function loginUser(req, res) {
       role:     user.role,
       name:     `${user.firstName} ${user.lastName}`.trim(),
       tenantId: user.tenantId ? user.tenantId.toString() : null,
+      // For role=Doctor: links the user to a Doctor record in the tenant DB
+      // so the app can scope appointments/visits to this doctor.
+      doctorId: user.doctorId ? user.doctorId.toString() : null,
     };
 
     const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '8h' });

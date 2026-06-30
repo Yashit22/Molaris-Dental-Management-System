@@ -26,7 +26,7 @@ const PatientsPage = () => {
       ]);
 
       const formattedData = data.map(p => {
-        const stats = statsMap[p._id] || { visit_count: 0, due_amount: 0 };
+        const stats = statsMap[p._id] || { visit_count: 0 };
         return {
           id: p._id,
           regDate: new Date(p.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
@@ -38,7 +38,6 @@ const PatientsPage = () => {
           age: p.dob ? new Date().getFullYear() - new Date(p.dob).getFullYear() : '-',
           visit: stats.visit_count,
           lastVisit: p.last_visit_date ? new Date(p.last_visit_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : null,
-          due: stats.due_amount,
           avatarColor: 'bg-blue-100 text-[#137fec]',
           fullData: p,
         };
@@ -150,7 +149,6 @@ const PatientsPage = () => {
                     <th className="py-4 px-6 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Gender/Age</th>
                     <th className="py-4 px-6 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Visits</th>
                     <th className="py-4 px-6 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Last Visit</th>
-                    <th className="py-4 px-6 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Due</th>
                     <th className="py-4 px-6 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center w-40">Action</th>
                   </tr>
                 </thead>
@@ -187,13 +185,6 @@ const PatientsPage = () => {
                         </td>
                         <td className="py-4 px-6 text-sm text-slate-600 dark:text-slate-300">
                           {patient.lastVisit ? patient.lastVisit : <span className="text-slate-400">-</span>}
-                        </td>
-                        <td className="py-4 px-6 text-sm font-medium text-right">
-                          {patient.due > 0 ? (
-                            <span className="font-bold text-red-600">₹{patient.due.toFixed(2)}</span>
-                          ) : (
-                            <span className="text-slate-400">-</span>
-                          )}
                         </td>
                         <td className="py-4 px-6">
                           <div className="flex items-center justify-center gap-2">

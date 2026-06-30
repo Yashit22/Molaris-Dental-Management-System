@@ -8,6 +8,7 @@ import {
   getAllFiles,
   getStorageInfo,
   bulkDeleteFile,
+  proxyDriveFile,
 } from '../controllers/files.controller.js';
 
 const router = express.Router();
@@ -34,6 +35,10 @@ router.get('/storage', getStorageInfo);
 // Bulk delete files
 // POST /api/files/bulk-delete
 router.post('/bulk-delete', bulkDeleteFile);
+
+// Proxy a Drive file through the backend (image embedding in print/PDF)
+// GET /api/files/proxy/:driveFileId
+router.get('/proxy/:driveFileId', proxyDriveFile);
 
 // Delete a file from Drive + patient record
 // DELETE /api/files/:fileRecordId  (body: { patient_id })

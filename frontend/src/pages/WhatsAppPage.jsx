@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import api from "../services/api";
 import { WAHA_BASE_URL, WAHA_API_KEY } from "../config/env.js";
+import PatientProfileModal from "../modals/PatientProfileModal.jsx";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   LineChart, Line, CartesianGrid, Cell,
@@ -4176,6 +4177,7 @@ function FeedbackAnalyticsPanel() {
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
   const [dateFrom, setDateFrom] = useState(thirtyDaysAgo);
   const [dateTo, setDateTo]     = useState(today);
+  const [selectedPatient, setSelectedPatient] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -4324,7 +4326,20 @@ function FeedbackAnalyticsPanel() {
                   const rating = row.rating;
                   return (
                     <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                      <td className="py-3 px-4 font-medium text-slate-800 dark:text-slate-200">{patientName}</td>
+                      <td className="py-3 px-4 font-medium text-slate-800 dark:text-slate-200">
+                        {row.patient?._id ? (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedPatient(row.patient)}
+                            className="text-[#137fec] hover:underline font-medium text-left"
+                            title="View patient details"
+                          >
+                            {patientName}
+                          </button>
+                        ) : (
+                          patientName
+                        )}
+                      </td>
                       <td className="py-3 px-4 text-slate-600 dark:text-slate-400">{apptDate}</td>
                       <td className="py-3 px-4 text-slate-600 dark:text-slate-400 capitalize">{apptType}</td>
                       <td className="py-3 px-4">
@@ -4344,6 +4359,13 @@ function FeedbackAnalyticsPanel() {
           </div>
         )}
       </div>
+
+      {/* Patient details */}
+      <PatientProfileModal
+        isOpen={!!selectedPatient}
+        onClose={() => setSelectedPatient(null)}
+        patient={selectedPatient}
+      />
     </div>
   );
 }

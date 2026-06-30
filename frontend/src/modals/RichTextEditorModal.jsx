@@ -1,8 +1,8 @@
 import { useRef, useEffect, useState } from 'react';
-import { X, Bold, Italic, Underline, List, ListOrdered, Loader2, Mic, MicOff, Trash2, AlertTriangle } from 'lucide-react';
+import { X, Bold, Italic, Underline, List, ListOrdered, Loader2, Trash2 } from 'lucide-react';
 import API from '../services/api';
-import { useMicRecorder } from '../hooks/useMicRecorder.js';
-import MicPermissionHelp from '../components/MicPermissionHelp.jsx';
+// import { useMicRecorder } from '../hooks/useMicRecorder.js';   // dictate — future scope
+// import MicPermissionHelp from '../components/MicPermissionHelp.jsx'; // dictate — future scope
 
 const TOOLBAR_BUTTONS = [
   { cmd: 'bold',                icon: Bold,         label: 'Bold'          },
@@ -38,14 +38,10 @@ export default function RichTextEditorModal({ isOpen, onClose, type, initialCont
   const [deleting, setDeleting]   = useState(false);
   const [isEmpty, setIsEmpty]     = useState(true);
   const [activeFormats, setActiveFormats] = useState({});
-  const [transcribing, setTranscribing]  = useState(false);
-  const [transcribeError, setTranscribeError] = useState('');
-  const [showPermHelp, setShowPermHelp]       = useState(false);
-
-  const { micState, start: startMic, stop: stopMic, reset: resetMic } = useMicRecorder();
-  const isRecording  = micState.status === 'recording';
-  const isBusy       = micState.status === 'requesting' || micState.status === 'stopping';
-  const hasMicError  = micState.status === 'error';
+  // const [transcribing, setTranscribing]  = useState(false);   // dictate — future scope
+  // const [transcribeError, setTranscribeError] = useState(''); // dictate — future scope
+  // const [showPermHelp, setShowPermHelp]       = useState(false); // dictate — future scope
+  // const { micState, start: startMic, stop: stopMic, reset: resetMic } = useMicRecorder(); // dictate — future scope
 
   // Populate / clear editor when modal opens
   useEffect(() => {
@@ -111,46 +107,8 @@ export default function RichTextEditorModal({ isOpen, onClose, type, initialCont
     e.target.value = '';
   }
 
-  async function handleMicClick() {
-    setTranscribeError('');
-
-    if (isRecording) {
-      const recording = await stopMic();
-      await sendAudioForTranscription(recording);
-      return;
-    }
-
-    saveSelection(); // capture cursor before mic UI changes focus
-    await startMic();
-  }
-
-  async function sendAudioForTranscription({ blob, extension }) {
-    setTranscribing(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', blob, `recording.${extension}`);
-
-      const { data } = await API.post('/transcribe', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-
-      if (data.transcript) {
-        editorRef.current?.focus();
-        const sel = window.getSelection();
-        if (savedRangeRef.current && sel) {
-          sel.removeAllRanges();
-          sel.addRange(savedRangeRef.current);
-        }
-        document.execCommand('insertText', false, data.transcript);
-        handleInput();
-      }
-    } catch (err) {
-      setTranscribeError('Transcription failed — please try again.');
-      console.error('Transcription error:', err);
-    } finally {
-      setTranscribing(false);
-    }
-  }
+  // async function handleMicClick() { ... }          // dictate — future scope
+  // async function sendAudioForTranscription() { ... } // dictate — future scope
 
   async function handleDelete() {
     if (!onDelete) return;
@@ -187,24 +145,8 @@ export default function RichTextEditorModal({ isOpen, onClose, type, initialCont
     ? (type === 'note' ? 'Edit Consultation Note' : 'Edit Advice')
     : (type === 'note' ? 'New Consultation Note'  : 'New Advice');
 
-  // Mic button appearance
-  const micBtnClass = hasMicError
-    ? 'bg-orange-100 text-orange-600 hover:bg-orange-200'
-    : isRecording
-    ? 'bg-red-500 text-white animate-pulse'
-    : isBusy || transcribing
-    ? 'bg-slate-200 text-slate-500'
-    : 'bg-slate-100 text-slate-600 hover:bg-slate-200';
-
-  const micBtnContent = transcribing
-    ? <><Loader2 size={14} className="animate-spin" /> Transcribing…</>
-    : isBusy
-    ? <><Loader2 size={14} className="animate-spin" /> {micState.status === 'requesting' ? 'Starting…' : 'Stopping…'}</>
-    : isRecording
-    ? <><MicOff size={14} /> Stop</>
-    : hasMicError
-    ? <><AlertTriangle size={14} /> Mic error</>
-    : <><Mic size={14} /> Dictate</>;
+  // const micBtnClass = ...;    // dictate — future scope
+  // const micBtnContent = ...; // dictate — future scope
 
   return (
     <>
@@ -263,56 +205,17 @@ export default function RichTextEditorModal({ isOpen, onClose, type, initialCont
               );
             })}
 
+            {/* Dictate button — future scope
             <div className="w-px h-5 bg-slate-200 mx-1" />
-
-            {/* Mic button */}
-            <button
-              type="button"
-              onMouseDown={e => e.preventDefault()}
-              onClick={handleMicClick}
-              disabled={isBusy || transcribing}
-              title={isRecording ? 'Stop recording' : hasMicError ? micState.errorMessage : 'Dictate (speech to text)'}
-              className={`flex items-center gap-1.5 px-3 h-8 rounded-md text-xs font-semibold transition-colors disabled:opacity-50 ${micBtnClass}`}
-            >
+            <button type="button" onMouseDown={e => e.preventDefault()} onClick={handleMicClick} ...>
               {micBtnContent}
             </button>
+            */}
           </div>
 
-          {/* Status strip — shown when recording, interrupted, or error */}
-          {(isRecording || micState.isInterrupted || hasMicError || transcribeError) && (
-            <div className={`px-4 py-2 text-xs flex items-center gap-2 ${
-              isRecording
-                ? 'bg-red-50 text-red-700'
-                : micState.isInterrupted
-                ? 'bg-orange-50 text-orange-700'
-                : 'bg-orange-50 text-orange-700'
-            }`}>
-              {isRecording && <span className="size-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" />}
-              {isRecording
-                ? 'Recording… tap Stop when done.'
-                : micState.isInterrupted
-                ? `${micState.errorMessage} Tap Stop to save what was captured.`
-                : transcribeError
-                ? transcribeError
-                : micState.errorMessage}
-              {(hasMicError && !transcribeError) && (
-                <button
-                  onClick={() => setShowPermHelp(true)}
-                  className="ml-auto underline font-semibold flex-shrink-0"
-                >
-                  How to fix
-                </button>
-              )}
-              {(hasMicError || transcribeError) && (
-                <button
-                  onClick={() => { resetMic(); setTranscribeError(''); }}
-                  className="ml-auto underline font-semibold flex-shrink-0"
-                >
-                  Dismiss
-                </button>
-              )}
-            </div>
-          )}
+          {/* Dictate status strip — future scope
+          {(isRecording || micState.isInterrupted || hasMicError || transcribeError) && ( ... )}
+          */}
 
           {/* Editor */}
           <div className="flex-1 overflow-y-auto px-6 py-4 min-h-[220px]">
@@ -374,12 +277,11 @@ export default function RichTextEditorModal({ isOpen, onClose, type, initialCont
         </div>
       </div>
 
+      {/* MicPermissionHelp — future scope
       {showPermHelp && (
-        <MicPermissionHelp
-          errorCode={micState.errorCode}
-          onClose={() => { setShowPermHelp(false); resetMic(); }}
-        />
+        <MicPermissionHelp errorCode={micState.errorCode} onClose={() => { setShowPermHelp(false); resetMic(); }} />
       )}
+      */}
     </>
   );
 }

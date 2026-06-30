@@ -2,13 +2,6 @@ import { triggerWhatsApp, triggerJourney } from '../services/whatsapp.service.js
 import PDFDocument from 'pdfkit';
 import { uploadFile } from '../services/cloudinary.service.js';
 
-const calculateStatus = (stock, minStock) => {
-  if (stock <= 0) return 'Out of Stock';
-  if (stock <= minStock) return 'Critical';
-  if (stock <= minStock * 1.5) return 'Low';
-  return 'Good';
-};
-
 /**
  * Helper: get today's visit for a patient, or create a stub if none exists
  * Returns the MOST RECENT visit for today
@@ -77,8 +70,8 @@ export async function getPatientHistory(req, res) {
   try {
     const visits = await Visit.find({ patient_id: req.params.id })
       .populate('appointment_id')
-      .populate('treatments.invoice_id',    'status paid_amount total_amount')
-      .populate('prescriptions.invoice_id', 'status paid_amount total_amount')
+      .populate('treatments.invoice_id',    'total_amount')
+      .populate('prescriptions.invoice_id', 'total_amount')
       .sort({ date: -1 });
     res.json(visits);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -173,10 +166,18 @@ export async function addAdvice(req, res) {
 export async function addPrescription(req, res) {
   const { Visit } = req.tenantModels;
   try {
-    const { drug_name, dosage, duration, instructions } = req.body;
+    const { drug_name, dosage, duration, instructions, visit_id } = req.body;
     if (!drug_name) return res.status(400).json({ error: 'drug_name is required' });
 
-    const visit = await getOrCreateTodayVisit(req.tenantModels, req.params.patientId);
+    // If a specific visit is targeted (e.g. editing a past completed appointment),
+    // add to that visit; otherwise fall back to today's visit.
+    let visit;
+    if (visit_id) {
+      visit = await Visit.findOne({ _id: visit_id, patient_id: req.params.patientId });
+      if (!visit) return res.status(404).json({ error: 'Visit not found' });
+    } else {
+      visit = await getOrCreateTodayVisit(req.tenantModels, req.params.patientId);
+    }
     visit.prescriptions.push({ drug_name, dosage, duration, instructions });
     await visit.save();
 
@@ -471,120 +472,3 @@ export async function updateTreatment(req, res) {
   }
 }
 
-// POST /api/visits/patient/:patientId/consumable
-export async function addConsumableToVisit(req, res) {
-  const { Visit, InventoryItem, InventoryLog, User } = req.tenantModels;
-  try {
-    const { inventory_item_id, quantity, visit_id } = req.body;
-    if (!inventory_item_id || !quantity) {
-      return res.status(400).json({ error: 'inventory_item_id and quantity are required' });
-    }
-
-    // Use the specific visit_id if provided, otherwise fall back to today's visit
-    let visit;
-    if (visit_id) {
-      visit = await Visit.findById(visit_id);
-      if (!visit) return res.status(404).json({ error: 'Visit not found' });
-    } else {
-      visit = await getOrCreateTodayVisit(req.tenantModels, req.params.patientId);
-    }
-
-    // Ensure treatments array exists and has at least one entry
-    if (!visit.treatments || visit.treatments.length === 0) {
-      visit.treatments.push({
-        teeth_numbers: [],
-        surfaces: [],
-        treatment_name: 'Consumable Usage',
-        cost: 0,
-        qty: 1,
-        status: 'Completed',
-        consumables_used: []
-      });
-    }
-
-    // Add to first treatment
-    if (!visit.treatments[0].consumables_used) {
-      visit.treatments[0].consumables_used = [];
-    }
-
-    const quantityNum = Number(quantity);
-    visit.treatments[0].consumables_used.push({
-      inventory_item_id,
-      quantity: quantityNum
-    });
-
-    await visit.save();
-
-    // Deduct stock and create log — both must succeed
-    const invItem = await InventoryItem.findById(inventory_item_id);
-    if (invItem) {
-      invItem.stock_on_hand = Math.max(0, invItem.stock_on_hand - quantityNum);
-      invItem.status = calculateStatus(invItem.stock_on_hand, invItem.min_stock_level);
-      await invItem.save();
-    }
-
-    await InventoryLog.create({
-      item_id: inventory_item_id,
-      type: 'Stock Out',
-      reason: 'Treatment Usage',
-      quantity: quantityNum,
-      reference_id: visit._id,
-      performed_by: req.user?.name || req.user?.id || 'Doctor',
-      date: new Date()
-    });
-
-    res.status(201).json(visit);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-}
-
-// DELETE /api/visits/:visitId/consumables/:itemId
-export async function removeConsumableFromVisit(req, res) {
-  const { Visit, InventoryItem, InventoryLog } = req.tenantModels;
-  try {
-    const { visitId, itemId } = req.params;
-
-    const visit = await Visit.findById(visitId);
-    if (!visit) return res.status(404).json({ error: 'Visit not found' });
-
-    let totalQuantityRemoved = 0;
-
-    // Remove consumable from all treatments and track quantity
-    visit.treatments.forEach(t => {
-      if (t.consumables_used) {
-        const consumed = t.consumables_used.filter(c => c.inventory_item_id.toString() === itemId);
-        consumed.forEach(c => {
-          totalQuantityRemoved += c.quantity || 0;
-        });
-        t.consumables_used = t.consumables_used.filter(c => c.inventory_item_id.toString() !== itemId);
-      }
-    });
-
-    await visit.save();
-
-    // Restore inventory and create log
-    if (totalQuantityRemoved > 0) {
-      const invItem = await InventoryItem.findById(itemId);
-      if (invItem) {
-        invItem.stock_on_hand += totalQuantityRemoved;
-        invItem.status = calculateStatus(invItem.stock_on_hand, invItem.min_stock_level);
-        await invItem.save();
-      }
-
-      await InventoryLog.create({
-        item_id: itemId,
-        type: 'Stock In',
-        reason: 'Treatment Usage Reversed',
-        quantity: totalQuantityRemoved,
-        reference_id: visitId,
-        performed_by: req.user?.name || req.user?.id || 'Doctor',
-        date: new Date()
-      });
-    }
-
-    res.json(visit);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-}

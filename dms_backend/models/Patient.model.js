@@ -9,7 +9,9 @@ const PatientSchema = new mongoose.Schema({
   first_name: { type: String, required: true },
   last_name: { type: String },
   dob: { type: Date }, // Virtual 'age' is calculated from this
-  gender: { type: String, enum: ['Male', 'Female', 'Other'] },
+  // Optional — empty string from the form is coerced to undefined so the
+  // enum doesn't reject patients added with only name + mobile.
+  gender: { type: String, enum: ['Male', 'Female', 'Other'], set: v => (v === '' ? undefined : v) },
   blood_group: { type: String },
   
   contact: {

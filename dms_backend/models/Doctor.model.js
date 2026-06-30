@@ -9,6 +9,7 @@ const DoctorSchema = new mongoose.Schema({
   qualification: { type: String }, // e.g., "BDS", "MDS"
   experience_years: { type: Number, default: 0 },
   is_active: { type: Boolean, default: true },
+  signature_url: { type: String, default: '' }, // doctor's signature/stamp image for documents
   availability: {
     monday:    [{ start: String, end: String }], // multiple shifts per day, e.g. [{start:"09:00",end:"13:00"},{start:"16:00",end:"20:00"}]
     tuesday:   [{ start: String, end: String }],

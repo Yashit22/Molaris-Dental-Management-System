@@ -2,8 +2,9 @@
 import mongoose from 'mongoose';
 const LabOrderSchema = new mongoose.Schema({
   patient_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Patient', required: true },
-  doctor_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  vendor_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor' }, // The Lab
+  doctor_id:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  vendor_id:  { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor' },
+  visit_id:   { type: mongoose.Schema.Types.ObjectId, ref: 'Visit', default: null },
   
   order_date: { type: Date, default: Date.now },
   expected_delivery: Date,

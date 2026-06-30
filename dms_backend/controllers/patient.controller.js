@@ -34,11 +34,10 @@ function formatWhatsAppPhone(phone) {
 // GET /api/patients/stats
 // Returns { [patientId]: { visit_count, due_amount } } for all patients
 export async function getPatientStats(req, res) {
-  const { Patient, Visit, Invoice, LabOrder } = req.tenantModels;
+  const { Patient, Visit, LabOrder } = req.tenantModels;
   try {
-    const [visits, pendingInvoices, uninvoicedLabs] = await Promise.all([
+    const [visits, uninvoicedLabs] = await Promise.all([
       Visit.find({}, 'patient_id treatments').lean(),
-      Invoice.find({ patient_id: { $ne: null }, pending_amount: { $gt: 0 } }, 'patient_id pending_amount').lean(),
       LabOrder.find({ patient_id: { $ne: null }, invoice_id: null }, 'patient_id cost_to_clinic').lean(),
     ]);
 
@@ -59,11 +58,6 @@ export async function getPatientStats(req, res) {
           s.due_amount += (Number(t.cost) || 0) * (Number(t.qty) || 1);
         }
       }
-    }
-
-    for (const inv of pendingInvoices) {
-      if (!inv.patient_id) continue;
-      getOrCreate(inv.patient_id).due_amount += Number(inv.pending_amount) || 0;
     }
 
     for (const lab of uninvoicedLabs) {
