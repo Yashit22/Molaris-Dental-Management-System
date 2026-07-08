@@ -412,5 +412,230 @@
     "cost_range": { "min": 100, "max": 400 },
     "description": "Review visit to monitor treatment progress or post-operative healing.",
     "tags": ["common"]
+  },
+  {
+    "key": "inlay_onlay",
+    "name": "Inlay / Onlay Restoration",
+    "category": "restorative",
+    "default_cost": 4500,
+    "cost_range": { "min": 3000, "max": 7000 },
+    "description": "Lab-fabricated indirect restoration for moderate-to-large cavities, bonded to preserve tooth structure.",
+    "tags": ["popular"]
+  },
+  {
+    "key": "internal_bleaching",
+    "name": "Internal (Walking) Bleaching",
+    "category": "endodontic",
+    "default_cost": 2500,
+    "cost_range": { "min": 1500, "max": 4000 },
+    "description": "Intra-coronal bleaching of a root-canal-treated, discoloured tooth.",
+    "tags": []
+  },
+  {
+    "key": "pulpotomy_permanent",
+    "name": "Pulpotomy – Permanent Tooth (Vital)",
+    "category": "endodontic",
+    "default_cost": 2000,
+    "cost_range": { "min": 1200, "max": 3000 },
+    "description": "Partial pulp removal to preserve vitality in a permanent tooth with open apex or reversible pulpitis.",
+    "tags": []
+  },
+  {
+    "key": "apexification",
+    "name": "Apexification (Open Apex)",
+    "category": "endodontic",
+    "default_cost": 4000,
+    "cost_range": { "min": 2500, "max": 6000 },
+    "description": "Induction of apical closure in an immature permanent tooth with a necrotic pulp.",
+    "tags": []
+  },
+  {
+    "key": "apicoectomy",
+    "name": "Apicoectomy (Root-End Resection)",
+    "category": "oral_surgery",
+    "default_cost": 8000,
+    "cost_range": { "min": 5000, "max": 12000 },
+    "description": "Surgical removal of the root apex and periapical lesion when conventional RCT fails.",
+    "tags": []
+  },
+  {
+    "key": "open_flap_debridement",
+    "name": "Open Flap Debridement (per quadrant)",
+    "category": "periodontal",
+    "default_cost": 6000,
+    "cost_range": { "min": 4000, "max": 9000 },
+    "description": "Surgical access flap for direct debridement of deep periodontal pockets and root surfaces.",
+    "tags": []
+  },
+  {
+    "key": "bone_grafting_periodontal",
+    "name": "Bone Grafting (Periodontal Defect)",
+    "category": "periodontal",
+    "default_cost": 7000,
+    "cost_range": { "min": 5000, "max": 12000 },
+    "description": "Graft material placement to regenerate lost alveolar bone in periodontal defects.",
+    "tags": []
+  },
+  {
+    "key": "tooth_splinting",
+    "name": "Splinting of Mobile Teeth",
+    "category": "periodontal",
+    "default_cost": 3500,
+    "cost_range": { "min": 2000, "max": 6000 },
+    "description": "Stabilisation of mobile teeth by bonding to adjacent teeth, often after trauma or periodontal disease.",
+    "tags": []
+  },
+  {
+    "key": "frenectomy",
+    "name": "Frenectomy",
+    "category": "periodontal",
+    "default_cost": 2500,
+    "cost_range": { "min": 1500, "max": 4000 },
+    "description": "Surgical removal/repositioning of an aberrant labial or lingual frenum.",
+    "tags": []
+  },
+  {
+    "key": "biopsy_soft_tissue",
+    "name": "Soft Tissue Biopsy (Incisional/Excisional)",
+    "category": "oral_surgery",
+    "default_cost": 3000,
+    "cost_range": { "min": 2000, "max": 5000 },
+    "description": "Removal of soft tissue sample or lesion for histopathological examination.",
+    "tags": []
+  },
+  {
+    "key": "cyst_enucleation",
+    "name": "Cyst Enucleation",
+    "category": "oral_surgery",
+    "default_cost": 9000,
+    "cost_range": { "min": 6000, "max": 15000 },
+    "description": "Surgical removal of an odontogenic cyst in its entirety.",
+    "tags": []
+  },
+  {
+    "key": "tmj_splint_therapy",
+    "name": "TMJ Splint / Nightguard Therapy",
+    "category": "oral_surgery",
+    "default_cost": 4000,
+    "cost_range": { "min": 2500, "max": 7000 },
+    "description": "Custom occlusal splint for TMJ disorder or bruxism management.",
+    "tags": ["popular"]
+  },
+  {
+    "key": "tooth_reimplantation",
+    "name": "Tooth Reimplantation & Splinting (Avulsion)",
+    "category": "oral_surgery",
+    "default_cost": 3500,
+    "cost_range": { "min": 2000, "max": 6000 },
+    "description": "Emergency reimplantation of an avulsed tooth followed by flexible splinting.",
+    "tags": []
+  },
+  {
+    "key": "sinus_lift",
+    "name": "Sinus Lift (Bone Augmentation)",
+    "category": "prosthodontic",
+    "default_cost": 20000,
+    "cost_range": { "min": 15000, "max": 35000 },
+    "description": "Elevation of the maxillary sinus floor with bone grafting to enable implant placement.",
+    "tags": []
+  },
+  {
+    "key": "bone_graft_implant_site",
+    "name": "Bone Grafting (Implant Site Preparation)",
+    "category": "prosthodontic",
+    "default_cost": 10000,
+    "cost_range": { "min": 6000, "max": 18000 },
+    "description": "Grafting to augment ridge width/height prior to implant placement.",
+    "tags": []
+  },
+  {
+    "key": "overdenture",
+    "name": "Implant/Root-Supported Overdenture",
+    "category": "prosthodontic",
+    "default_cost": 45000,
+    "cost_range": { "min": 30000, "max": 70000 },
+    "description": "Removable denture retained by implants or retained roots for improved stability.",
+    "tags": []
+  },
+  {
+    "key": "immediate_denture",
+    "name": "Immediate Denture (per arch)",
+    "category": "prosthodontic",
+    "default_cost": 12000,
+    "cost_range": { "min": 8000, "max": 20000 },
+    "description": "Denture fabricated in advance and placed immediately after extractions.",
+    "tags": []
+  },
+  {
+    "key": "denture_reline",
+    "name": "Denture Reline / Rebase",
+    "category": "prosthodontic",
+    "default_cost": 2500,
+    "cost_range": { "min": 1500, "max": 4000 },
+    "description": "Resurfacing of the denture base to improve fit as the ridge changes over time.",
+    "tags": []
+  },
+  {
+    "key": "denture_repair",
+    "name": "Denture Repair (Fracture/Tooth Addition)",
+    "category": "prosthodontic",
+    "default_cost": 1200,
+    "cost_range": { "min": 600, "max": 2500 },
+    "description": "Repair of a fractured denture base or addition of a tooth to an existing denture.",
+    "tags": []
+  },
+  {
+    "key": "maryland_bridge",
+    "name": "Maryland (Resin-Bonded) Bridge",
+    "category": "prosthodontic",
+    "default_cost": 10000,
+    "cost_range": { "min": 7000, "max": 16000 },
+    "description": "Minimally invasive fixed bridge bonded to adjacent teeth via a metal or ceramic wing, no crown prep required.",
+    "tags": []
+  },
+  {
+    "key": "orthodontic_retainer",
+    "name": "Orthodontic Retainer (Fixed/Removable)",
+    "category": "orthodontic",
+    "default_cost": 4000,
+    "cost_range": { "min": 2500, "max": 7000 },
+    "description": "Post-treatment appliance to maintain tooth position after braces or aligner therapy.",
+    "tags": ["popular"]
+  },
+  {
+    "key": "interceptive_ortho",
+    "name": "Interceptive / Minor Tooth Movement",
+    "category": "orthodontic",
+    "default_cost": 15000,
+    "cost_range": { "min": 8000, "max": 25000 },
+    "description": "Early or limited orthodontic intervention to correct minor alignment issues.",
+    "tags": []
+  },
+  {
+    "key": "preventive_resin_restoration",
+    "name": "Preventive Resin Restoration (PRR)",
+    "category": "pediatric",
+    "default_cost": 800,
+    "cost_range": { "min": 500, "max": 1300 },
+    "description": "Conservative combination of sealant and minimal composite for early pit-and-fissure caries in children.",
+    "tags": ["pediatric"]
+  },
+  {
+    "key": "pulpotomy_primary",
+    "name": "Pulpotomy – Primary Tooth",
+    "category": "pediatric",
+    "default_cost": 1200,
+    "cost_range": { "min": 800, "max": 2000 },
+    "description": "Partial pulp removal in a primary tooth to preserve vitality of the radicular pulp.",
+    "tags": ["pediatric"]
+  },
+  {
+    "key": "habit_breaking_appliance",
+    "name": "Habit-Breaking Appliance",
+    "category": "pediatric",
+    "default_cost": 3500,
+    "cost_range": { "min": 2000, "max": 6000 },
+    "description": "Appliance to correct thumb-sucking, tongue-thrusting, or other oral habits in children.",
+    "tags": ["pediatric"]
   }
 ]

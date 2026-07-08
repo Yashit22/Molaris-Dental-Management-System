@@ -4,6 +4,7 @@ import mongoose from 'mongoose';
 import { getAnalyticsDb } from '../config/analyticsDb.js';
 import { getTenantConnection } from '../config/tenantDb.js';
 import { getTenantModels } from '../config/tenantModels.js';
+import { getBalanceSeconds, topUp, setBalance, adjust, getLedger, secondsToCredits } from '../services/credits.service.js';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 function toObjectId(id) {
@@ -122,6 +123,7 @@ export async function createTenant(req, res) {
       cloudinaryApiSecret: cloudinaryApiSecret || '',
       wapiBaseUrl: wapiBaseUrl || '',
       wapiToken: wapiToken || '',
+      creditSeconds: 0,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -310,6 +312,90 @@ export async function deleteUser(req, res) {
     if (result.deletedCount === 0)
       return res.status(404).json({ message: 'User not found.' });
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  AI REPORT CREDITS  (1 credit = 60s; stored as integer seconds on the tenant)
+// ══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/connect-desk/tenants/:id/credits
+export async function getTenantCredits(req, res) {
+  try {
+    if (!toObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid id.' });
+    const creditSeconds = await getBalanceSeconds(req.params.id);
+    res.json({ creditSeconds, credits: secondsToCredits(creditSeconds) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// POST /api/connect-desk/tenants/:id/credits/topup  body { credits, note? }
+export async function topUpTenantCredits(req, res) {
+  try {
+    if (!toObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid id.' });
+    const credits = Number(req.body.credits);
+    if (!Number.isFinite(credits) || credits <= 0)
+      return res.status(400).json({ message: 'credits must be a positive number.' });
+
+    const creditSeconds = await topUp(req.params.id, Math.round(credits * 60), {
+      by: req.superAdmin?.email || 'super_admin', kind: 'topup',
+      note: (req.body.note || '').trim() || undefined,
+    });
+    res.json({ creditSeconds, credits: secondsToCredits(creditSeconds) });
+  } catch (err) {
+    console.error('[topUpTenantCredits]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// POST /api/connect-desk/tenants/:id/credits/adjust  body { credits, note? }
+// Manual signed adjustment: positive adds, negative deducts. Floored at 0.
+export async function adjustTenantCredits(req, res) {
+  try {
+    if (!toObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid id.' });
+    const credits = Number(req.body.credits);
+    if (!Number.isFinite(credits) || credits === 0)
+      return res.status(400).json({ message: 'credits must be a non-zero number (use a negative value to deduct).' });
+
+    const creditSeconds = await adjust(req.params.id, Math.round(credits * 60), {
+      by: req.superAdmin?.email || 'super_admin', kind: 'manual_adjust',
+      note: (req.body.note || '').trim() || undefined,
+    });
+    res.json({ creditSeconds, credits: secondsToCredits(creditSeconds) });
+  } catch (err) {
+    console.error('[adjustTenantCredits]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// POST /api/connect-desk/tenants/:id/credits/set  body { credits, note? }
+export async function setTenantCredits(req, res) {
+  try {
+    if (!toObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid id.' });
+    const credits = Number(req.body.credits);
+    if (!Number.isFinite(credits) || credits < 0)
+      return res.status(400).json({ message: 'credits must be a non-negative number.' });
+
+    const creditSeconds = await setBalance(req.params.id, Math.round(credits * 60), {
+      by: req.superAdmin?.email || 'super_admin', kind: 'set',
+      note: (req.body.note || '').trim() || undefined,
+    });
+    res.json({ creditSeconds, credits: secondsToCredits(creditSeconds) });
+  } catch (err) {
+    console.error('[setTenantCredits]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// GET /api/connect-desk/tenants/:id/credits/ledger?limit=
+export async function getTenantLedger(req, res) {
+  try {
+    if (!toObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid id.' });
+    const rows = await getLedger(req.params.id, req.query.limit);
+    res.json(rows.map(r => ({ ...r, credits: secondsToCredits(r.seconds), balanceCredits: secondsToCredits(r.balanceAfter) })));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

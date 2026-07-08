@@ -7,6 +7,9 @@ const InvoiceSchema = new mongoose.Schema({
   patient_phone: { type: String, default: '' },
   patient_id:    { type: mongoose.Schema.Types.ObjectId, ref: 'Patient' },
   visit_id:      { type: mongoose.Schema.Types.ObjectId, ref: 'Visit', default: null },
+  // The appointment this invoice belongs to. This is the single source of truth
+  // for matching documents to an appointment (visit_id is kept as a data anchor).
+  appointment_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Appointment', default: null },
 
   date: { type: Date, default: Date.now },
 
@@ -25,6 +28,15 @@ const InvoiceSchema = new mongoose.Schema({
 
   notes: String,
 }, { timestamps: true });
+
+// One-and-only-one invoice per appointment. Partial index so the many legacy /
+// walk-in invoices with a null appointment_id are exempt (only real appointment
+// links are uniqued). appointment_id is the single source of truth for linking an
+// invoice to an appointment's documents (visit_id is kept only as a data anchor).
+InvoiceSchema.index(
+  { appointment_id: 1 },
+  { unique: true, partialFilterExpression: { appointment_id: { $type: 'objectId' } } }
+);
 
 export { InvoiceSchema };
 export default mongoose.model('Invoice', InvoiceSchema);

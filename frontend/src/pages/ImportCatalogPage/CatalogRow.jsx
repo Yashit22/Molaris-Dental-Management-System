@@ -1,8 +1,10 @@
 import React from 'react';
 import { ChevronDown, ChevronUp, Lock } from 'lucide-react';
 import { DENTAL_CATEGORIES } from '../../data/dentalCatalog/index.js';
+import { DOSAGE_OPTIONS, DURATION_OPTIONS } from '../../data/prescriptionOptions.js';
 
 const CATEGORY_LABEL = Object.fromEntries(DENTAL_CATEGORIES.map(c => [c.id, c.label]));
+const MEDICINE_FORMS = ['Tablet', 'Capsule', 'Syrup', 'Injection', 'Ointment', 'Drops', 'Mouthwash'];
 
 export default function CatalogRow({ entry, type, isExisting, isSelected, isExpanded, editValues, onToggleSelect, onToggleExpand, onEdit }) {
   const values = editValues || entry;
@@ -53,6 +55,13 @@ export default function CatalogRow({ entry, type, isExisting, isSelected, isExpa
         {/* Code (diagnoses only) */}
         {type === 'diagnoses' && (values.code || entry.code) && (
           <span className="text-xs font-mono text-slate-400">{values.code ?? entry.code}</span>
+        )}
+
+        {/* Cost (medicines only) */}
+        {type === 'medicines' && (
+          <span className={`text-sm font-bold tabular-nums ${isDuplicate ? 'text-slate-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+            ₹{Number(values.cost ?? entry.cost ?? 0).toLocaleString('en-IN')}
+          </span>
         )}
 
         {/* Expand toggle */}
@@ -128,8 +137,87 @@ function CatalogRowEditor({ entry, type, values, onEdit }) {
           </div>
         )}
 
+        {/* Medicine-specific fields */}
+        {type === 'medicines' && (
+          <>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Cost (₹)</label>
+              <input
+                type="number"
+                min={0}
+                value={values.cost ?? entry.cost ?? 0}
+                onChange={e => onEdit('cost', Number(e.target.value))}
+                className={inputCls}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Form</label>
+              <select
+                value={values.form ?? entry.form ?? ''}
+                onChange={e => onEdit('form', e.target.value)}
+                className={inputCls}
+              >
+                <option value="">—</option>
+                {MEDICINE_FORMS.map(f => <option key={f} value={f}>{f}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Strength</label>
+              <input
+                type="text"
+                value={values.strength ?? entry.strength ?? ''}
+                onChange={e => onEdit('strength', e.target.value)}
+                placeholder="e.g. 500mg"
+                className={inputCls}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Composition</label>
+              <input
+                type="text"
+                value={values.composition ?? entry.composition ?? ''}
+                onChange={e => onEdit('composition', e.target.value)}
+                placeholder="e.g. Amoxicillin 500mg"
+                className={inputCls}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Default Dosage</label>
+              <select
+                value={values.default_dosage ?? entry.default_dosage ?? ''}
+                onChange={e => onEdit('default_dosage', e.target.value)}
+                className={inputCls}
+              >
+                <option value="">—</option>
+                {DOSAGE_OPTIONS.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Default Duration</label>
+              <select
+                value={values.default_duration ?? entry.default_duration ?? ''}
+                onChange={e => onEdit('default_duration', e.target.value)}
+                className={inputCls}
+              >
+                <option value="">—</option>
+                {DURATION_OPTIONS.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Default Instructions</label>
+              <input
+                type="text"
+                value={values.default_instructions ?? entry.default_instructions ?? ''}
+                onChange={e => onEdit('default_instructions', e.target.value)}
+                placeholder="e.g. After food"
+                className={inputCls}
+              />
+            </div>
+          </>
+        )}
+
         {/* Description */}
-        <div className={type === 'treatments' || type === 'diagnoses' ? '' : 'sm:col-span-2'}>
+        <div className={type === 'treatments' || type === 'diagnoses' || type === 'medicines' ? '' : 'sm:col-span-2'}>
           <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Description (optional)</label>
           <textarea
             rows={2}

@@ -6,13 +6,25 @@ const VisitSchema = new mongoose.Schema({
   appointment_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Appointment' },
   date:           { type: Date, default: Date.now },
 
+  // The dentition chart (Adult / Pedo / Mixed) this visit's teeth were charted on.
+  // Snapshotted from the patient's dentition_type on the first charting action and
+  // then locked for the appointment, so the Visit Summary always renders the same
+  // chart the teeth were selected from — even if patient.dentition_type changes later.
+  dentition_type: { type: String, enum: ['Adult', 'Pedo', 'Mixed'], default: null },
+
   // --- 1. CHIEF COMPLAINT & EXAMINATION FINDINGS ---
   chief_complaint: { type: String, default: '' }, // Reason for this specific visit
   findings: {
-    clinical_findings: [{ type: String }],  // Clinical findings from examination
+    clinical_findings: [{ type: String }],  // Legacy flat findings (no tooth link)
     soft_tissue:       [{ type: String }],
     tmj:               [{ type: String }],
-    diagnosis_notes:   { type: String }
+    diagnosis_notes:   { type: String },     // Legacy flat diagnosis (no tooth link)
+
+    // Per-tooth findings & diagnoses — mirror how treatments store teeth_numbers,
+    // so the dental chart can colour the affected teeth and list tooth → finding.
+    // teeth_numbers may hold tooth ids (dental chart) or soft-tissue/TMJ labels.
+    tooth_findings:  [{ name: String, teeth_numbers: [{ type: String }] }],
+    tooth_diagnoses: [{ name: String, teeth_numbers: [{ type: String }] }],
   },
 
   // --- 2. TREATMENT CHARTING ---

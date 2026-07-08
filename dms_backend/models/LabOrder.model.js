@@ -5,7 +5,10 @@ const LabOrderSchema = new mongoose.Schema({
   doctor_id:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   vendor_id:  { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor' },
   visit_id:   { type: mongoose.Schema.Types.ObjectId, ref: 'Visit', default: null },
-  
+  // The appointment this lab order's invoice belongs to — kept in sync with the
+  // invoice so lab orders stay linked to the appointment (source of truth).
+  appointment_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Appointment', default: null },
+
   order_date: { type: Date, default: Date.now },
   expected_delivery: Date,
   

@@ -8,10 +8,11 @@
  *                                                          |
  * Browser  <--(JSON: live segments, then final transcript)-- relay
  *
- * Purely a transcription accelerator: it never creates a ReportJob and never bills.
- * The frontend calls POST /api/report/transcribe with the final transcript +
- * audio_duration_seconds once this socket reports `{type:'final', ...}` — that's
- * where the job is created (see report.controller.js). This is the ONLY audio
+ * A transcription accelerator: it never creates a ReportJob. It does NOT debit
+ * credits itself, but it DOES gate on them — the upgrade is rejected (close 4409)
+ * for a tenant with a zero balance, so the mic never starts. The actual debit
+ * happens when POST /api/report/transcribe saves the finalized transcript +
+ * audio_duration_seconds (see report.controller.js). This is the ONLY audio
  * transcription path — there is no batch fallback.
  */
 import { WebSocketServer } from 'ws';
@@ -21,6 +22,7 @@ import { SarvamAIClient } from 'sarvamai';
 import ffmpegPath from 'ffmpeg-static';
 
 import { resolveTenantContext } from '../config/resolveTenantContext.js';
+import { getBalanceSeconds } from '../services/credits.service.js';
 
 const WS_PATHS = ['/api/report/stream', '/backendapi/report/stream'];
 const FLUSH_GRACE_MS = 1500;        // wait for trailing segments after flush() before closing
@@ -101,6 +103,31 @@ async function handleConnection(ws, url) {
 
   if (!tenantConfig.sarvamApiKey) {
     ws.close(4422, 'no_sarvam_key');
+    return;
+  }
+
+  // ── 2b. Credit gate — transcription requires a positive balance. Blocking here
+  //        means the mic/ffmpeg/Sarvam never start for a clinic with no credits. ──
+  try {
+    const balanceSeconds = await getBalanceSeconds(decoded.tenantId);
+    if (balanceSeconds <= 0) {
+      console.warn('[reportStream] Rejecting — tenant out of credits:', decoded.tenantId);
+      // Send an application-level error frame BEFORE closing. Browsers often
+      // normalise an immediate post-upgrade close to code 1006 and drop the
+      // custom code/reason, so the JSON message is the reliable signal; the
+      // 4409 close code is a secondary hint.
+      try {
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: 'error', code: 'insufficient_credits',
+            message: 'Your clinic has run out of AI report credits. Please contact your administrator.' }));
+        }
+      } catch { /* noop */ }
+      ws.close(4409, 'insufficient_credits');
+      return;
+    }
+  } catch (err) {
+    console.error('[reportStream] Credit check failed:', err.message);
+    ws.close(4500, 'credit_check_failed');
     return;
   }
 

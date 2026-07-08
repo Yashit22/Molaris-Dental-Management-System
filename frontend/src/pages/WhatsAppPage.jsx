@@ -4441,6 +4441,11 @@ export default function WhatsAppPage() {
     }
   }
 
+  const FEEDBACK_EXCLUSIVE_PAIR = {
+    feedbackMessage: "feedbackPoll",
+    feedbackPoll: "feedbackMessage",
+  };
+
   function updateEventSetting(eventKey, field, value) {
     const defaultConfig =
       eventKey === "appointmentReminder"
@@ -4454,6 +4459,16 @@ export default function WhatsAppPage() {
         [field]: value,
       },
     };
+
+    // Feedback message and feedback poll are mutually exclusive — enabling
+    // one turns the other off so a completed appointment never sends both.
+    const exclusiveKey = FEEDBACK_EXCLUSIVE_PAIR[eventKey];
+    if (exclusiveKey && field === "enabled" && value === true) {
+      newEvents[exclusiveKey] = {
+        ...(settings.events[exclusiveKey] || { enabled: false, delayMinutes: 0 }),
+        enabled: false,
+      };
+    }
 
     const updated = { ...settings, events: newEvents };
 

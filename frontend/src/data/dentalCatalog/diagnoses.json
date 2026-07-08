@@ -198,5 +198,109 @@
     "category": "diagnostic",
     "description": "Fungal infection presenting as white patches; antifungal medication and underlying cause assessment.",
     "tags": []
+  },
+  {
+    "key": "periodontal_abscess",
+    "name": "Periodontal Abscess",
+    "code": "K05.21",
+    "category": "periodontal",
+    "description": "Localised purulent infection of the periodontal pocket, distinct from apical origin; drainage and SRP indicated.",
+    "tags": ["popular"]
+  },
+  {
+    "key": "necrotizing_ulcerative_gingivitis",
+    "name": "Necrotizing Ulcerative Gingivitis (NUG)",
+    "code": "A69.1",
+    "category": "periodontal",
+    "description": "Acute painful gingival necrosis with punched-out papillae, often stress/immunocompromise-related.",
+    "tags": []
+  },
+  {
+    "key": "peri_implant_mucositis",
+    "name": "Peri-implant Mucositis",
+    "code": "K05.9",
+    "category": "periodontal",
+    "description": "Reversible inflammation of soft tissue around an implant without bone loss.",
+    "tags": []
+  },
+  {
+    "key": "peri_implantitis",
+    "name": "Peri-implantitis",
+    "code": "K05.9",
+    "category": "periodontal",
+    "description": "Inflammatory condition around an implant with progressive peri-implant bone loss.",
+    "tags": ["popular"]
+  },
+  {
+    "key": "external_root_resorption_dx",
+    "name": "External Root Resorption",
+    "code": "K03.3",
+    "category": "endodontic",
+    "description": "Progressive loss of root structure from external surface, trauma or pressure-induced.",
+    "tags": []
+  },
+  {
+    "key": "internal_root_resorption_dx",
+    "name": "Internal Root Resorption",
+    "code": "K03.3",
+    "category": "endodontic",
+    "description": "Resorption originating from within the pulp canal wall; RCT indicated if diagnosed early.",
+    "tags": []
+  },
+  {
+    "key": "cracked_tooth_syndrome_dx",
+    "name": "Cracked Tooth Syndrome",
+    "code": "K03.81",
+    "category": "endodontic",
+    "description": "Incomplete crack causing pain on biting/release; may progress to pulpal involvement if untreated.",
+    "tags": ["popular"]
+  },
+  {
+    "key": "tooth_avulsion",
+    "name": "Tooth Avulsion",
+    "code": "S03.20",
+    "category": "oral_surgery",
+    "description": "Complete displacement of tooth from socket due to trauma; immediate reimplantation and splinting required.",
+    "tags": []
+  },
+  {
+    "key": "tooth_luxation_dx",
+    "name": "Tooth Luxation Injury",
+    "code": "S03.20",
+    "category": "oral_surgery",
+    "description": "Traumatic displacement (extrusive/lateral/intrusive) of a tooth without complete avulsion.",
+    "tags": []
+  },
+  {
+    "key": "dentigerous_cyst",
+    "name": "Dentigerous Cyst",
+    "code": "K09.0",
+    "category": "oral_surgery",
+    "description": "Odontogenic cyst associated with the crown of an unerupted/impacted tooth.",
+    "tags": []
+  },
+  {
+    "key": "tmj_disorder",
+    "name": "Temporomandibular Joint Disorder (TMD)",
+    "code": "K07.6",
+    "category": "diagnostic",
+    "description": "Pain/dysfunction of the TMJ or masticatory muscles; may include disc displacement or myofascial pain.",
+    "tags": ["popular"]
+  },
+  {
+    "key": "enamel_hypoplasia",
+    "name": "Enamel Hypoplasia",
+    "code": "K00.4",
+    "category": "diagnostic",
+    "description": "Developmental defect of reduced enamel quantity, presenting as pits, grooves, or thin enamel.",
+    "tags": []
+  },
+  {
+    "key": "dental_fluorosis",
+    "name": "Dental Fluorosis",
+    "code": "K00.3",
+    "category": "diagnostic",
+    "description": "Developmental enamel discolouration/mottling from excess fluoride exposure during tooth formation.",
+    "tags": []
   }
 ]

@@ -4,10 +4,12 @@ import { AppointmentSchema }        from '../models/Appointment.model.js';
 import { InvoiceSchema }            from '../models/Invoice.model.js';
 import { LabCatalogItemSchema }     from '../models/LabCatalogItem.model.js';
 import { LabOrderSchema }           from '../models/LabOrder.model.js';
+import { VendorSchema }             from '../models/Vendor.model.js';
 import DoctorModel                  from '../models/Doctor.model.js';
 import ClinicalFindingModel         from '../models/ClinicalFinding.model.js';
 import DiagnosisModel               from '../models/Diagnosis.model.js';
 import SuggestedTreatmentModel      from '../models/SuggestedTreatment.model.js';
+import MedicineModel                from '../models/Medicine.model.js';
 import { WhatsAppSettingsSchema }   from '../models/WhatsAppSettings.model.js';
 import { WhatsAppTemplateSchema }   from '../models/WhatsAppTemplate.model.js';
 import { WhatsAppMediaSchema }      from '../models/WhatsAppMedia.model.js';
@@ -45,10 +47,12 @@ export function getTenantModels(conn) {
     Invoice:         getOrCreate('Invoice',         InvoiceSchema),
     LabCatalogItem:  getOrCreate('LabCatalogItem',  LabCatalogItemSchema),
     LabOrder:        getOrCreate('LabOrder',        LabOrderSchema),
+    Vendor:          getOrCreate('Vendor',          VendorSchema),
     Doctor:          getOrCreate('Doctor',          DoctorModel.schema),
     ClinicalFinding:    getOrCreate('ClinicalFinding',    ClinicalFindingModel.schema),
     Diagnosis:          getOrCreate('Diagnosis',          DiagnosisModel.schema),
     SuggestedTreatment: getOrCreate('SuggestedTreatment', SuggestedTreatmentModel.schema),
+    Medicine:           getOrCreate('Medicine',           MedicineModel.schema),
     WhatsAppSettings:   getOrCreate('WhatsAppSettings',   WhatsAppSettingsSchema),
     WhatsAppTemplate:   getOrCreate('WhatsAppTemplate',   WhatsAppTemplateSchema),
     WhatsAppMedia:      getOrCreate('WhatsAppMedia',      WhatsAppMediaSchema),

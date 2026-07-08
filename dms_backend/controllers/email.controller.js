@@ -641,7 +641,9 @@ export async function triggerAppointmentBookedEmail({ tenantModels, patientId, a
       name:             patientName,
       doctor:           doctorName || await getDoctorName(tenantModels, appointment?.doctor_id),
       doctorName:       doctorName || await getDoctorName(tenantModels, appointment?.doctor_id),
-      date:             today,
+      date:             appointment?.start_time ? fmtDate(appointment.start_time) : today,
+      // UI advertises {{time}}; keep appointmentTime as an alias for older templates.
+      time:             appointment?.start_time ? fmtTime(appointment.start_time) : '',
       appointmentDate:  appointment?.start_time ? fmtDate(appointment.start_time) : today,
       appointmentTime:  appointment?.start_time ? fmtTime(appointment.start_time) : '',
       clinicName:       clinic.clinic_name,

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Trash2, Stethoscope, TestTube, Search, Loader2, Minus, ChevronUp, PlusCircle } from 'lucide-react';
+import { X, Trash2, Stethoscope, TestTube, Pill, Search, Loader2, Minus, ChevronUp, PlusCircle } from 'lucide-react';
 import API from '../services/api';
 import AddPatientModal from './AddPatientModal';
 
@@ -83,27 +83,45 @@ const PatientSearchInput = ({ onSelect, onAddNew }) => {
   );
 };
 
-// ── Searchable select for Services / Lab items ────────────────────────────────
-const ENDPOINTS = { Service: '/suggested-treatments', Lab: '/labs/items' };
+// ── Searchable select for Services / Lab / Pharmacy items ─────────────────────
+const ENDPOINTS = { Service: '/suggested-treatments', Lab: '/labs/items', Pharmacy: '/medicines' };
 
-// fuzzy: every character in needle must appear in haystack in order
-const fuzzyMatch = (needle, haystack) => {
-  const n = needle.toLowerCase();
-  const h = haystack.toLowerCase();
-  let ni = 0;
-  for (let i = 0; i < h.length && ni < n.length; i++) {
-    if (h[i] === n[ni]) ni++;
-  }
-  return ni === n.length;
-};
+// Plain substring match — the typed run of letters must appear contiguously.
+const substringMatch = (needle, haystack) =>
+  (haystack || '').toLowerCase().includes(needle.toLowerCase());
 
 const SearchableSelect = ({ placeholder, type, onSelect, onNameChange, initialValue = '' }) => {
   const [query, setQuery] = useState(initialValue);
   const [allItems, setAllItems] = useState([]);
   const [results, setResults] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
+  const containerRef = useRef(null);
+  const userTypedRef = useRef(false); // only show dropdown after user actively types
 
-  useEffect(() => { setQuery(initialValue); }, [initialValue]);
+  // Sync from an external initialValue change (e.g. item pre-filled from the
+  // visit, or reset). Because onNameChange pushes each keystroke up to the
+  // parent, initialValue echoes back the value the user just typed — that echo
+  // must NOT be treated as an external reset, or the dropdown would be closed on
+  // every keystroke. Only react when initialValue genuinely differs from what
+  // the field already shows.
+  useEffect(() => {
+    if (initialValue === query) return;
+    setQuery(initialValue);
+    userTypedRef.current = false;
+    setShowDropdown(false);
+  }, [initialValue]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reliable close on any click outside this field (blur alone is fragile)
+  useEffect(() => {
+    if (!showDropdown) return;
+    const handleClickOutside = (event) => {
+      if (containerRef.current && !containerRef.current.contains(event.target)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showDropdown]);
 
   // Fetch catalog once on mount (or when type changes)
   useEffect(() => {
@@ -112,19 +130,11 @@ const SearchableSelect = ({ placeholder, type, onSelect, onNameChange, initialVa
     }).catch(() => {});
   }, [type]);
 
-  const userTypedRef = useRef(false); // only show dropdown after user actively types
-
   const handleQueryChange = (val) => {
     userTypedRef.current = true;
     setQuery(val);
     onNameChange?.(val);
   };
-
-  // Reset interaction flag when initialValue changes (item pre-filled from visit)
-  useEffect(() => {
-    userTypedRef.current = false;
-    setShowDropdown(false);
-  }, [initialValue]);
 
   // Debounced fuzzy filter — only runs after user has typed
   useEffect(() => {
@@ -132,9 +142,9 @@ const SearchableSelect = ({ placeholder, type, onSelect, onNameChange, initialVa
     if (!query.trim()) { setResults([]); setShowDropdown(false); return; }
     const t = setTimeout(() => {
       const filtered = allItems.filter(item =>
-        fuzzyMatch(query, item.name) ||
-        (item.composition && fuzzyMatch(query, item.composition)) ||
-        (item.category && fuzzyMatch(query, item.category))
+        substringMatch(query, item.name) ||
+        (item.composition && substringMatch(query, item.composition)) ||
+        (item.category && substringMatch(query, item.category))
       );
       setResults(filtered);
       setShowDropdown(filtered.length > 0);
@@ -148,7 +158,7 @@ const SearchableSelect = ({ placeholder, type, onSelect, onNameChange, initialVa
   };
 
   return (
-    <div className="relative flex-1">
+    <div className="relative flex-1" ref={containerRef}>
       <input
         className="w-full border border-slate-200 rounded-md text-sm py-1.5 px-2 focus:outline-none focus:border-[#137fec]"
         placeholder={placeholder}
@@ -202,6 +212,7 @@ const NewInvoiceModal = forwardRef(function NewInvoiceModal({
   suggestedVisitId = null,
   editInvoice = null,
   visitId = null,
+  appointmentId = null,
   inline = false,
 }, ref) {
   const today = new Date().toISOString().split('T')[0];
@@ -403,6 +414,7 @@ const NewInvoiceModal = forwardRef(function NewInvoiceModal({
         patient_phone:  patientInfo.phone,
         patient_id:     patientInfo.id,
         visit_id:       visitId || null,
+        appointment_id: appointmentId || null,
         date,
         items: items.filter(it => it.name?.trim()).map(it => ({
           name:       it.name,
@@ -466,8 +478,8 @@ const NewInvoiceModal = forwardRef(function NewInvoiceModal({
   handleSubmitRef.current = handleSubmit;
 
   // ── Shared render helpers ────────────────────────────────────────────────────
-  const typeBadge = { Service: 'SVC', Lab: 'LAB' };
-  const typeColor = { Service: 'text-blue-600', Lab: 'text-purple-600' };
+  const typeBadge = { Service: 'SVC', Lab: 'LAB', Pharmacy: 'MED' };
+  const typeColor = { Service: 'text-blue-600', Lab: 'text-purple-600', Pharmacy: 'text-emerald-600' };
 
   const formBody = (
     <>
@@ -562,6 +574,9 @@ const NewInvoiceModal = forwardRef(function NewInvoiceModal({
             <button onClick={() => addItem('Lab')} className="text-xs flex items-center gap-1 text-slate-600 hover:text-purple-600 font-bold border px-2 py-1 rounded">
               <TestTube size={12} /> Lab
             </button>
+            <button onClick={() => addItem('Pharmacy')} className="text-xs flex items-center gap-1 text-slate-600 hover:text-emerald-600 font-bold border px-2 py-1 rounded">
+              <Pill size={12} /> Medicine
+            </button>
           </div>
         </div>
 
@@ -580,7 +595,7 @@ const NewInvoiceModal = forwardRef(function NewInvoiceModal({
                   <SearchableSelect
                     type={item.type}
                     initialValue={item.name}
-                    placeholder={item.type === 'Lab' ? 'Search Lab Item *' : 'Search Service *'}
+                    placeholder={item.type === 'Lab' ? 'Search Lab Item *' : item.type === 'Pharmacy' ? 'Search Medicine *' : 'Search Service *'}
                     onNameChange={val => setItems(prev => prev.map((it, i) => i === idx ? { ...it, name: val } : it))}
                     onSelect={data => {
                       const rate = item.type === 'Lab' ? (data.price || 0) : (data.cost || 0);

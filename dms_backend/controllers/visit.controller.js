@@ -7,39 +7,134 @@ import { uploadFile } from '../services/cloudinary.service.js';
  * Returns the MOST RECENT visit for today
  * @param {object} models - req.tenantModels
  */
-async function getOrCreateTodayVisit(models, patientId) {
+// Resolve (or create) today's visit for a patient. When an `appointmentId` is
+// supplied (the action happened in the context of an appointment), the visit is
+// tied to it so documents can be matched by appointment_id later — no same-day
+// guessing. Prefers an existing visit already linked to that appointment; else
+// today's visit (which it back-links to the appointment if it had none); else
+// creates a fresh visit carrying the appointment_id.
+async function getOrCreateTodayVisit(models, patientId, appointmentId = null) {
   const { Visit, Patient } = models;
   const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
   const endOfDay   = new Date(); endOfDay.setHours(23, 59, 59, 999);
 
+  // ── Appointment-scoped path ──────────────────────────────────────────────
+  // When we know the appointment, the visit MUST belong to that appointment —
+  // documents are matched by appointment_id. Never merge into a same-day visit
+  // that belongs to a DIFFERENT appointment (that would make findings/treatments
+  // for appointment A land on appointment B's Visit Summary).
+  if (appointmentId) {
+    // 1a. The visit already linked to this appointment.
+    const linked = await Visit.findOne({ patient_id: patientId, appointment_id: appointmentId });
+    if (linked) return linked;
+
+    // 1b. A same-day visit with NO appointment yet — adopt it for this appointment.
+    const orphan = await Visit.findOne({
+      patient_id: patientId,
+      appointment_id: { $in: [null, undefined] },
+      date: { $gte: startOfDay, $lte: endOfDay },
+    }).sort({ date: -1 });
+    if (orphan) {
+      orphan.appointment_id = appointmentId;
+      await orphan.save();
+      return orphan;
+    }
+
+    // 1c. Otherwise create a fresh visit dedicated to this appointment.
+    const visit = await Visit.create({
+      patient_id: patientId,
+      appointment_id: appointmentId,
+      date: new Date(),
+    });
+    await Patient.findByIdAndUpdate(patientId, { last_visit_date: new Date() });
+    return visit;
+  }
+
+  // ── Walk-in path (no appointment context) ────────────────────────────────
+  // 2. Today's visit for this patient (any).
   let visit = await Visit.findOne({
     patient_id: patientId,
     date: { $gte: startOfDay, $lte: endOfDay }
   }).sort({ date: -1 });
 
-  if (!visit) {
-    visit = await Visit.create({ patient_id: patientId, date: new Date() });
-    await Patient.findByIdAndUpdate(patientId, { last_visit_date: new Date() });
-  }
+  if (visit) return visit;
 
+  // 3. Create a fresh visit.
+  visit = await Visit.create({
+    patient_id: patientId,
+    date: new Date(),
+  });
+  await Patient.findByIdAndUpdate(patientId, { last_visit_date: new Date() });
   return visit;
 }
 
 // POST /api/visits
+// Merges into today's visit for this patient instead of creating a new document
+// each time, so treatments/findings saved from different chart tabs (Dental /
+// Soft Tissue / TMJ) in the same sitting all land on one Visit — otherwise the
+// Visit Summary PDF (built from a single visitId) only shows one of them.
 export async function createVisit(req, res) {
   const { Visit, Patient } = req.tenantModels;
   try {
-    const { patient_id } = req.body;
+    const { patient_id, appointment_id, treatments, findings, notes, date, dentition_type } = req.body;
 
-    const visit = new Visit(req.body);
-    await visit.save();
-
-    // Update Patient's last visit date
-    if(patient_id) {
-        await Patient.findByIdAndUpdate(patient_id, { 
-          last_visit_date: new Date() 
-        });
+    if (!patient_id) {
+      const visit = new Visit(req.body);
+      await visit.save();
+      return res.status(201).json(visit);
     }
+
+    const visit = await getOrCreateTodayVisit(req.tenantModels, patient_id, appointment_id || null);
+
+    // One appointment = one dentition. Snapshot the chart the teeth are being
+    // charted on the first time, then lock it: a later action on a different
+    // dentition is rejected so a visit can never mix Adult/Pedo/Mixed teeth.
+    if (dentition_type) {
+      if (!visit.dentition_type) {
+        visit.dentition_type = dentition_type;
+      } else if (visit.dentition_type !== dentition_type) {
+        return res.status(409).json({
+          error: `This appointment is already charted on the ${visit.dentition_type} dentition. Finish or clear it before switching to ${dentition_type}.`,
+          dentition_type: visit.dentition_type,
+        });
+      }
+    }
+
+    // Append treatments rather than replacing.
+    if (Array.isArray(treatments) && treatments.length) {
+      visit.treatments.push(...treatments);
+    }
+
+    // Merge findings — union soft_tissue/tmj/clinical_findings, keep last non-empty diagnosis.
+    if (findings) {
+      visit.findings = visit.findings || {};
+      const mergeList = (existing = [], incoming = []) =>
+        Array.from(new Set([...(existing || []), ...(incoming || [])]));
+      if (findings.soft_tissue)
+        visit.findings.soft_tissue = mergeList(visit.findings.soft_tissue, findings.soft_tissue);
+      if (findings.tmj)
+        visit.findings.tmj = mergeList(visit.findings.tmj, findings.tmj);
+      if (findings.clinical_findings)
+        visit.findings.clinical_findings = mergeList(visit.findings.clinical_findings, findings.clinical_findings);
+      if (findings.diagnosis_notes && findings.diagnosis_notes.trim()) {
+        visit.findings.diagnosis_notes = visit.findings.diagnosis_notes
+          ? `${visit.findings.diagnosis_notes}, ${findings.diagnosis_notes}`
+          : findings.diagnosis_notes;
+      }
+      // Per-tooth findings/diagnoses — append (each entry carries its own teeth).
+      if (Array.isArray(findings.tooth_findings) && findings.tooth_findings.length)
+        visit.findings.tooth_findings = [...(visit.findings.tooth_findings || []), ...findings.tooth_findings];
+      if (Array.isArray(findings.tooth_diagnoses) && findings.tooth_diagnoses.length)
+        visit.findings.tooth_diagnoses = [...(visit.findings.tooth_diagnoses || []), ...findings.tooth_diagnoses];
+      visit.markModified('findings');
+    }
+
+    if (notes && notes.trim()) {
+      visit.notes = visit.notes ? `${visit.notes}\n${notes}` : notes;
+    }
+
+    await visit.save();
+    await Patient.findByIdAndUpdate(patient_id, { last_visit_date: new Date() });
 
     res.status(201).json(visit);
   } catch (err) { res.status(400).json({ error: err.message }); }
@@ -136,10 +231,10 @@ export async function updateAdvice(req, res) {
 export async function addConsultationNote(req, res) {
   const { Visit } = req.tenantModels;
   try {
-    const { content } = req.body;
+    const { content, appointment_id } = req.body;
     if (!content) return res.status(400).json({ error: 'content is required' });
 
-    const visit = await getOrCreateTodayVisit(req.tenantModels, req.params.patientId);
+    const visit = await getOrCreateTodayVisit(req.tenantModels, req.params.patientId, appointment_id || null);
     visit.consultation_notes.push({ content });
     await visit.save();
 
@@ -151,10 +246,10 @@ export async function addConsultationNote(req, res) {
 export async function addAdvice(req, res) {
   const { Visit } = req.tenantModels;
   try {
-    const { content } = req.body;
+    const { content, appointment_id } = req.body;
     if (!content) return res.status(400).json({ error: 'content is required' });
 
-    const visit = await getOrCreateTodayVisit(req.tenantModels, req.params.patientId);
+    const visit = await getOrCreateTodayVisit(req.tenantModels, req.params.patientId, appointment_id || null);
     visit.advices.push({ content });
     await visit.save();
 
@@ -166,7 +261,7 @@ export async function addAdvice(req, res) {
 export async function addPrescription(req, res) {
   const { Visit } = req.tenantModels;
   try {
-    const { drug_name, dosage, duration, instructions, visit_id } = req.body;
+    const { drug_name, dosage, duration, instructions, visit_id, appointment_id } = req.body;
     if (!drug_name) return res.status(400).json({ error: 'drug_name is required' });
 
     // If a specific visit is targeted (e.g. editing a past completed appointment),
@@ -176,7 +271,7 @@ export async function addPrescription(req, res) {
       visit = await Visit.findOne({ _id: visit_id, patient_id: req.params.patientId });
       if (!visit) return res.status(404).json({ error: 'Visit not found' });
     } else {
-      visit = await getOrCreateTodayVisit(req.tenantModels, req.params.patientId);
+      visit = await getOrCreateTodayVisit(req.tenantModels, req.params.patientId, appointment_id || null);
     }
     visit.prescriptions.push({ drug_name, dosage, duration, instructions });
     await visit.save();
@@ -266,11 +361,11 @@ export async function addPrescription(req, res) {
 export async function addTreatments(req, res) {
   const { Visit } = req.tenantModels;
   try {
-    const { treatments } = req.body;
+    const { treatments, appointment_id } = req.body;
     if (!Array.isArray(treatments) || treatments.length === 0)
       return res.status(400).json({ error: 'treatments array is required' });
 
-    const visit = await getOrCreateTodayVisit(req.tenantModels, req.params.patientId);
+    const visit = await getOrCreateTodayVisit(req.tenantModels, req.params.patientId, appointment_id || null);
     treatments.forEach(t => {
       visit.treatments.push({
         treatment_name: t.treatment_name,
@@ -341,6 +436,33 @@ export async function deletePrescription(req, res) {
       { new: true }
     );
     if (!visit) return res.status(404).json({ error: 'Visit not found' });
+    res.json(visit);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+}
+
+// PATCH /api/visits/:visitId/prescriptions/:prescriptionId
+// Edit a single prescription line in place. Only the provided fields are
+// updated (drug_name, dosage, duration, instructions).
+export async function updatePrescription(req, res) {
+  const { Visit } = req.tenantModels;
+  try {
+    const { visitId, prescriptionId } = req.params;
+    const editable = ['drug_name', 'dosage', 'duration', 'instructions'];
+    const set = {};
+    for (const field of editable) {
+      if (req.body[field] !== undefined) set[`prescriptions.$.${field}`] = req.body[field];
+    }
+    if (Object.keys(set).length === 0)
+      return res.status(400).json({ error: 'No editable fields provided' });
+    if (set['prescriptions.$.drug_name'] !== undefined && !String(set['prescriptions.$.drug_name']).trim())
+      return res.status(400).json({ error: 'drug_name cannot be empty' });
+
+    const visit = await Visit.findOneAndUpdate(
+      { _id: visitId, 'prescriptions._id': prescriptionId },
+      { $set: set },
+      { new: true }
+    );
+    if (!visit) return res.status(404).json({ error: 'Prescription not found' });
     res.json(visit);
   } catch (err) { res.status(500).json({ error: err.message }); }
 }

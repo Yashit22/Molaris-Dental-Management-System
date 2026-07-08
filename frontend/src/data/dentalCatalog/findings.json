@@ -201,5 +201,173 @@
     "category": "cosmetic",
     "description": "Internal tooth discolouration from fluorosis, tetracycline, trauma, or pulp necrosis.",
     "tags": []
+  },
+  {
+    "key": "attrition_wear",
+    "name": "Attrition (Tooth-to-Tooth Wear)",
+    "category": "restorative",
+    "description": "Flattened occlusal/incisal surfaces from tooth-on-tooth contact, often bruxism-related.",
+    "tags": []
+  },
+  {
+    "key": "abrasion_wear",
+    "name": "Abrasion (Mechanical Wear)",
+    "category": "restorative",
+    "description": "Notched or wedge-shaped cervical tooth loss from mechanical causes such as aggressive brushing.",
+    "tags": ["common"]
+  },
+  {
+    "key": "abfraction_lesion",
+    "name": "Abfraction Lesion",
+    "category": "restorative",
+    "description": "Wedge-shaped cervical defect attributed to occlusal flexural stress.",
+    "tags": []
+  },
+  {
+    "key": "positive_percussion",
+    "name": "Sensitivity to Percussion",
+    "category": "endodontic",
+    "description": "Pain on tapping the tooth; suggests periapical or periodontal ligament inflammation.",
+    "tags": ["common"]
+  },
+  {
+    "key": "positive_cold_test",
+    "name": "Positive Cold Test (Lingering Pain)",
+    "category": "endodontic",
+    "description": "Prolonged pain response to cold stimulus; indicates irreversible pulpal involvement.",
+    "tags": ["popular"]
+  },
+  {
+    "key": "negative_pulp_vitality",
+    "name": "Negative Pulp Vitality Response",
+    "category": "endodontic",
+    "description": "No response to thermal/electric pulp testing; suggests pulp necrosis.",
+    "tags": []
+  },
+  {
+    "key": "internal_root_resorption",
+    "name": "Internal Root Resorption (Radiographic)",
+    "category": "endodontic",
+    "description": "Balloon-shaped radiolucency within the root canal space seen on radiograph.",
+    "tags": []
+  },
+  {
+    "key": "external_root_resorption",
+    "name": "External Root Resorption (Radiographic)",
+    "category": "endodontic",
+    "description": "Irregular root surface loss visible radiographically, often trauma- or pressure-related.",
+    "tags": []
+  },
+  {
+    "key": "periapical_radiolucency",
+    "name": "Periapical Radiolucency",
+    "category": "endodontic",
+    "description": "Radiographic lucency at the root apex indicating periapical pathology.",
+    "tags": ["common", "popular"]
+  },
+  {
+    "key": "widened_pdl_space",
+    "name": "Widened Periodontal Ligament Space",
+    "category": "endodontic",
+    "description": "Radiographic widening of the PDL space, suggestive of occlusal trauma or early periapical change.",
+    "tags": []
+  },
+  {
+    "key": "furcation_grade1",
+    "name": "Furcation Involvement – Grade I",
+    "category": "periodontal",
+    "description": "Incipient furcation involvement detectable by probe but less than 3mm horizontally.",
+    "tags": []
+  },
+  {
+    "key": "furcation_grade2",
+    "name": "Furcation Involvement – Grade II",
+    "category": "periodontal",
+    "description": "Cul-de-sac furcation involvement extending more than 3mm but not through-and-through.",
+    "tags": []
+  },
+  {
+    "key": "furcation_grade3",
+    "name": "Furcation Involvement – Grade III",
+    "category": "periodontal",
+    "description": "Through-and-through furcation involvement; probe passes completely under the tooth.",
+    "tags": []
+  },
+  {
+    "key": "bone_loss_horizontal",
+    "name": "Horizontal Bone Loss (Radiographic)",
+    "category": "periodontal",
+    "description": "Even reduction in alveolar bone height parallel to the CEJ line, seen radiographically.",
+    "tags": []
+  },
+  {
+    "key": "bone_loss_vertical",
+    "name": "Vertical (Angular) Bone Loss (Radiographic)",
+    "category": "periodontal",
+    "description": "Localised angular bone defect, often associated with isolated periodontal pockets.",
+    "tags": []
+  },
+  {
+    "key": "tmj_clicking",
+    "name": "TMJ Clicking / Crepitus",
+    "category": "oral_surgery",
+    "description": "Audible or palpable joint sound on opening/closing; suggests disc displacement or degenerative change.",
+    "tags": ["common"]
+  },
+  {
+    "key": "tmj_deviation",
+    "name": "Deviation on Mouth Opening",
+    "category": "oral_surgery",
+    "description": "Jaw shifts to one side during opening, indicating asymmetric TMJ or muscle function.",
+    "tags": []
+  },
+  {
+    "key": "masticatory_muscle_tenderness",
+    "name": "Masticatory Muscle Tenderness on Palpation",
+    "category": "oral_surgery",
+    "description": "Pain on palpation of masseter/temporalis; suggests myofascial involvement or bruxism.",
+    "tags": []
+  },
+  {
+    "key": "root_fracture_radiographic",
+    "name": "Root Fracture (Radiographic)",
+    "category": "oral_surgery",
+    "description": "Radiolucent line across the root visible on radiograph, typically trauma-related.",
+    "tags": []
+  },
+  {
+    "key": "tooth_luxation",
+    "name": "Tooth Luxation / Displacement",
+    "category": "oral_surgery",
+    "description": "Tooth displaced from its socket following trauma; may be extruded, intruded, or laterally displaced.",
+    "tags": []
+  },
+  {
+    "key": "xerostomia",
+    "name": "Xerostomia (Dry Mouth)",
+    "category": "diagnostic",
+    "description": "Reduced salivary flow presenting as dryness; increases caries and mucosal risk.",
+    "tags": []
+  },
+  {
+    "key": "halitosis",
+    "name": "Halitosis",
+    "category": "diagnostic",
+    "description": "Persistent oral malodour, often linked to periodontal disease, coating, or systemic causes.",
+    "tags": ["common"]
+  },
+  {
+    "key": "tongue_coating",
+    "name": "Tongue Coating",
+    "category": "diagnostic",
+    "description": "Visible white/yellow coating on dorsal tongue surface, associated with poor hygiene or halitosis.",
+    "tags": []
+  },
+  {
+    "key": "impacted_supernumerary",
+    "name": "Impacted / Ectopic Supernumerary Tooth",
+    "category": "diagnostic",
+    "description": "Extra tooth present in an abnormal position, often detected radiographically.",
+    "tags": []
   }
 ]

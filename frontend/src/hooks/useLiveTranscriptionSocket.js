@@ -27,6 +27,7 @@ export function useLiveTranscriptionSocket() {
   const wsRef = useRef(null);
   const statusRef = useRef('idle'); // idle | connecting | ready | stopping | closed | error
   const intentionalStopRef = useRef(false);
+  const terminalErrorRef = useRef(false); // server sent a fatal error (e.g. no credits) — do not reconnect
   const reconnectCountRef = useRef(0);
   const pendingReadyRef = useRef(null);  // { resolve, reject }
   const pendingStopRef = useRef(null);   // { resolve, reject }
@@ -101,9 +102,14 @@ export function useLiveTranscriptionSocket() {
     if (msg.type === 'error') {
       console.error('[LiveTranscription] Relay error:', msg.message, 'code:', msg.code);
       setBothStatus('error');
-      pendingReadyRef.current?.reject(new Error(msg.message || 'Live transcription error'));
+      const err = new Error(msg.message || 'Live transcription error');
+      if (msg.code) err.code = msg.code;
+      // A server-sent error is terminal — mark it so the imminent onclose does
+      // NOT trigger a reconnect (e.g. an insufficient_credits close).
+      terminalErrorRef.current = true;
+      pendingReadyRef.current?.reject(err);
       pendingReadyRef.current = null;
-      pendingStopRef.current?.reject(new Error(msg.message || 'Live transcription error'));
+      pendingStopRef.current?.reject(err);
       pendingStopRef.current = null;
     }
     // 'events' (VAD signals) — informational only, no UI hookup.
@@ -141,6 +147,22 @@ export function useLiveTranscriptionSocket() {
         clearTimeout(readyTimer);
         if (intentionalStopRef.current) return; // expected — finalize() already handled it
 
+        // A terminal server error message (e.g. insufficient_credits) already
+        // rejected the pending promises — just don't reconnect.
+        if (terminalErrorRef.current) { setBothStatus('error'); return; }
+
+        // Out-of-credits close. Match the 4409 code AND the reason string, since
+        // browsers frequently normalise an immediate post-upgrade close to 1006
+        // and drop the custom code (the reason is more reliably preserved).
+        if (event.code === 4409 || event.reason === 'insufficient_credits') {
+          const err = new Error('Your clinic has run out of AI report credits. Please contact your administrator.');
+          err.code = 'insufficient_credits';
+          setBothStatus('error');
+          pendingReadyRef.current?.reject(err); pendingReadyRef.current = null;
+          pendingStopRef.current?.reject(err);  pendingStopRef.current = null;
+          return;
+        }
+
         if (pendingReadyRef.current) {
           pendingReadyRef.current.reject(new Error(`Live socket closed before ready (code ${event.code})`));
           pendingReadyRef.current = null;
@@ -171,6 +193,7 @@ export function useLiveTranscriptionSocket() {
   /** Open the live socket and wait for the relay to signal it's ready for audio. */
   const connect = useCallback(async () => {
     intentionalStopRef.current = false;
+    terminalErrorRef.current = false;
     reconnectCountRef.current = 0;
     firstChunkRef.current = null;
     pendingChunksRef.current = [];

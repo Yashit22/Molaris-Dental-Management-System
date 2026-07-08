@@ -13,7 +13,7 @@ const CATEGORIES = [
   { id: 'Scans',          label: 'X-Rays & Scans', icon: HardDrive,     color: 'text-slate-600',  bg: 'bg-slate-50',  border: 'border-slate-100'  },
 ];
 
-const ReportsNotesSection = ({ patientId, refreshTrigger }) => {
+const ReportsNotesSection = ({ patientId, refreshTrigger, visitId = null, appointmentId = null }) => {
   const [view, setView] = useState('DASHBOARD');
   const [activeCategory, setActiveCategory] = useState(null);
 
@@ -65,6 +65,12 @@ const ReportsNotesSection = ({ patientId, refreshTrigger }) => {
     formData.append('name', uploadName);
     formData.append('category', uploadCategory);
     formData.append('patient_id', patientId);
+    // Link the file to the active appointment/visit when uploaded from a visit
+    // context (Treatmentpage). appointment_id is the source of truth for the
+    // documents modal; visit_id is kept as a data anchor. Patient-level uploads
+    // (PatientProfileModal) omit both.
+    if (appointmentId) formData.append('appointment_id', appointmentId);
+    if (visitId) formData.append('visit_id', visitId);
 
     try {
       setUploading(true);

@@ -8,6 +8,7 @@ import {
 import { openExternal } from '../utils/openExternal';
 import API from '../services/api';
 import { useAuth } from '../Context/AuthContext.jsx';
+import { useUser } from '../Context/UserContext.jsx';
 import { useLiveTranscriptionSocket } from '../hooks/useLiveTranscriptionSocket.js';
 
 // Substitute {{placeholder}} tokens; unknown tokens collapse to ''.
@@ -171,6 +172,7 @@ const DETAIL_LEVELS = [
 
 export default function ClinicalReportModal({ isOpen, onClose, patientId, appointmentId, patient, onSuccess }) {
   const { user } = useAuth();
+  const { reloadCredits } = useUser();
   const mediaRecorderRef  = useRef(null);
   const audioChunksRef    = useRef([]);
   const cancelledRef      = useRef(false);
@@ -201,7 +203,17 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
   const [textInput, setTextInput]       = useState('');
   const [jobId, setJobId]               = useState(null);
   const [cachedTranscript, setCachedTranscript] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0); // elapsed dictation time
   const jobPollRef = useRef(null);
+
+  // Tick the elapsed-time counter every second while actively recording. Pausing
+  // freezes it (interval cleared); the final value equals the dictation length
+  // that gets billed as credits.
+  useEffect(() => {
+    if (stage !== 'recording') return;
+    const id = setInterval(() => setRecordSeconds(s => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [stage]);
 
   // Template state
   const [templates, setTemplates]                   = useState([]);
@@ -423,6 +435,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
   async function startRecording() {
     console.log('[ClinicalReport] startRecording called. canRecord=', canRecord, 'stage=', stage, 'template=', selectedTemplate?.id);
     setError('');
+    setRecordSeconds(0);
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
         throw Object.assign(new Error('mediaDevices unavailable'), { name: 'NotSupportedError' });
@@ -480,6 +493,15 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
       liveSocket.connect().catch(sockErr => {
         console.error('[ClinicalReport] live connect failed:', sockErr.message);
         setError(sockErr?.message || 'Could not connect to live transcription. Please try again.');
+        // Out of credits (or any pre-ready failure): stop the recorder we just
+        // started and return to idle — transcription can't proceed.
+        if (sockErr?.code === 'insufficient_credits') {
+          cancelledRef.current = true;
+          try { mediaRecorderRef.current?.stop(); } catch { /* ignore */ }
+          setStage('idle');
+          setMinimized(false);
+          reloadCredits?.(); // refresh the nav pill (likely 0 now)
+        }
       });
 
       if ('mediaSession' in navigator) {
@@ -604,6 +626,11 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
 
     if (!response.ok) {
       const errData = await response.json().catch(() => ({}));
+      if (response.status === 402) {
+        const e = new Error(errData.message || 'Your clinic has run out of AI report credits. Please contact your administrator.');
+        e.code = 'insufficient_credits';
+        throw e;
+      }
       throw new Error(errData.error || `HTTP ${response.status}`);
     }
 
@@ -632,6 +659,8 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
         }
       }
     }
+    // A report was generated → credits were debited server-side. Refresh the pill.
+    reloadCredits?.();
     return finalData;
   }
 
@@ -679,9 +708,17 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
       setTranscript(liveTranscript);
       setEditedTranscript(liveTranscript);
       setStage('editing');
+      reloadCredits?.(); // credits were just debited at transcription
     } catch (err) {
       console.warn('[ClinicalReport] Live transcription failed:', err.message);
-      setError(err.response?.data?.error || err.message || 'Live transcription failed. Please try recording again.');
+      // 402 → out of credits. Prefer the friendly server message; refresh the pill.
+      const data = err.response?.data;
+      if (err.response?.status === 402) {
+        setError(data?.message || 'Your clinic has run out of AI report credits. Please contact your administrator.');
+        reloadCredits?.();
+      } else {
+        setError(data?.error || err.message || 'Live transcription failed. Please try recording again.');
+      }
       setStage('idle');
       setMinimized(false);
     } finally {
@@ -770,12 +807,14 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
       patientUpdate.medical_history = Array.from(new Set([...existing, ...payload.medical_history]));
     }
     if (Object.keys(patientUpdate).length > 0) calls.push(API.put(`/patients/${patientId}`, patientUpdate));
-    if (payload.consultation_note) calls.push(API.post(`/visits/patient/${patientId}/note`, { content: payload.consultation_note }));
+    // appointment_id links the auto-created visit to this appointment (no same-day guess).
+    if (payload.consultation_note) calls.push(API.post(`/visits/patient/${patientId}/note`, { content: payload.consultation_note, appointment_id: appointmentId || null }));
     const adviceHtml = payload.advice || (Array.isArray(payload.advices) ? payload.advices.filter(Boolean).join('') : '');
-    if (adviceHtml) calls.push(API.post(`/visits/patient/${patientId}/advice`, { content: adviceHtml }));
+    if (adviceHtml) calls.push(API.post(`/visits/patient/${patientId}/advice`, { content: adviceHtml, appointment_id: appointmentId || null }));
     if (Array.isArray(payload.treatment_plan) && payload.treatment_plan.length > 0) {
       payload.treatment_plan.forEach(t => {
         calls.push(API.post(`/visits/patient/${patientId}/treatments`, {
+          appointment_id: appointmentId || null,
           treatments: [{
             treatment_name: [t.suggested_treatment, t.diagnosis].filter(Boolean).join(' — ') || 'Treatment',
             teeth_numbers: Array.isArray(t.tooth_numbers) ? t.tooth_numbers.map(String) : [],
@@ -791,6 +830,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
         calls.push(API.post(`/visits/patient/${patientId}/prescription`, {
           drug_name: m.drug_name, dosage: m.dosage || '',
           duration: m.duration || '', instructions: m.instructions || '',
+          appointment_id: appointmentId || null,
         }));
       }
     });
@@ -1028,6 +1068,12 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
               {/* Waveform + playback preview */}
               {(stage === 'recording' || stage === 'paused') && (
                 <div className="w-full max-w-sm flex flex-col items-center gap-3">
+                  {/* Elapsed dictation time — this is what gets billed (1 credit = 1 min) */}
+                  <div className="flex items-center gap-2">
+                    <span className={`size-2 rounded-full ${stage === 'recording' ? 'bg-red-500 animate-pulse' : 'bg-amber-500'}`} />
+                    <span className="text-2xl font-bold tabular-nums text-slate-800">{fmtTime(recordSeconds)}</span>
+                  </div>
+
                   <WaveformBar analyserRef={analyserRef} active={stage === 'recording'} />
 
                   {/* Live transcript preview (rolling last ~7 words) */}

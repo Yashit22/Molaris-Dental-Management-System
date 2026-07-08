@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import {
   Printer, FileText, Monitor, Phone,
   MapPin, User, Plus, X, NotebookPen, Pill, TestTube, Loader2, Save, Edit2, Receipt, Mic, AlertTriangle,
-  ClipboardList, Stethoscope, FolderOpen, Activity,
+  ClipboardList, Stethoscope, FolderOpen, Activity, ChevronDown, Lightbulb,
 } from 'lucide-react';
 
 // --- IMPORTS ---
@@ -22,6 +22,15 @@ import MedicationsPanel from '../components/MedicationsPanel.jsx';
 import PatientHistory from '../components/PatientHistory.jsx';
 
 // --- Sub-Components ---
+
+// The appointment tied to the current (newest) visit, if any. Sent with note/
+// advice/prescription posts so the backend links the visit to this appointment
+// instead of relying on a same-day guess.
+const currentApptId = (visits) => {
+  const v = visits?.[0];
+  if (!v) return null;
+  return (typeof v.appointment_id === 'object' ? v.appointment_id?._id : v.appointment_id) || null;
+};
 
 // eslint-disable-next-line react/prop-types
 const PatientInfoCard = ({ patient, onViewProfile, appointments = [], currentVisit = null }) => {
@@ -361,9 +370,10 @@ const formatVisitDate = (date) =>
   new Date(date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
 // --- CONSULTATION NOTES ---
-const ConsultationNotes = ({ visits, patientId, onRefresh }) => {
+const ConsultationNotes = ({ visits, patientId, onRefresh, appointmentId = null }) => {
   const [modalOpen, setModalOpen]   = useState(false);
   const [editTarget, setEditTarget] = useState(null); // { visitId, noteId, content }
+  const [collapsed, setCollapsed]   = useState(true);
 
   const allNotes = visits
     .filter(v => v.consultation_notes?.length > 0)
@@ -382,34 +392,45 @@ const ConsultationNotes = ({ visits, patientId, onRefresh }) => {
     if (editTarget) {
       await API.patch(`/visits/${editTarget.visitId}/notes/${editTarget._id}`, { content });
     } else {
-      await API.post(`/visits/patient/${patientId}/note`, { content });
+      await API.post(`/visits/patient/${patientId}/note`, { content, appointment_id: appointmentId || currentApptId(visits) });
     }
     onRefresh();
   }
 
   return (
     <div className="p-5 bg-white rounded-xl shadow-sm border border-gray-100 mb-6">
-      <div className="flex justify-between items-center mb-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center text-[#137fec]">
+      <div className="flex justify-between items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setCollapsed(c => !c)}
+          className="flex items-center gap-3 flex-1 min-w-0 text-left group"
+        >
+          <div className="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center text-[#137fec] shrink-0">
             <NotebookPen size={20} />
           </div>
-          <h3 className="font-semibold text-lg text-slate-800">Consultation Notes</h3>
-        </div>
+          <h3 className="font-semibold text-lg text-slate-800 truncate">Consultation Notes</h3>
+          {allNotes.length > 0 && (
+            <span className="text-xs font-semibold text-slate-400 bg-slate-100 rounded-full px-2 py-0.5 shrink-0">{allNotes.length}</span>
+          )}
+          <ChevronDown
+            size={18}
+            className={`text-slate-400 shrink-0 transition-transform duration-200 ${collapsed ? '-rotate-90' : ''}`}
+          />
+        </button>
         <button
           onClick={openCreate}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors font-medium text-sm"
+          className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors font-medium text-sm shrink-0"
         >
           <Plus size={16} /> New Note
         </button>
       </div>
 
-      {allNotes.length === 0 ? (
-        <div className="flex items-center justify-center py-10 text-slate-400 text-sm bg-slate-50 rounded-xl border border-dashed border-slate-200">
+      {collapsed ? null : allNotes.length === 0 ? (
+        <div className="mt-4 flex items-center justify-center py-10 text-slate-400 text-sm bg-slate-50 rounded-xl border border-dashed border-slate-200">
           No consultation notes yet.
         </div>
       ) : (
-        <div className="flex flex-col gap-3">
+        <div className="mt-4 flex flex-col gap-3">
           {allNotes.map(note => (
             <div key={note._id} className="relative group bg-slate-50 rounded-lg px-4 pt-4 pb-3 border border-slate-100">
               <button
@@ -671,9 +692,10 @@ const LabOrders = ({ patientId, onRefresh, onOrdersLoaded, refreshKey = 0 }) => 
 };
 
 // --- ADVICES ---
-const AdvicesRecall = ({ visits, patientId, onRefresh }) => {
+const AdvicesRecall = ({ visits, patientId, onRefresh, appointmentId = null }) => {
   const [modalOpen, setModalOpen]   = useState(false);
   const [editTarget, setEditTarget] = useState(null);
+  const [collapsed, setCollapsed]   = useState(true);
 
   const allAdvices = visits
     .filter(v => v.advices?.length > 0)
@@ -692,33 +714,42 @@ const AdvicesRecall = ({ visits, patientId, onRefresh }) => {
     if (editTarget) {
       await API.patch(`/visits/${editTarget.visitId}/advices/${editTarget._id}`, { content });
     } else {
-      await API.post(`/visits/patient/${patientId}/advice`, { content });
+      await API.post(`/visits/patient/${patientId}/advice`, { content, appointment_id: appointmentId || currentApptId(visits) });
     }
     onRefresh();
   }
 
   return (
     <div className="p-5 bg-white rounded-xl shadow-sm border border-gray-100 mb-6">
-
-      {/* Header */}
-      <div className="flex justify-between items-center mb-5">
-        <div className="flex items-center border-b border-slate-100 w-full pb-3">
-          <span className="text-sm font-semibold text-[#137fec] border-b-2 border-[#137fec] pb-1">Advices</span>
-          {/* Action button aligned right */}
-          <div className="ml-auto">
-            <button
-              onClick={openCreate}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-600 rounded-lg hover:bg-amber-100 transition-colors font-medium text-xs"
-            >
-              <Plus size={14} /> Add Advice
-            </button>
+      <div className="flex justify-between items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setCollapsed(c => !c)}
+          className="flex items-center gap-3 flex-1 min-w-0 text-left group"
+        >
+          <div className="w-10 h-10 bg-amber-50 rounded-full flex items-center justify-center text-amber-600 shrink-0">
+            <Lightbulb size={20} />
           </div>
-        </div>
+          <h3 className="font-semibold text-lg text-slate-800 truncate">Advices</h3>
+          {allAdvices.length > 0 && (
+            <span className="text-xs font-semibold text-slate-400 bg-slate-100 rounded-full px-2 py-0.5 shrink-0">{allAdvices.length}</span>
+          )}
+          <ChevronDown
+            size={18}
+            className={`text-slate-400 shrink-0 transition-transform duration-200 ${collapsed ? '-rotate-90' : ''}`}
+          />
+        </button>
+        <button
+          onClick={openCreate}
+          className="flex items-center gap-2 px-4 py-2 bg-amber-50 text-amber-600 rounded-lg hover:bg-amber-100 transition-colors font-medium text-sm shrink-0"
+        >
+          <Plus size={16} /> Add Advice
+        </button>
       </div>
 
       {/* Advices */}
-      {(
-        <>
+      {collapsed ? null : (
+        <div className="mt-4">
           {allAdvices.length === 0 ? (
             <div className="flex items-center justify-center py-10 text-slate-400 text-sm bg-slate-50 rounded-xl border border-dashed border-slate-200">
               No advices added yet.
@@ -744,7 +775,7 @@ const AdvicesRecall = ({ visits, patientId, onRefresh }) => {
               ))}
             </div>
           )}
-        </>
+        </div>
       )}
 
       <RichTextEditorModal
@@ -1028,21 +1059,39 @@ export default function TreatmentPage({ patientIdProp }) {
     if (activeTab !== 'invoice') didInitTreatmentSig.current = false;
   }, [activeTab]);
 
-  // Detect and load the visit's invoice by visit_id.
-  // invoiceLoaded gates the inline modal so it never seeds/auto-saves before the
-  // existing invoice (which may contain custom items) has been fetched.
+  // Detect and load THIS appointment's invoice by appointment_id — the single
+  // source of truth for linking documents. There is one and only one invoice per
+  // appointment. invoiceLoaded gates the inline modal so it never seeds/auto-saves
+  // before the existing invoice (which may contain custom items) has been fetched.
+  // Track the appointment whose invoice we've already gated on, so refetches of the
+  // same appointment (e.g. after a save) don't blank the gate and remount the modal.
+  const gatedVisitRef = useRef(null);
   const loadVisitInvoice = useCallback(() => {
+    // Resolve the current appointment the same way docsVisit does: prefer the live
+    // session's appointment, else the appointment stamped on the newest visit.
+    const sessionApptId = !viewingDate ? activeTreatment?.appointmentId : null;
     const currentVisit = visits[0];
-    setInvoiceLoaded(false);
-    if (!currentVisit?._id) { setVisitInvoice(null); setInvoiceLoaded(true); return; }
-    return API.get(`/invoices?visit_id=${currentVisit._id}`)
+    const currentApptId = sessionApptId
+      || (typeof currentVisit?.appointment_id === 'object'
+            ? currentVisit?.appointment_id?._id
+            : currentVisit?.appointment_id)
+      || null;
+    // Only show the loading spinner when switching to a different appointment (or
+    // the very first load). Reloads of the same appointment keep the modal mounted
+    // so the Save button doesn't flicker Saving… → spinner → Save Changes.
+    if (gatedVisitRef.current !== currentApptId) {
+      gatedVisitRef.current = currentApptId;
+      setInvoiceLoaded(false);
+    }
+    if (!currentApptId) { setVisitInvoice(null); setInvoiceLoaded(true); return; }
+    return API.get(`/invoices?appointment_id=${currentApptId}`)
       .then(res => {
         const list = Array.isArray(res.data) ? res.data : [];
-        setVisitInvoice(list[0] || null); // one invoice per visit
+        setVisitInvoice(list[0] || null); // one invoice per appointment
       })
       .catch(() => setVisitInvoice(null))
       .finally(() => setInvoiceLoaded(true));
-  }, [visits]);
+  }, [visits, viewingDate, activeTreatment?.appointmentId]);
 
   useEffect(() => { loadVisitInvoice(); }, [loadVisitInvoice]);
 
@@ -1114,9 +1163,18 @@ export default function TreatmentPage({ patientIdProp }) {
   // the early `loading` return so hook order stays stable across renders.
   useEffect(() => {
     if (!isDocumentsOpen || !id) { setDocsReport(null); return; }
-    const dv = (viewingDate
-      ? visits.filter(v => new Date(v.date).toISOString().slice(0, 10) === new Date(viewingDate).toISOString().slice(0, 10))
-      : visits)[0] || (viewingDate ? null : visits[0]) || null;
+    // Same appointment-keyed selection as `docsVisit` below: when a live session
+    // is active, scope to the visit linked to THIS appointment so the report
+    // matches the documents shown — not the newest-by-date visit.
+    const sessionApptId = !viewingDate ? activeTreatment?.appointmentId : null;
+    const dv =
+      (sessionApptId &&
+        visits.find(v => String(v.appointment_id?._id || v.appointment_id) === String(sessionApptId)))
+      || (viewingDate
+        ? visits.filter(v => new Date(v.date).toISOString().slice(0, 10) === new Date(viewingDate).toISOString().slice(0, 10))
+        : visits)[0]
+      || (viewingDate ? null : visits[0])
+      || null;
     // Prefer the visit's own appointment, then the active session's appointment.
     // If neither exists (walk-in), scope by the visit's day so we still only get
     // THIS visit's report (the backend day-scopes on `date`).
@@ -1152,8 +1210,27 @@ export default function TreatmentPage({ patientIdProp }) {
     ? new Date(viewingDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
     : null;
 
-  // The visit whose documents the modal shows (mirrors the modal's `visit` prop)
-  const docsVisit = displayVisits[0] || (viewingDate ? null : visits[0]) || null;
+  // The visit whose documents the modal shows (mirrors the modal's `visit` prop).
+  // Everything is keyed by appointment_id now: when a live session is active,
+  // pick the visit linked to THIS appointment — never the newest-by-date visit,
+  // which may belong to a different appointment and won't carry the findings /
+  // treatments just charted. Falls back to the newest visit for walk-ins / no
+  // active session.
+  const docsVisit = (() => {
+    const apptId = !viewingDate ? activeTreatment?.appointmentId : null;
+    if (apptId) {
+      const linked = visits.find(
+        v => String(v.appointment_id?._id || v.appointment_id) === String(apptId)
+      );
+      if (linked) return linked;
+    }
+    return displayVisits[0] || (viewingDate ? null : visits[0]) || null;
+  })();
+
+  // The appointment every document written this session links to. Prefer the live
+  // session's appointment (reliable even on the first action, before any visit
+  // exists); fall back to whatever is already stamped on the current visit.
+  const activeApptId = (!viewingDate ? activeTreatment?.appointmentId : null) || currentApptId(displayVisits);
 
   const handleConclude = () => {
     const apptId = activeTreatment?.appointmentId;
@@ -1203,6 +1280,7 @@ export default function TreatmentPage({ patientIdProp }) {
               onTreatmentAdded={fetchPageData}
               visits={visits}
               patientId={id}
+              appointmentId={activeApptId}
               initialDentition={patient?.dentition_type || 'Adult'}
             />
           </div>
@@ -1218,7 +1296,7 @@ export default function TreatmentPage({ patientIdProp }) {
 
         {/* ── Tab: Prescriptions ── */}
         {activeTab === 'prescriptions' && (
-          <Medications visits={displayVisits} patientId={id} onRefresh={fetchPageData} targetVisitId={displayVisits[0]?._id || null} />
+          <Medications visits={displayVisits} patientId={id} onRefresh={fetchPageData} targetVisitId={displayVisits[0]?._id || null} appointmentId={activeApptId} />
         )}
 
         {/* ── Tab: Invoice ── */}
@@ -1237,6 +1315,7 @@ export default function TreatmentPage({ patientIdProp }) {
               isOpen
               initialPatient={patient}
               visitId={displayVisits[0]?._id}
+              appointmentId={activeApptId}
               editInvoice={visitInvoice}
               initialItems={[
                 ...(displayVisits[0] ? (displayVisits[0].treatments || [])
@@ -1244,7 +1323,7 @@ export default function TreatmentPage({ patientIdProp }) {
                   .map(t => ({ name: t.treatment_name, type: 'Service', quantity: t.qty || 1, rate: t.cost || 0, total: (t.cost || 0) * (t.qty || 1), item_id: null, _treatmentRef: { visitId: displayVisits[0]._id, treatmentId: t._id } }))
                 : []),
                 ...(displayVisits[0] ? (displayVisits[0].prescriptions || [])
-                  .map(p => ({ name: p.drug_name, type: 'Service', quantity: 1, rate: 0, total: 0, item_id: null, _prescriptionRef: { visitId: displayVisits[0]._id, prescriptionId: p._id } }))
+                  .map(p => ({ name: p.drug_name, type: 'Pharmacy', quantity: 1, rate: 0, total: 0, item_id: null, _prescriptionRef: { visitId: displayVisits[0]._id, prescriptionId: p._id } }))
                 : []),
               ]}
               onSuccess={() => { fetchPageData(); setLabRefreshKey(k => k + 1); }}
@@ -1256,14 +1335,14 @@ export default function TreatmentPage({ patientIdProp }) {
         {/* ── Tab: Visit Notes ── */}
         {activeTab === 'notes' && (
           <div className="space-y-3">
-            <ConsultationNotes visits={displayVisits} patientId={id} onRefresh={fetchPageData} />
-            <AdvicesRecall visits={displayVisits} patientId={id} onRefresh={fetchPageData} />
+            <ConsultationNotes visits={displayVisits} patientId={id} onRefresh={fetchPageData} appointmentId={activeApptId} />
+            <AdvicesRecall visits={displayVisits} patientId={id} onRefresh={fetchPageData} appointmentId={activeApptId} />
           </div>
         )}
 
         {/* ── Tab: Files & Reports ── */}
         {activeTab === 'files' && (
-          <ReportsNotesSection patientId={id} refreshTrigger={reportRefreshKey} visits={visits} onRefresh={fetchPageData} />
+          <ReportsNotesSection patientId={id} refreshTrigger={reportRefreshKey} visits={visits} visitId={visits[0]?._id || null} appointmentId={activeApptId} onRefresh={fetchPageData} />
         )}
 
         {/* ── Tab: History ── */}

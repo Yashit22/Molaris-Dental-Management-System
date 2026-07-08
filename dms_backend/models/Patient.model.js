@@ -73,6 +73,9 @@ const PatientSchema = new mongoose.Schema({
     web_view_link: { type: String },
     mime_type:     { type: String },
     visit_id:      { type: mongoose.Schema.Types.ObjectId, ref: 'Visit' }, // optional
+    // The appointment this file belongs to — lets scans/reports bind to an
+    // appointment even when uploaded before any visit doc exists.
+    appointment_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Appointment' }, // optional
     uploaded_at:   { type: Date, default: Date.now },
   }],
 

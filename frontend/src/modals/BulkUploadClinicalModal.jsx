@@ -35,6 +35,17 @@ const TYPE_CONFIG = {
       ['Scaling and polishing',       'Periodontal', '1200', 'Routine cleaning'],
     ],
   },
+  medicines: {
+    title: 'Bulk Upload — Medicines',
+    endpoint: '/medicines/bulk-upload',
+    sampleFileName: 'medicines_sample.csv',
+    headers: ['name', 'composition', 'strength', 'form', 'category', 'default_dosage', 'default_duration', 'default_instructions', 'cost'],
+    sampleRows: [
+      ['Amoxicillin 500mg', 'Amoxicillin 500mg', '500mg', 'Capsule', 'Antibiotic', '1-0-1', '5 days', 'After food', '8'],
+      ['Ibuprofen 400mg',   'Ibuprofen 400mg',   '400mg', 'Tablet',  'Analgesic',  '1-1-1', '3 days', 'After food', '2'],
+      ['Chlorhexidine Mouthwash', 'Chlorhexidine Gluconate 0.2%', '0.2%', 'Mouthwash', 'Antiseptic', '0-1-1', '7 days', 'Rinse 10ml, do not swallow', '85'],
+    ],
+  },
 };
 
 // Tiny CSV writer (escapes quotes and commas).

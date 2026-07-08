@@ -17,8 +17,9 @@ export async function getInvoices(req, res) {
   const { Invoice } = req.tenantModels;
   try {
     const filter = {};
-    if (req.query.patient_id) filter.patient_id = req.query.patient_id;
-    if (req.query.visit_id)   filter.visit_id   = req.query.visit_id;
+    if (req.query.patient_id)     filter.patient_id     = req.query.patient_id;
+    if (req.query.visit_id)       filter.visit_id       = req.query.visit_id;
+    if (req.query.appointment_id) filter.appointment_id = req.query.appointment_id;
     const invoices = await Invoice.find(filter).sort({ createdAt: -1 });
     res.json(invoices);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -40,8 +41,20 @@ export async function createInvoice(req, res) {
   try {
     const {
         patient_id, patient_name, patient_phone, date, items,
-        subtotal, total_amount, visit_id,
+        subtotal, total_amount, visit_id, appointment_id,
     } = req.body;
+
+    // One-and-only-one invoice per appointment. If one already exists for this
+    // appointment, update it in place instead of creating a duplicate — so both
+    // generation paths (treatment page + completed-appointments section) converge
+    // on the single invoice. Items can only be added/edited post-creation.
+    if (appointment_id) {
+      const existing = await Invoice.findOne({ appointment_id });
+      if (existing) {
+        req.params = { ...req.params, id: existing._id };
+        return updateInvoice(req, res);
+      }
+    }
 
     // 1. Generate ID
     const invoice_id = await generateInvoiceId(Invoice);
@@ -53,6 +66,7 @@ export async function createInvoice(req, res) {
         patient_name,
         patient_phone,
         visit_id: visit_id || null,
+        appointment_id: appointment_id || null,
         date,
         items,
         subtotal,
@@ -67,6 +81,7 @@ export async function createInvoice(req, res) {
         await LabOrder.create({
           patient_id,
           visit_id:       visit_id || null,
+          appointment_id: appointment_id || null,
           invoice_id:     newInvoice._id,
           order_date:     date || new Date(),
           items: [{
@@ -124,6 +139,16 @@ export async function createInvoice(req, res) {
     res.status(201).json(newInvoice);
 
   } catch (err) {
+    // Lost a race against a concurrent create for the same appointment (the
+    // partial-unique index on appointment_id fired). Converge onto the invoice
+    // that won by updating it instead of erroring — keeps one-per-appointment.
+    if (err?.code === 11000 && req.body.appointment_id) {
+      const existing = await Invoice.findOne({ appointment_id: req.body.appointment_id });
+      if (existing) {
+        req.params = { ...req.params, id: existing._id };
+        return updateInvoice(req, res);
+      }
+    }
     console.error("Create Invoice Error:", err);
     res.status(400).json({ error: err.message });
   }
@@ -135,12 +160,15 @@ export async function updateInvoice(req, res) {
   try {
       const invoice = await Invoice.findById(req.params.id);
       if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
-      const { subtotal, total_amount, items, notes, date } = req.body;
+      const { subtotal, total_amount, items, notes, date, appointment_id, visit_id } = req.body;
       if (subtotal !== undefined)     invoice.subtotal     = subtotal;
       if (total_amount !== undefined) invoice.total_amount = total_amount;
       if (items !== undefined)        invoice.items        = items;
       if (notes !== undefined)        invoice.notes        = notes;
       if (date !== undefined)         invoice.date         = date;
+      // Backfill the appointment/visit link if this invoice predates it.
+      if (appointment_id && !invoice.appointment_id) invoice.appointment_id = appointment_id;
+      if (visit_id && !invoice.visit_id)             invoice.visit_id       = visit_id;
       await invoice.save();
 
       // Reconcile LabOrder documents with the invoice's current Lab items.
@@ -170,6 +198,7 @@ export async function updateInvoice(req, res) {
           await LabOrder.create({
             patient_id:     invoice.patient_id,
             visit_id:       invoice.visit_id || null,
+            appointment_id: invoice.appointment_id || null,
             invoice_id:     invoice._id,
             order_date:     invoice.date || new Date(),
             items: [{ item_name: item.name, cost: item.rate }],

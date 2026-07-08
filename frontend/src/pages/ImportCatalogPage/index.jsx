@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, BookOpen } from 'lucide-react';
-import { treatments, diagnoses, findings } from '../../data/dentalCatalog/index.js';
+import { treatments, diagnoses, findings, medicines } from '../../data/dentalCatalog/index.js';
 import CatalogImporter from './CatalogImporter.jsx';
 
 const TABS = [
@@ -28,6 +28,14 @@ const TABS = [
     endpoint: '/clinical-findings',
     sourceData: findings,
     description: 'Clinical observations recorded during examination — import to speed up charting.',
+  },
+  {
+    id: 'medicines',
+    label: 'Medicines',
+    count: medicines.length,
+    endpoint: '/medicines',
+    sourceData: medicines,
+    description: 'Commonly prescribed drugs — import to use them in prescriptions and invoices.',
   },
 ];
 

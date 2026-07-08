@@ -6,6 +6,7 @@ import {
 } from '../services/googleDrive.service.js';
 import { TEMPLATES, getTemplateById } from '../config/templates.config.js';
 import { buildSingleDocPdf } from '../services/documentPdf.service.js';
+import { debit as debitCredits } from '../services/credits.service.js';
 
 // ─── Emoji stripping ───────────────────────────────────────────────────────────
 // PDFKit's standard fonts can't render emoji/pictographs, so they corrupt the
@@ -334,7 +335,7 @@ export async function transcribeAudio(req, res) {
   const { Patient, ReportJob, Visit } = req.tenantModels;
 
   try {
-    const { patient_id, template_id, detail_level, save_report, autofill, appointment_id } = req.body;
+    const { patient_id, template_id, detail_level, save_report, autofill, appointment_id, audio_duration_seconds } = req.body;
     if (!patient_id)  return res.status(400).json({ error: 'patient_id is required' });
     if (!template_id) return res.status(400).json({ error: 'template_id is required' });
 
@@ -347,23 +348,51 @@ export async function transcribeAudio(req, res) {
     const patient = await Patient.findById(patient_id);
     if (!patient) return res.status(404).json({ error: 'Patient not found' });
 
-    // Cache the transcript on today's visit (if one exists) for reuse.
-    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-    const todayEnd   = new Date(); todayEnd.setHours(23, 59, 59, 999);
-    const todayVisit = await Visit.findOne({ patient_id, date: { $gte: todayStart, $lte: todayEnd } });
-    if (todayVisit) {
-      await Visit.findByIdAndUpdate(todayVisit._id, { ai_transcript: transcript });
+    const patientName = `${patient.first_name} ${patient.last_name || ''}`.trim();
+    const durationSeconds = Math.max(0, Math.round(Number(audio_duration_seconds) || 0));
+
+    // ── Credit debit ── charged here, at transcription, per second of dictation
+    // (1 credit = 60s). Typed "Quick Notes" sends no duration → free. Generation
+    // is not billed again (job.creditDebited guards it).
+    let creditDebited = false;
+    if (durationSeconds > 0) {
+      const ok = await debitCredits(req.user.tenantId, durationSeconds, {
+        patientId: patient._id, patientName, durationSeconds,
+        stage: 'transcription', createdBy: req.user?.name,
+      });
+      if (!ok) {
+        return res.status(402).json({
+          error: 'insufficient_credits',
+          message: 'Your clinic has run out of AI report credits. Please contact your administrator.',
+        });
+      }
+      creditDebited = true;
+    }
+
+    // Resolve (or create) THIS report's visit up front so the ReportJob is linked
+    // to a visit_id from creation — same anchor invoices/files use. Prefers the
+    // appointment's visit, else today's, else creates one.
+    const reportVisitId = await resolveReportVisitId(req.tenantModels, {
+      patientId: patient._id, appointmentId: appointment_id || null,
+    });
+
+    // Cache the transcript on that visit for reuse.
+    if (reportVisitId) {
+      await Visit.findByIdAndUpdate(reportVisitId, { ai_transcript: transcript });
     }
 
     const job = await ReportJob.create({
       patientId:     patient._id,
       appointmentId: appointment_id || null,
+      visitId:       reportVisitId || null,
       status:        'transcribed',
       transcript,
       templateId:    template_id,
       detailLevel:   detail_level || 'standard',
       saveReport:    save_report !== 'false',
       runAutofill:   autofill === 'true',
+      audioDurationSeconds: durationSeconds,
+      creditDebited, // already charged at transcription → generate is free
       createdBy:     req.user?.name || 'unknown',
     });
 
@@ -417,11 +446,14 @@ export async function getLatestReport(req, res) {
     }
 
     const job = await ReportJob.findOne(filter).sort({ createdAt: -1 })
-      .select('reportText templateId createdAt').lean();
+      .select('reportText templateId createdAt driveFileIds').lean();
 
     if (!job) return res.json({ report: null });
     const templateName = getTemplateById(job.templateId)?.name || 'Clinical Report';
-    res.json({ report: { _id: job._id, templateId: job.templateId, templateName, reportText: job.reportText, createdAt: job.createdAt } });
+    // driveFileIds ({templateId -> drive_file_id}) lets the Documents modal drop
+    // the AI report's own uploaded file from the "uploaded files" list so the
+    // report isn't shown twice (once as "AI Clinical Report", once as a file).
+    res.json({ report: { _id: job._id, templateId: job.templateId, templateName, reportText: job.reportText, createdAt: job.createdAt, driveFileIds: job.driveFileIds || {} } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -521,6 +553,9 @@ export async function generateReport(req, res) {
       const doctorName  = reportDoctor.name || 'Attending Doctor';
       const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
+      // Credits are debited earlier, at transcription time (see transcribeAudio).
+      // Generation — including regeneration — is free.
+
       await ReportJob.findByIdAndUpdate(jobId, { status: 'generating' });
 
       // Set up SSE
@@ -550,7 +585,9 @@ export async function generateReport(req, res) {
       }
 
       // Visit to pair the report file(s) with (same way uploaded docs attach).
-      const reportVisitId = await resolveReportVisitId(req.tenantModels, {
+      // Prefer the visit already linked to the job at transcription time; only
+      // resolve as a fallback for legacy jobs created before visitId was stored.
+      const reportVisitId = job.visitId || await resolveReportVisitId(req.tenantModels, {
         patientId: job.patientId, appointmentId: job.appointmentId,
       });
 
@@ -624,6 +661,7 @@ export async function generateReport(req, res) {
                   web_view_link: uploaded.webViewLink,
                   mime_type:     mimeType,
                   ...(reportVisitId ? { visit_id: reportVisitId } : {}),
+                  ...(job.appointmentId ? { appointment_id: job.appointmentId } : {}),
                 });
               }
             }
@@ -656,7 +694,7 @@ export async function generateReport(req, res) {
     }
 
     // ── Legacy path: direct transcript_text (no jobId) ──
-    const { patient_id, template_id, template_ids, detail_level, save_report, autofill, transcript_text, appointment_id } = req.body;
+    const { patient_id, template_id, template_ids, detail_level, save_report, autofill, transcript_text, appointment_id, audio_duration_seconds } = req.body;
     if (!patient_id)  return res.status(400).json({ error: 'patient_id required' });
 
     const templateIds = template_ids || (template_id ? [template_id] : []);
@@ -688,6 +726,10 @@ export async function generateReport(req, res) {
     const detailLevel = detail_level || 'standard';
     const saveRep     = save_report !== 'false';
     const runAuto     = autofill === 'true';
+
+    // Credits are debited at transcription (see transcribeAudio). This legacy
+    // direct-transcript path (typed Quick Notes) carries no audio duration and is
+    // not billed here — generation is free.
 
     // Set up SSE
     res.setHeader('Content-Type', 'text/event-stream');
@@ -907,6 +949,7 @@ export async function saveReportToDrive(req, res) {
         web_view_link: uploaded.webViewLink,
         mime_type:     mimeType,
         ...(reportVisitId ? { visit_id: reportVisitId } : {}),
+        ...(job.appointmentId ? { appointment_id: job.appointmentId } : {}),
       });
       await patient.save();
     } else {

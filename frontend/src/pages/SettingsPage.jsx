@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Plus, Edit2, Trash2, X, Download, Upload, Mail, CheckCircle, XCircle, RefreshCw, FileSpreadsheet, ExternalLink, Loader2, Calendar, Clock, Globe, Copy, Link2, BookOpen, ChevronDown, Eye } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Plus, Edit2, Trash2, X, Download, Upload, Mail, CheckCircle, XCircle, RefreshCw, FileSpreadsheet, ExternalLink, Loader2, Calendar, Clock, Globe, Copy, Link2, BookOpen, ChevronDown, Eye, Coins } from 'lucide-react';
 import API from '../services/api';
 import AddClinicalDataModal from '../modals/AddClinicalDataModal';
 import SingleClinicalItemModal from '../modals/SingleClinicalItemModal';
@@ -292,6 +292,147 @@ const COMPLETION_DOCS = [
   { key: 'invoice',      label: 'Invoice',        sub: 'Latest invoice for this patient' },
   { key: 'aiReport',     label: 'AI Report',      sub: 'Most recent AI-generated clinical report' },
 ];
+
+// ─── AI Credits Tab (read-only, mobile-first) ─────────────────────────────────
+// Owner-facing view of the clinic's AI report credits + usage history. Top-ups
+// are done by the administrator in Connect Desk; this view is read-only.
+const CREDIT_TYPE_STYLE = {
+  topup:      { light: 'bg-green-100 text-green-700', dark: 'dark:bg-green-900/40 dark:text-green-400' },
+  debit:      { light: 'bg-red-100 text-red-700',     dark: 'dark:bg-red-900/40 dark:text-red-400' },
+  adjustment: { light: 'bg-amber-100 text-amber-700', dark: 'dark:bg-amber-900/40 dark:text-amber-400' },
+};
+
+function CreditsTab() {
+  const [balance, setBalance] = useState(null);
+  const [ledger, setLedger] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      try {
+        const [bal, led] = await Promise.all([
+          API.get('/credits/balance'),
+          API.get('/credits/ledger', { params: { limit: 100 } }),
+        ]);
+        if (!alive) return;
+        setBalance(bal.data);
+        setLedger(led.data || []);
+      } catch (err) {
+        console.error('Failed to load credits:', err.message);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const credits = balance?.credits ?? 0;
+  const low = credits < 5;
+
+  const typeBadge = (type) => {
+    const s = CREDIT_TYPE_STYLE[type] || { light: 'bg-slate-100 text-slate-600', dark: 'dark:bg-slate-700 dark:text-slate-300' };
+    return `inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${s.light} ${s.dark}`;
+  };
+  const fmt = (n) => (n >= 0 ? '+' : '') + Number(n).toFixed(2);
+  const fmtDuration = (seconds) => {
+    const s = Math.max(0, Math.round(seconds || 0));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  };
+
+  if (loading) {
+    return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-slate-400" size={28} /></div>;
+  }
+
+  return (
+    <div className="space-y-4 sm:space-y-6">
+      {/* Balance card */}
+      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-5 sm:p-6">
+        <div className="flex items-center gap-4">
+          <div className={`flex items-center justify-center rounded-2xl size-14 sm:size-16 shrink-0 ${low ? 'bg-amber-100 dark:bg-amber-900/30' : 'bg-blue-100 dark:bg-blue-900/30'}`}>
+            <Coins className={low ? 'text-amber-500' : 'text-[#137fec]'} size={30} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">AI Report Credits</p>
+            <p className={`text-3xl sm:text-4xl font-bold ${low ? 'text-amber-500' : 'text-slate-800 dark:text-white'}`}>{Number(credits).toFixed(2)}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">1 credit = 1 minute of dictation</p>
+          </div>
+        </div>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-4 bg-slate-50 dark:bg-slate-700/40 rounded-lg px-3 py-2.5">
+          {low ? 'Your balance is running low. ' : ''}Credits are consumed when a voice dictation is turned into a report.
+          To add more credits, please contact your administrator.
+        </p>
+      </div>
+
+      {/* Ledger */}
+      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-4 sm:p-6">
+        <h3 className="font-bold text-slate-800 dark:text-white mb-4">Usage History</h3>
+        {ledger.length === 0 ? (
+          <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-8">No credit activity yet.</p>
+        ) : (
+          <>
+            {/* Mobile: stacked cards */}
+            <div className="space-y-2 md:hidden">
+              {ledger.map((r, i) => (
+                <div key={r._id || i} className="flex items-center justify-between rounded-xl border border-slate-100 dark:border-slate-700 px-3 py-2.5">
+                  <div className="min-w-0">
+                    <span className={typeBadge(r.type)}>{r.type}</span>
+                    {r.meta?.patientName && <span className="ml-2 text-xs font-semibold text-slate-700 dark:text-slate-200">{r.meta.patientName}</span>}
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                      {r.at ? new Date(r.at).toLocaleString('en-GB') : ''}
+                      {r.meta?.durationSeconds ? ` · ${fmtDuration(r.meta.durationSeconds)} spoken` : ''}
+                      {r.meta?.templateCount ? ` · ${r.meta.templateCount} report(s)` : ''}
+                      {r.meta?.source ? ` · ${r.meta.source}` : ''}
+                    </p>
+                    {r.meta?.note && <p className="text-[11px] text-slate-400 dark:text-slate-500 italic mt-0.5 truncate">“{r.meta.note}”</p>}
+                  </div>
+                  <div className="text-right shrink-0 ml-3">
+                    <p className={`text-sm font-bold ${r.seconds >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{fmt(r.credits)}</p>
+                    <p className="text-[10px] text-slate-400">bal {Number(r.balanceCredits).toFixed(2)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop: table */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-700 text-left">
+                    <th className="py-2 pr-4 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Date</th>
+                    <th className="py-2 pr-4 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Type</th>
+                    <th className="py-2 pr-4 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Patient</th>
+                    <th className="py-2 pr-4 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Details</th>
+                    <th className="py-2 pr-4 text-[11px] font-bold text-slate-500 uppercase tracking-wide text-right">Credits</th>
+                    <th className="py-2 text-[11px] font-bold text-slate-500 uppercase tracking-wide text-right">Balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ledger.map((r, i) => (
+                    <tr key={r._id || i} className="border-b border-slate-100 dark:border-slate-700/60">
+                      <td className="py-2.5 pr-4 text-slate-600 dark:text-slate-300 whitespace-nowrap">{r.at ? new Date(r.at).toLocaleString('en-GB') : '—'}</td>
+                      <td className="py-2.5 pr-4"><span className={typeBadge(r.type)}>{r.type}</span></td>
+                      <td className="py-2.5 pr-4 text-slate-600 dark:text-slate-300">{r.meta?.patientName || '—'}</td>
+                      <td className="py-2.5 pr-4 text-xs text-slate-500 dark:text-slate-400">
+                        {r.meta?.durationSeconds ? `${fmtDuration(r.meta.durationSeconds)} spoken` : ''}
+                        {r.meta?.templateCount ? ` · ${r.meta.templateCount} report(s)` : ''}
+                        {r.meta?.source ? ` · ${r.meta.source}` : ''}
+                        {r.meta?.note ? <span className="italic text-slate-400"> · “{r.meta.note}”</span> : ''}
+                      </td>
+                      <td className={`py-2.5 pr-4 text-right font-bold ${r.seconds >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{fmt(r.credits)}</td>
+                      <td className="py-2.5 text-right text-slate-600 dark:text-slate-300">{Number(r.balanceCredits).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 const LANG_LABELS = { en: 'English', hi: 'Hindi', mr: 'Marathi' };
 
@@ -1970,7 +2111,14 @@ function PatientDocumentsTab() {
 const SettingsPage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('doctors');
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'doctors');
+
+  // Deep-link support: the nav credit pill links to /settings?tab=credits
+  useEffect(() => {
+    const t = searchParams.get('tab');
+    if (t) setActiveTab(t);
+  }, [searchParams]);
 
   // Doctor states
   const [doctors, setDoctors] = useState([]);
@@ -2014,6 +2162,7 @@ const SettingsPage = () => {
   const [clinicalFindings, setClinicalFindings] = useState([]);
   const [diagnoses, setDiagnoses] = useState([]);
   const [suggestedTreatments, setSuggestedTreatments] = useState([]);
+  const [medicines, setMedicines] = useState([]);
   const [treatmentTab, setTreatmentTab] = useState('findings');
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkItems, setBulkItems] = useState([]);
@@ -2050,14 +2199,16 @@ const SettingsPage = () => {
   const fetchTreatmentData = async () => {
     setLoading(true);
     try {
-      const [findingsRes, diagnosesRes, treatmentsRes] = await Promise.all([
+      const [findingsRes, diagnosesRes, treatmentsRes, medicinesRes] = await Promise.all([
         API.get('/clinical-findings'),
         API.get('/diagnoses'),
-        API.get('/suggested-treatments')
+        API.get('/suggested-treatments'),
+        API.get('/medicines')
       ]);
       setClinicalFindings(findingsRes.data);
       setDiagnoses(diagnosesRes.data);
       setSuggestedTreatments(treatmentsRes.data);
+      setMedicines(medicinesRes.data);
     } catch (err) {
       console.error('Failed to load treatment data:', err);
     } finally {
@@ -2356,11 +2507,13 @@ const SettingsPage = () => {
         const endpoint =
           type === 'findings' ? '/clinical-findings' :
           type === 'diagnoses' ? '/diagnoses' :
+          type === 'medicines' ? '/medicines' :
           '/suggested-treatments';
         await API.delete(`${endpoint}/${id}`);
 
         if (type === 'findings') setClinicalFindings(clinicalFindings.filter(f => f._id !== id));
         else if (type === 'diagnoses') setDiagnoses(diagnoses.filter(d => d._id !== id));
+        else if (type === 'medicines') setMedicines(medicines.filter(m => m._id !== id));
         else setSuggestedTreatments(suggestedTreatments.filter(t => t._id !== id));
       } catch (err) {
         console.error('Failed to delete item:', err);
@@ -2386,6 +2539,7 @@ const SettingsPage = () => {
             { key: 'email',             label: 'Email' },
             { key: 'shareWithPatient',  label: 'Share with Patient' },
             { key: 'booking',           label: 'Online Booking' },
+            { key: 'credits',           label: 'AI Credits' },
           ].map(({ key, label }) => (
             <button
               key={key}
@@ -2499,7 +2653,7 @@ const SettingsPage = () => {
           <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-4 sm:p-6">
             {/* Treatment Sub-tabs — scrollable on mobile */}
             <div className="flex gap-0 mb-6 border-b border-slate-200 dark:border-slate-700 overflow-x-auto scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-0">
-              {['findings', 'diagnoses', 'treatments'].map(tab => (
+              {['findings', 'diagnoses', 'treatments', 'medicines'].map(tab => (
                 <button
                   key={tab}
                   onClick={() => setTreatmentTab(tab)}
@@ -2509,7 +2663,7 @@ const SettingsPage = () => {
                       : 'text-slate-600 dark:text-slate-400'
                   }`}
                 >
-                  {tab === 'findings' ? 'Clinical Findings' : tab === 'diagnoses' ? 'Diagnoses' : 'Suggested Treatments'}
+                  {tab === 'findings' ? 'Clinical Findings' : tab === 'diagnoses' ? 'Diagnoses' : tab === 'treatments' ? 'Suggested Treatments' : 'Medicines'}
                 </button>
               ))}
             </div>
@@ -2517,7 +2671,7 @@ const SettingsPage = () => {
             {/* Header — Unified Add button */}
             <div className="flex items-center justify-between gap-3 mb-6">
               <h3 className="text-base sm:text-xl font-bold text-slate-800 dark:text-white min-w-0">
-                {treatmentTab === 'findings' ? 'Clinical Findings' : treatmentTab === 'diagnoses' ? 'Diagnoses' : 'Suggested Treatments'}
+                {treatmentTab === 'findings' ? 'Clinical Findings' : treatmentTab === 'diagnoses' ? 'Diagnoses' : treatmentTab === 'treatments' ? 'Suggested Treatments' : 'Medicines'}
               </h3>
               {bulkMode ? (
                 <button
@@ -2532,7 +2686,7 @@ const SettingsPage = () => {
                   className="flex items-center gap-2 px-4 py-2.5 text-sm rounded-xl font-semibold transition-colors bg-[#137fec] text-white hover:bg-blue-600 shadow-md"
                 >
                   <Plus size={16} />
-                  Add {treatmentTab === 'findings' ? 'Findings' : treatmentTab === 'diagnoses' ? 'Diagnoses' : 'Treatments'}
+                  Add {treatmentTab === 'findings' ? 'Findings' : treatmentTab === 'diagnoses' ? 'Diagnoses' : treatmentTab === 'treatments' ? 'Treatments' : 'Medicines'}
                 </button>
               )}
             </div>
@@ -2667,7 +2821,7 @@ const SettingsPage = () => {
             {loading ? (
               <div className="text-center py-8 text-slate-500">Loading...</div>
             ) : (() => {
-              const items = treatmentTab === 'findings' ? clinicalFindings : treatmentTab === 'diagnoses' ? diagnoses : suggestedTreatments;
+              const items = treatmentTab === 'findings' ? clinicalFindings : treatmentTab === 'diagnoses' ? diagnoses : treatmentTab === 'treatments' ? suggestedTreatments : medicines;
               return (
                 <>
                   {items.length === 0 && !bulkMode && (
@@ -2677,6 +2831,7 @@ const SettingsPage = () => {
                       </div>
                       <div className="flex-1">
                         <p className="font-semibold text-slate-800 dark:text-white text-sm">No {treatmentTab === 'findings' ? 'findings' : treatmentTab} yet</p>
+                        {/* medicines label reads naturally from treatmentTab */}
                         <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                           Add them one at a time, type a batch quickly, upload a CSV / Google Sheet, or pick from our curated starter library.
                         </p>
@@ -2685,7 +2840,7 @@ const SettingsPage = () => {
                         onClick={() => setShowAddChooser(true)}
                         className="flex-shrink-0 px-4 py-2 bg-[#137fec] hover:bg-blue-600 text-white text-sm font-semibold rounded-lg transition-colors"
                       >
-                        Add {treatmentTab === 'findings' ? 'Findings' : treatmentTab === 'diagnoses' ? 'Diagnoses' : 'Treatments'}
+                        Add {treatmentTab === 'findings' ? 'Findings' : treatmentTab === 'diagnoses' ? 'Diagnoses' : treatmentTab === 'treatments' ? 'Treatments' : 'Medicines'}
                       </button>
                     </div>
                   )}
@@ -2697,7 +2852,9 @@ const SettingsPage = () => {
                           <p className="font-semibold text-slate-800 dark:text-white text-sm truncate">{item.name}</p>
                           <div className="flex gap-2 mt-0.5 flex-wrap">
                             {treatmentTab === 'diagnoses' && item.code && <span className="text-xs text-slate-500">{item.code}</span>}
-                            {treatmentTab === 'treatments' && <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">₹{item.cost?.toLocaleString('en-IN') || '0'}</span>}
+                            {(treatmentTab === 'treatments' || treatmentTab === 'medicines') && <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">₹{item.cost?.toLocaleString('en-IN') || '0'}</span>}
+                            {treatmentTab === 'medicines' && item.form && <span className="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">{item.form}</span>}
+                            {treatmentTab === 'medicines' && item.default_dosage && <span className="text-xs text-slate-500">{item.default_dosage}{item.default_duration ? ` · ${item.default_duration}` : ''}</span>}
                             {item.category && <span className="text-xs bg-slate-100 dark:bg-slate-600 px-1.5 py-0.5 rounded">{item.category}</span>}
                           </div>
                         </div>
@@ -2712,7 +2869,9 @@ const SettingsPage = () => {
                         <tr>
                           <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Name</th>
                           {treatmentTab === 'diagnoses' && <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Code</th>}
-                          {treatmentTab === 'treatments' && <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Cost</th>}
+                          {treatmentTab === 'medicines' && <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Form</th>}
+                          {treatmentTab === 'medicines' && <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Dosage</th>}
+                          {(treatmentTab === 'treatments' || treatmentTab === 'medicines') && <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Cost</th>}
                           <th className="px-6 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-300">Category</th>
                           <th className="px-6 py-3 text-center text-sm font-semibold text-slate-700 dark:text-slate-300">Actions</th>
                         </tr>
@@ -2722,7 +2881,9 @@ const SettingsPage = () => {
                           <tr key={item._id} className="hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
                             <td className="px-6 py-4"><p className="font-semibold text-slate-800 dark:text-white">{item.name}</p></td>
                             {treatmentTab === 'diagnoses' && <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{item.code || '-'}</td>}
-                            {treatmentTab === 'treatments' && <td className="px-6 py-4 text-slate-600 dark:text-slate-400">₹{item.cost?.toLocaleString('en-IN') || '0'}</td>}
+                            {treatmentTab === 'medicines' && <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{item.form || '-'}</td>}
+                            {treatmentTab === 'medicines' && <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{item.default_dosage ? `${item.default_dosage}${item.default_duration ? ` · ${item.default_duration}` : ''}` : '-'}</td>}
+                            {(treatmentTab === 'treatments' || treatmentTab === 'medicines') && <td className="px-6 py-4 text-slate-600 dark:text-slate-400">₹{item.cost?.toLocaleString('en-IN') || '0'}</td>}
                             <td className="px-6 py-4 text-slate-600 dark:text-slate-400"><span className="text-xs bg-slate-100 dark:bg-slate-600 px-2 py-1 rounded">{item.category || '-'}</span></td>
                             <td className="px-6 py-4 text-center"><button onClick={() => handleDeleteTreatmentItem(item._id, treatmentTab)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-slate-600 rounded-lg transition-colors"><Trash2 size={18} /></button></td>
                           </tr>
@@ -2736,6 +2897,8 @@ const SettingsPage = () => {
           </div>
         )}
         {/* Email Tab */}
+        {activeTab === 'credits' && <CreditsTab />}
+
         {activeTab === 'email' && <EmailTab />}
 
         {/* Share with Patient Tab */}

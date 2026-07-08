@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { X, Loader2 } from 'lucide-react';
 import API from '../services/api';
+import { DOSAGE_OPTIONS, DURATION_OPTIONS } from '../data/prescriptionOptions.js';
+
+const MEDICINE_FORMS = ['Tablet', 'Capsule', 'Syrup', 'Injection', 'Ointment', 'Drops', 'Mouthwash'];
 
 const CONFIG = {
   findings: {
@@ -32,6 +35,21 @@ const CONFIG = {
       { name: 'description', label: 'Description', required: false, type: 'textarea', placeholder: 'Short note (optional)' },
     ],
   },
+  medicines: {
+    title: 'Add Medicine',
+    endpoint: '/medicines',
+    fields: [
+      { name: 'name',                 label: 'Name',                 required: true,  type: 'text', placeholder: 'e.g. Amoxicillin 500mg' },
+      { name: 'composition',          label: 'Composition',          required: false, type: 'text', placeholder: 'e.g. Amoxicillin 500mg' },
+      { name: 'strength',             label: 'Strength',             required: false, type: 'text', placeholder: 'e.g. 500mg' },
+      { name: 'form',                 label: 'Form',                 required: false, type: 'select', options: MEDICINE_FORMS },
+      { name: 'category',             label: 'Category',             required: false, type: 'text', placeholder: 'e.g. Antibiotic' },
+      { name: 'default_dosage',       label: 'Default Dosage',       required: false, type: 'select', options: DOSAGE_OPTIONS },
+      { name: 'default_duration',     label: 'Default Duration',     required: false, type: 'select', options: DURATION_OPTIONS },
+      { name: 'default_instructions', label: 'Default Instructions', required: false, type: 'text', placeholder: 'e.g. After food' },
+      { name: 'cost',                 label: 'Default Cost (₹)',     required: false, type: 'number', placeholder: '0' },
+    ],
+  },
 };
 
 export default function SingleClinicalItemModal({ tab, onClose, onSaved }) {
@@ -50,7 +68,7 @@ export default function SingleClinicalItemModal({ tab, onClose, onSaved }) {
         ...form,
         name: String(form.name).trim(),
         is_active: true,
-        ...(tab === 'treatments' ? { cost: Number(form.cost) || 0 } : {}),
+        ...((tab === 'treatments' || tab === 'medicines') ? { cost: Number(form.cost) || 0 } : {}),
       };
       await API.post(cfg.endpoint, payload);
       onSaved?.();
@@ -85,6 +103,15 @@ export default function SingleClinicalItemModal({ tab, onClose, onSaved }) {
                   rows={3}
                   className={`${inputCls} resize-none`}
                 />
+              ) : f.type === 'select' ? (
+                <select
+                  value={form[f.name]}
+                  onChange={e => setForm({ ...form, [f.name]: e.target.value })}
+                  className={inputCls}
+                >
+                  <option value="">—</option>
+                  {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
               ) : (
                 <input
                   type={f.type}

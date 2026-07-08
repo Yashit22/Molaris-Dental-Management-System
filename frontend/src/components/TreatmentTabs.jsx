@@ -54,7 +54,7 @@ const useStatusMap = (visits, activeTab) => {
 
 
 // --- Sub-Component: Dental Chart ---
-const DentalChart = ({ selectedItems, onSelectionChange, dentition, setDentition, visits = [], onContextMenuAction }) => {
+const DentalChart = ({ selectedItems, onSelectionChange, dentition, setDentition, lockedDentition = null, visits = [], onContextMenuAction }) => {
   const [contextMenu, setContextMenu] = useState(null); 
   const menuRef = useRef(null);
   
@@ -111,10 +111,23 @@ const DentalChart = ({ selectedItems, onSelectionChange, dentition, setDentition
     <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-2 duration-500 relative">
       <div className="flex flex-col gap-4 mb-4">
         <div className="flex gap-1.5 sm:gap-2 items-center bg-[#F8F9FA] p-1 sm:p-1.5 rounded-[6px] w-fit">
-          {['Adult', 'Pedo', 'Mixed'].map((type) => (
-            <button key={type} onClick={() => setDentition(type)} className={`py-1.5 sm:py-2 px-3 font-medium text-sm rounded-[4px] ${dentition === type ? 'text-white bg-[#137fec] shadow-sm' : 'text-[#85969F] bg-transparent hover:bg-white'}`}>{type}</button>
-          ))}
+          {['Adult', 'Pedo', 'Mixed'].map((type) => {
+            // Once this appointment is charted on a dentition, lock the others out.
+            const disabled = !!lockedDentition && lockedDentition !== type;
+            return (
+              <button
+                key={type}
+                onClick={() => !disabled && setDentition(type)}
+                disabled={disabled}
+                title={disabled ? `This appointment is charted on the ${lockedDentition} dentition` : ''}
+                className={`py-1.5 sm:py-2 px-3 font-medium text-sm rounded-[4px] ${dentition === type ? 'text-white bg-[#137fec] shadow-sm' : 'text-[#85969F] bg-transparent hover:bg-white'} ${disabled ? 'opacity-40 cursor-not-allowed hover:bg-transparent' : ''}`}
+              >{type}</button>
+            );
+          })}
         </div>
+        {lockedDentition && (
+          <p className="text-xs text-[#85969F] mt-1">Dentition locked to <span className="font-medium text-[#137fec]">{lockedDentition}</span> for this appointment.</p>
+        )}
       </div>
       <div className="flex flex-col gap-2">
         {renderRow(teethConfig[dentition].upper)}
@@ -265,7 +278,18 @@ const TMJView = ({ selectedItems, onSelectionChange, visits = [], onContextMenuA
 };
 
 // --- Main Component ---
-const TreatmentTabs = ({ onTreatmentAdded, visits = [], patientId, initialDentition = 'Adult' }) => {
+// The appointment tied to the current (newest) visit, if any — fallback when no
+// live appointmentId prop is supplied.
+const currentApptId = (visits) => {
+  const v = visits?.[0];
+  if (!v) return null;
+  return (typeof v.appointment_id === 'object' ? v.appointment_id?._id : v.appointment_id) || null;
+};
+
+const TreatmentTabs = ({ onTreatmentAdded, visits = [], patientId, appointmentId = null, initialDentition = 'Adult' }) => {
+  // Every /visits write below stamps this so the visit links to the appointment
+  // (documents are matched by appointment_id — no same-day guessing).
+  const apptId = appointmentId || currentApptId(visits);
   const [activeTab, setActiveTab] = useState('Dental Chart');
 
   const [dentalSelections, setDentalSelections] = useState([]);
@@ -277,10 +301,19 @@ const TreatmentTabs = ({ onTreatmentAdded, visits = [], patientId, initialDentit
   const [modalMode, setModalMode] = useState('Plan');
   const [modalTargets, setModalTargets] = useState([]);
 
-  // Sync dentition with patient's dentition_type when it changes
+  // One appointment = one dentition. If this appointment's visit was already
+  // charted on a dentition, lock the selector to it so the user can't mix charts.
+  const lockedDentition = useMemo(() => {
+    const v = apptId
+      ? visits.find(x => String(x.appointment_id?._id || x.appointment_id) === String(apptId))
+      : visits?.[0];
+    return v?.dentition_type || null;
+  }, [visits, apptId]);
+
+  // Sync dentition with the locked value (if any) or the patient's dentition_type.
   useEffect(() => {
-    setDentition(initialDentition);
-  }, [initialDentition]); 
+    setDentition(lockedDentition || initialDentition);
+  }, [initialDentition, lockedDentition]);
 
   const toggleSelection = (item, currentSelections, setFunction) => {
     setFunction(prev => prev.includes(item) ? prev.filter(i => i !== item) : [...prev, item]);
@@ -302,13 +335,15 @@ const TreatmentTabs = ({ onTreatmentAdded, visits = [], patientId, initialDentit
     if (label === 'Missing') {
         try {
             const payload = {
-                patient_id: patientId, 
+                patient_id: patientId,
+                appointment_id: apptId,
+                dentition_type: dentition,
                 date: new Date(),
                 treatments: [{
-                    teeth_numbers: [targetId], 
+                    teeth_numbers: [targetId],
                     treatment_name: 'Missing',
                     cost: 0,
-                    status: 'Completed', 
+                    status: 'Completed',
                     qty: 1
                 }]
             };
@@ -316,7 +351,9 @@ const TreatmentTabs = ({ onTreatmentAdded, visits = [], patientId, initialDentit
             if (onTreatmentAdded) onTreatmentAdded();
             setDentalSelections([]);
         } catch (err) {
-            alert("Error marking as missing");
+            alert(err?.response?.status === 409
+              ? err.response.data.error
+              : "Error marking as missing");
         }
     } else if (label === 'Recommended') {
         setModalTargets([targetId]);
@@ -348,22 +385,30 @@ const TreatmentTabs = ({ onTreatmentAdded, visits = [], patientId, initialDentit
           }))
         : [];
 
-      // Handle multiple diagnoses
-      const diagnosisNotes = formData.diagnosis && formData.diagnosis.length > 0
-        ? formData.diagnosis.map(d => d.name).join(', ')
-        : '';
+      // The findings/diagnoses just entered apply to the teeth (or soft-tissue/TMJ
+      // items) selected in THIS modal — carry those as teeth_numbers so the chart
+      // can colour the affected teeth, exactly like treatments.
+      const targets = modalTargets;
+      const diagnosisList = formData.diagnosis || [];
+      const findingList   = formData.clinical_findings || [];
+
+      const diagnosisNotes = diagnosisList.length ? diagnosisList.map(d => d.name).join(', ') : '';
 
       const payload = {
         patient_id: patientId,
+        appointment_id: apptId,
+        dentition_type: dentition,
         date: new Date(),
         treatments: treatments,
         findings: {
+          // Legacy flat fields (kept for backward compatibility / summaries).
           diagnosis_notes: diagnosisNotes,
-          clinical_findings: formData.clinical_findings && formData.clinical_findings.length > 0
-            ? formData.clinical_findings.map(f => f.name)
-            : [],
+          clinical_findings: findingList.map(f => f.name),
           soft_tissue: selectedSoftTissues,
-          tmj: selectedTMJ
+          tmj: selectedTMJ,
+          // Per-tooth arrays — each finding/diagnosis tagged with the selected targets.
+          tooth_findings:  findingList.map(f => ({ name: f.name, teeth_numbers: targets })),
+          tooth_diagnoses: diagnosisList.map(d => ({ name: d.name, teeth_numbers: targets })),
         },
         notes: formData.notes || ''
       };
@@ -398,13 +443,14 @@ const TreatmentTabs = ({ onTreatmentAdded, visits = [], patientId, initialDentit
 
       <div className="min-h-[300px] pb-16">
         {activeTab === 'Dental Chart' && (
-          <DentalChart 
-            selectedItems={dentalSelections} 
-            onSelectionChange={(id) => toggleSelection(id, dentalSelections, setDentalSelections)} 
+          <DentalChart
+            selectedItems={dentalSelections}
+            onSelectionChange={(id) => toggleSelection(id, dentalSelections, setDentalSelections)}
             dentition={dentition}
             setDentition={setDentition}
-            visits={visits} 
-            onContextMenuAction={handleContextMenuAction} 
+            lockedDentition={lockedDentition}
+            visits={visits}
+            onContextMenuAction={handleContextMenuAction}
           />
         )}
         {activeTab === 'Soft Tissue' && (

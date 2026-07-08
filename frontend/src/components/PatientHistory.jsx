@@ -115,7 +115,11 @@ export default function PatientHistory({ visits = [], patient, invoices: invoice
             const rxCount  = visit.prescriptions?.length || 0;
             const noteCount = visit.consultation_notes?.length || 0;
             const chief    = (visit.chief_complaint || visit.findings?.diagnosis_notes || '').trim();
-            const docCount = (patient?.files || []).filter(f => String(f.visit_id) === String(visit._id)).length;
+            const docCount = (patient?.files || []).filter(f => {
+              const fid = f?.visit_id;
+              if (!fid || !visit._id) return false;
+              return String(typeof fid === 'object' ? fid._id || fid : fid) === String(visit._id);
+            }).length;
 
             // Primary line: chief complaint, else first treatment names
             const treatmentNames = (visit.treatments || []).map(t => t.treatment_name).filter(Boolean);

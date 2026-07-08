@@ -6,6 +6,19 @@ import api from '../services/api';
 const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const cur = (ds) => ds.currency_symbol || '₹';
 
+// A file belongs to a visit ONLY when both carry the same appointment_id —
+// appointment_id is the single source of truth for linking documents to an
+// appointment. visit_id is no longer used for matching (only ever kept as an
+// internal data anchor). Guards against the String(undefined)==='undefined' trap
+// that would match appointment-less files whenever the modal's visit is null.
+const idOf = (x) => (x == null ? null : String(typeof x === 'object' ? (x._id || x) : x));
+const fileBelongsToVisit = (pf, visit) => {
+  if (!pf || !visit) return false;
+  const fAppt = idOf(pf.appointment_id);
+  const vAppt = idOf(visit.appointment_id);
+  return !!(fAppt && vAppt && fAppt === vAppt);
+};
+
 function ageFromDob(dob) {
   if (!dob) return null;
   const d = new Date(dob);
@@ -49,13 +62,30 @@ function patientStripHtml(patient, extraRight = []) {
 
 const sectionTitle = (t) => `<div style="font-size:12px;font-weight:700;color:#137fec;margin:14px 0 6px">${esc(t)}</div>`;
 
+// ── Section icons ────────────────────────────────────────────────────────────
+// Inline SVG (not emoji) so icons render consistently in the server-side
+// Puppeteer/Chromium PDF pipeline, which has no guaranteed color-emoji font.
+const CARD_ICONS = {
+  clipboard: '<path d="M9 2a1 1 0 0 0-1 1v1H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2V3a1 1 0 0 0-1-1H9Zm1 2h4v2h-4V4ZM6 8h12v12H6V8Zm2 3h8v1.5H8V11Zm0 3h8v1.5H8V14Zm0 3h5v1.5H8V17Z"/>',
+  scope: '<path d="M11 2a7 7 0 0 0-5.6 11.2L2 17.6 4.4 20l4.4-3.4A7 7 0 1 0 11 2Zm0 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"/>',
+  tooth: '<path d="M12 2c-1.5 0-2.6.7-3.5 1.4C7.7 2.7 6.6 2 5 2 3 2 2 3.6 2 6c0 2.1.9 3.7 1.6 5.3.6 1.4 1.1 2.7 1.2 4.4.1 1.7.4 4.3 2.2 4.3 1.4 0 1.7-1.7 2-3.2.2-1.2.5-2.5 1-2.5s.8 1.3 1 2.5c.3 1.5.6 3.2 2 3.2 1.8 0 2.1-2.6 2.2-4.3.1-1.7.6-3 1.2-4.4.7-1.6 1.6-3.2 1.6-5.3 0-2.4-1-4-3-4-1.6 0-2.7.7-3.5 1.4C14.6 2.7 13.5 2 12 2Z"/>',
+  note: '<path d="M5 3a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9l-6-6H5Zm0 2h9v5h5v11H5V5Zm2 8h10v1.5H7V13Zm0 3h10v1.5H7V16Zm0 3h6v1.5H7V19Z"/>',
+  bulb: '<path d="M12 2a7 7 0 0 0-4 12.7V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.3A7 7 0 0 0 12 2Zm-2 17h4v1H10v-1Zm.5 2h3v1h-3v-1Z"/>',
+  image: '<path d="M4 4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H4Zm0 2h16v12H4V6Zm3 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4ZM5 18l4.5-5 3 3.2 3-4L19 18H5Z"/>',
+};
+function iconSvg(name, color) {
+  const path = CARD_ICONS[name];
+  if (!path) return '';
+  return `<svg width="14" height="14" viewBox="0 0 24 24" fill="${color}" xmlns="http://www.w3.org/2000/svg">${path}</svg>`;
+}
+
 // ── Patient-facing "card" helpers ────────────────────────────────────────────
 // A rounded, soft-shadowed container with an accent header bar + icon.
 function card({ title, accent = '#137fec', icon = '', body, tint = '#ffffff' }) {
   return `
   <div style="border:1px solid #e8eef5;border-radius:14px;background:${tint};overflow:hidden;margin-bottom:16px;box-shadow:0 1px 3px rgba(16,42,67,0.06)">
     <div style="display:flex;align-items:center;gap:8px;padding:9px 16px;background:${accent}12;border-bottom:1px solid ${accent}22">
-      ${icon ? `<span style="font-size:13px;line-height:1">${icon}</span>` : ''}
+      ${icon ? `<span style="display:inline-flex;line-height:1">${iconSvg(icon, accent)}</span>` : ''}
       <span style="font-size:11px;font-weight:800;color:${accent};text-transform:uppercase;letter-spacing:0.06em">${esc(title)}</span>
     </div>
     <div style="padding:14px 16px">${body}</div>
@@ -116,8 +146,12 @@ function toothImgSrc(dentitionType, toothId) {
   return `${CDN_TEETH}/${folder}/Teeth${fileId}.svg`;
 }
 
-// Dental chart — Adult / Pedo / Mixed, multi-treatment-per-tooth support
-function dentalChartHtml(treatments = [], dentitionType = 'Adult') {
+// Dental chart — Adult / Pedo / Mixed, multi-treatment-per-tooth support.
+// findingsTeeth (Set of tooth-id strings) = teeth selected on the dental chart via
+// the Examination tab (findings/diagnoses) that carry no treatment. They are still
+// highlighted on the chart so the pictorial always reflects EVERY selected tooth of
+// the appointment — not only the ones with a treatment.
+function dentalChartHtml(treatments = [], dentitionType = 'Adult', findingsTeeth = new Set()) {
   const cfgs = {
     Adult: {
       upper: [18,17,16,15,14,13,12,11,21,22,23,24,25,26,27,28],
@@ -143,11 +177,16 @@ function dentalChartHtml(treatments = [], dentitionType = 'Adult') {
       ? 'Missing' : t.status;
     if (!toothStatuses[id].includes(s)) toothStatuses[id].push(s);
   }));
-  if (!Object.keys(toothStatuses).length) return '';
+  // Nothing to draw only when there are neither treatment teeth NOR findings teeth.
+  if (!Object.keys(toothStatuses).length && !findingsTeeth.size) return '';
 
+  const EXAM_ACCENT = '#0891b2', EXAM_BG = '#ecfeff';
   const toothStyle = (id) => {
     const statuses = toothStatuses[id] || [];
     const p = priorityStatus(statuses);
+    // A findings-only tooth (selected on the chart, no treatment) → exam accent.
+    if (!p && findingsTeeth.has(String(id)))
+      return { border: EXAM_ACCENT, bg: EXAM_BG, textColor: EXAM_ACCENT, opacity: 1, dot: null };
     if (!p) return { border: 'transparent', bg: 'transparent', textColor: '#94a3b8', opacity: 1, dot: null };
     if (p === 'In Progress')  return { border: '#137fec', bg: '#eff6ff', textColor: '#137fec', opacity: 1, dot: '#137fec' };
     if (p === 'Planned')      return { border: '#f59e0b', bg: '#fffbeb', textColor: '#b45309', opacity: 1, dot: '#f59e0b' };
@@ -169,7 +208,7 @@ function dentalChartHtml(treatments = [], dentitionType = 'Adult') {
 
   const toothCell = (id) => {
     const st = toothStyle(id);
-    const treated = !!toothStatuses[id]?.length;
+    const treated = !!toothStatuses[id]?.length || findingsTeeth.has(String(id));
     return `<div style="display:flex;flex-direction:column;align-items:center;width:26px">
       <div style="border-radius:5px;border:2px solid ${st.border};background:${st.bg};padding:1px;box-sizing:border-box;position:relative">
         <img src="${toothImgSrc(dentitionType, id)}" alt="${id}" width="20"
@@ -339,78 +378,6 @@ function prescriptionHtml(ds, { visit, patient, doctor }) {
     ${ds.prescription_show_footer !== false ? footerHtml(ds, ds.prescription_footer_text) : ''}`;
 }
 
-function clinicalNotesHtml(ds, { visit, patient, doctor, imageData = {} }) {
-  const f = visit?.findings || {};
-  const softTissueItems = f.soft_tissue || [];
-  const tmjItems        = f.tmj         || [];
-
-  // Text-only finding blocks (soft tissue and TMJ shown visually below)
-  const textBlocks = [
-    ['Chief Complaint',   visit?.chief_complaint],
-    ['Clinical Findings', (f.clinical_findings || []).join(', ')],
-    ['Diagnosis',         f.diagnosis_notes],
-  ].filter(([, v]) => v && String(v).trim());
-
-  const notes = visit?.consultation_notes || [];
-
-  // Files uploaded for this visit (X-rays, scans, etc.)
-  const visitFiles = (patient?.files || []).filter(pf => String(pf.visit_id) === String(visit?._id));
-  const filesByCategory = {};
-  visitFiles.forEach(pf => {
-    const cat = pf.category || 'Other';
-    if (!filesByCategory[cat]) filesByCategory[cat] = [];
-    filesByCategory[cat].push(pf);
-  });
-
-  const filesSection = visitFiles.length
-    ? sectionTitle('Clinical Files') + Object.entries(filesByCategory).map(([cat, files]) =>
-        `<div style="margin-bottom:8px">
-          <div style="font-size:9px;font-weight:700;color:#718096;text-transform:uppercase;letter-spacing:0.04em">${esc(cat)}</div>
-          ${files.map(pf => {
-            const dated = pf.uploaded_at
-              ? ` <span style="color:#94a3b8;font-size:10px">— ${new Date(pf.uploaded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>`
-              : '';
-            const dataUrl = imageData[pf.drive_file_id];
-            const imgTag  = dataUrl
-              ? `<img src="${dataUrl}" style="display:block;max-width:100%;max-height:260px;margin-top:6px;border-radius:4px;border:1px solid #e2e8f0" />`
-              : '';
-            const nameLink = pf.web_view_link
-              ? `<a href="${esc(pf.web_view_link)}" style="color:#137fec;text-decoration:none">${esc(pf.file_name)}</a>`
-              : esc(pf.file_name);
-            return `<div style="font-size:11px;color:#2d3748;margin-top:6px">${nameLink}${dated}${imgTag}</div>`;
-          }).join('')}
-        </div>`
-      ).join('')
-    : '';
-
-  // Soft tissue and TMJ findings shown as image grids (all items highlighted = findings)
-  const stGrid  = softTissueGridHtml(softTissueItems, {});
-  const tmjGrid = tmjGridHtml(tmjItems, {});
-
-  return `
-    ${clinicHeaderHtml(ds, ds.report_show_logo !== false)}
-    ${patientStripHtml(patient, doctor?.name ? [`Doctor: ${esc(drName(doctor.name))}`] : [])}
-    <div style="font-size:15px;font-weight:800;color:#0d1b2a;margin-bottom:6px">Clinical Notes</div>
-    ${(textBlocks.length || softTissueItems.length || tmjItems.length) ? sectionTitle('Examination & Findings') + textBlocks.map(([l, v]) =>
-      `<div style="margin-bottom:8px">
-        <div style="font-size:9px;font-weight:700;color:#718096;text-transform:uppercase;letter-spacing:0.04em">${esc(l)}</div>
-        <div style="font-size:12px;color:#2d3748;margin-top:2px">${esc(v)}</div>
-      </div>`).join('') : ''}
-    ${stGrid ? `<div style="margin-bottom:10px">
-        <div style="font-size:9px;font-weight:700;color:#718096;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px">Soft Tissue</div>
-        ${stGrid}
-      </div>` : ''}
-    ${tmjGrid ? `<div style="margin-bottom:10px">
-        <div style="font-size:9px;font-weight:700;color:#718096;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px">TMJ</div>
-        ${tmjGrid}
-      </div>` : ''}
-    ${notes.length ? sectionTitle('Consultation Notes') + notes.map(n =>
-      `<div style="font-size:12px;color:#2d3748;margin-bottom:6px;line-height:1.5">${(n.content || '').replace(/<[^>]+>/g, '')}</div>`).join('') : ''}
-    ${filesSection}
-    ${doctorSignOffHtml(doctor)}
-    ${footerHtml(ds, ds.report_footer_text)}`;
-}
-
 function invoiceHtml(ds, { invoice, patient }) {
   if (!invoice) return '';
   const c = cur(ds);
@@ -490,13 +457,84 @@ function patientHistoryHtml(patient, visit) {
   // Strip the trailing border on the last row for a clean edge
   body = body.replace(/border-bottom:1px solid #f1f5f9"(?=[^"]*$)/, 'border-bottom:none"');
 
-  return card({ title: 'Patient History', accent: '#7c3aed', icon: '📋', body });
+  return card({ title: 'Patient History', accent: '#7c3aed', icon: 'clipboard', body });
+}
+
+// Examination & Diagnosis — per-tooth findings/diagnoses (with a chart marking the
+// affected teeth) plus a "General" section for legacy flat entries with no teeth.
+function examinationHtml(visit, dentitionType = 'Adult') {
+  const f = visit?.findings || {};
+  const toothFindings  = (f.tooth_findings  || []).filter(x => x?.name);
+  const toothDiagnoses = (f.tooth_diagnoses || []).filter(x => x?.name);
+
+  // Legacy flat entries that were saved WITHOUT per-tooth arrays.
+  const hasPerTooth = toothFindings.length || toothDiagnoses.length;
+  const flatFindings = hasPerTooth ? [] : (f.clinical_findings || []).filter(x => x && String(x).trim());
+  const flatDiagnosis = hasPerTooth ? '' : (f.diagnosis_notes || '').trim();
+
+  if (!hasPerTooth && !flatFindings.length && !flatDiagnosis) return '';
+
+  const chip = (label, kind) => {
+    const c = kind === 'dx'
+      ? { bg: '#cffafe', tx: '#155e75', bd: '#67e8f9' }
+      : { bg: '#fef9c3', tx: '#854d0e', bd: '#fde047' };
+    return `<span style="display:inline-block;padding:3px 10px;border-radius:99px;font-size:10.5px;font-weight:600;background:${c.bg};color:${c.tx};border:1px solid ${c.bd};margin:2px 4px 2px 0">${esc(label)}</span>`;
+  };
+  const sub = (t) => `<div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">${t}</div>`;
+
+  // Group per-tooth entries by target (tooth id or soft-tissue/TMJ label).
+  const byTarget = {}; // target -> { findings:Set, diagnoses:Set }
+  const addAll = (arr, key) => arr.forEach(e => (e.teeth_numbers || []).forEach(tt => {
+    const k = String(tt);
+    (byTarget[k] ||= { findings: new Set(), diagnoses: new Set() })[key].add(e.name);
+  }));
+  addAll(toothFindings, 'findings');
+  addAll(toothDiagnoses, 'diagnoses');
+
+  // The affected teeth are highlighted on the main dental chart in the Treatment
+  // Performed card (dentalChartHtml receives findingsTeeth), so this card shows
+  // only the per-tooth findings/diagnosis text — no second chart.
+  // Sort targets: numeric teeth first (ascending), then labels.
+  const targets = Object.keys(byTarget).sort((a, b) => {
+    const na = isToothId(a), nb = isToothId(b);
+    if (na && nb) return Number(a) - Number(b);
+    if (na) return -1; if (nb) return 1;
+    return a.localeCompare(b);
+  });
+  const perToothRows = targets.map(tt => {
+    const g = byTarget[tt];
+    const label = isToothId(tt) ? `Tooth ${tt}` : tt;
+    const dx = [...g.diagnoses].map(n => chip(n, 'dx')).join('');
+    const fn = [...g.findings].map(n => chip(n, 'fn')).join('');
+    return `<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-bottom:1px solid #ecfeff">
+      <div style="flex:0 0 66px;font-size:11px;font-weight:700;color:#0e7490;padding-top:3px">${esc(label)}</div>
+      <div style="flex:1">${dx}${fn}</div>
+    </div>`;
+  }).join('').replace(/border-bottom:1px solid #ecfeff"(?=[^"]*$)/, 'border-bottom:none"');
+
+  const perToothBlock = hasPerTooth
+    ? `${sub('Findings & Diagnosis by Tooth')}${perToothRows}`
+    : '';
+
+  // Legacy general (no-tooth) block.
+  const generalBlock = (!hasPerTooth && (flatFindings.length || flatDiagnosis))
+    ? `${flatFindings.length ? `${sub('Clinical Findings')}<div style="margin-bottom:${flatDiagnosis ? '12px' : '0'}">${flatFindings.map(n => chip(n, 'fn')).join('')}</div>` : ''}
+       ${flatDiagnosis ? `${sub('Diagnosis')}<div style="background:#ecfeff;border:1px solid #a5f3fc;border-left:4px solid #0891b2;border-radius:8px;padding:10px 14px;font-size:12px;color:#0e4f5c;line-height:1.55;font-weight:500">${esc(flatDiagnosis)}</div>` : ''}`
+    : '';
+
+  return card({
+    title: 'Examination & Diagnosis',
+    accent: '#0891b2',
+    icon: 'scope',
+    body: `${perToothBlock}${generalBlock}`,
+    tint: '#f8feff',
+  });
 }
 
 // Visit images (X-rays, scans, photographs) shown in a dedicated gallery card.
 function visitImagesHtml(patient, visit, imageData = {}) {
   const imageFiles = (patient?.files || []).filter(pf =>
-    String(pf.visit_id) === String(visit?._id) && pf.mime_type?.startsWith('image/')
+    fileBelongsToVisit(pf, visit) && pf.mime_type?.startsWith('image/')
   );
   if (!imageFiles.length) return '';
 
@@ -517,7 +555,7 @@ function visitImagesHtml(patient, visit, imageData = {}) {
   return card({
     title: 'Images & Scans',
     accent: '#0891b2',
-    icon: '🖼️',
+    icon: 'image',
     body: `<div style="display:flex;flex-wrap:wrap;gap:12px">${tiles}</div>`,
   });
 }
@@ -549,8 +587,18 @@ function smartReportHtml(ds, { visit, patient, doctor, imageData = {} }) {
   (findings.soft_tissue || []).forEach(n => { if (!softStatusMap[n]) softStatusMap[n] = ['Planned']; });
   (findings.tmj         || []).forEach(n => { if (!tmjStatusMap[n])  tmjStatusMap[n]  = ['Planned']; });
 
-  // Visual sections
-  const chartBlock  = dentalChartHtml(dentalTreatments, patient?.dentition_type);
+  // Teeth selected on the dental chart via the Examination tab (findings /
+  // diagnoses) — highlighted on the chart even when they carry no treatment, so
+  // the pictorial reflects EVERY selected tooth of the appointment.
+  const findingsTeeth = new Set();
+  [...(findings.tooth_findings || []), ...(findings.tooth_diagnoses || [])].forEach(e =>
+    (e?.teeth_numbers || []).filter(isToothId).forEach(n => findingsTeeth.add(String(Number(n))))
+  );
+
+  // Visual sections — render on the dentition the teeth were charted on (snapshot
+  // on the visit), falling back to the patient's current dentition for old data.
+  const chartDentition = visit?.dentition_type || patient?.dentition_type;
+  const chartBlock  = dentalChartHtml(dentalTreatments, chartDentition, findingsTeeth);
   const stGrid      = softTissueGridHtml(Object.keys(softStatusMap), softStatusMap);
   const tmjGrid     = tmjGridHtml(Object.keys(tmjStatusMap), tmjStatusMap);
 
@@ -605,20 +653,20 @@ function smartReportHtml(ds, { visit, patient, doctor, imageData = {} }) {
     ? card({
         title: 'Treatment Performed',
         accent: '#137fec',
-        icon: '🦷',
+        icon: 'tooth',
         body: `${visualBlocks ? `<div style="text-align:center;margin-bottom:${treatmentRows ? '12px' : '0'}">${visualBlocks}</div>` : ''}${treatmentRows}`,
       })
     : '';
 
   const notesCard = consultationNotesHtml
-    ? card({ title: 'Consultation Notes', accent: '#0d9488', icon: '📝', body: consultationNotesHtml })
+    ? card({ title: 'Consultation Notes', accent: '#0d9488', icon: 'note', body: consultationNotesHtml })
     : '';
 
   const adviceBody = [visitAdviceHtml, genericHtml].filter(Boolean).join(
     visitAdviceHtml && genericHtml ? '<div style="height:8px"></div>' : ''
   );
   const adviceCard = adviceBody
-    ? card({ title: 'Advice & Post-Care', accent: '#ea580c', icon: '💡', body: adviceBody, tint: '#fffbf7' })
+    ? card({ title: 'Advice & Post-Care', accent: '#ea580c', icon: 'bulb', body: adviceBody, tint: '#fffbf7' })
     : '';
 
   const imagesCard = visitImagesHtml(patient, visit, imageData);
@@ -633,6 +681,7 @@ function smartReportHtml(ds, { visit, patient, doctor, imageData = {} }) {
     ${patientStripHtml(patient, doctor?.name ? [`Doctor: ${esc(drName(doctor.name))}`] : [])}
     ${patientHistoryHtml(patient, visit)}
     ${treatmentCard}
+    ${examinationHtml(visit, chartDentition)}
     ${imagesCard}
     ${notesCard}
     ${adviceCard}
@@ -687,7 +736,11 @@ export default function VisitDocumentsModal({
     setEmailForm(f => ({ ...f, to: patient?.contact?.email || '' }));
     try {
       const probe = new File([new Blob(['x'], { type: 'application/pdf' })], 'p.pdf', { type: 'application/pdf' });
-      setCanShare(!!(navigator.canShare && navigator.canShare({ files: [probe] })));
+      // Web Share for files is only reliable on mobile/touch devices; on desktop
+      // navigator.canShare can report true but the actual share fails. Restrict
+      // the Share button to coarse-pointer (touch) devices.
+      const isTouch = window.matchMedia?.('(pointer: coarse)').matches;
+      setCanShare(!!(isTouch && navigator.canShare && navigator.canShare({ files: [probe] })));
     } catch { setCanShare(false); }
 
     setLoading(true);
@@ -765,12 +818,27 @@ export default function VisitDocumentsModal({
         // If restrictTo is set, only pre-select within that list
         const allowed = restrictTo ? new Set(restrictTo) : null;
         const isAllowed = (key) => !allowed || allowed.has(key);
+        // Auto-select uploaded files (images + PDFs) attached to this visit,
+        // excluding the AI report's own archived file (shown as "AI Clinical Report").
+        const fileSel = {};
+        if (isAllowed('files')) {
+          const rptFileIds = new Set(Object.values(report?.driveFileIds || {}).map(String));
+          (patient?.files || []).forEach(pf => {
+            const okType = /^image\/(png|jpe?g)$/i.test(pf.mime_type || '') || /pdf/i.test(pf.mime_type || '');
+            if (okType && fileBelongsToVisit(pf, visit) && !rptFileIds.has(String(pf.drive_file_id))) {
+              fileSel[`file:${pf.drive_file_id}`] = true;
+            }
+          });
+        }
         setSelected({
-          smartReport:   isAllowed('smartReport')   && !!(visit?.treatments?.length || visit?.advices?.length || visit?.consultation_notes?.length || visit?.findings?.soft_tissue?.length || visit?.findings?.tmj?.length),
+          // Visit Summary is ALWAYS produced whenever a visit exists for this
+          // appointment — the patient history is always passed into it, so it is
+          // never empty even if no dental-chart / findings data was entered.
+          smartReport:   isAllowed('smartReport')   && !!visit,
           prescription:  isAllowed('prescription')  && !!(visit?.prescriptions?.length || visit?.advices?.length),
-          clinicalNotes: isAllowed('clinicalNotes') && !!(visit?.consultation_notes?.length || visit?.chief_complaint || visit?.findings?.diagnosis_notes || visit?.findings?.soft_tissue?.length || visit?.findings?.tmj?.length || visit?.findings?.clinical_findings?.length),
           invoice:       isAllowed('invoice')       && !!inv,
           report:        isAllowed('report')        && !!report,
+          ...fileSel,
         });
       })
       .finally(() => setLoading(false));
@@ -781,30 +849,58 @@ export default function VisitDocumentsModal({
 
   // Document availability — filtered by restrictTo if set
   const allAvailable = [
-    { key: 'smartReport',   label: 'Visit Summary',      has: !!(visit?.treatments?.length || visit?.advices?.length || visit?.consultation_notes?.length || visit?.findings?.soft_tissue?.length || visit?.findings?.tmj?.length) },
+    // Visit Summary is always available when a visit exists — patient history is
+    // always included, so the summary is meaningful even with no clinical entry.
+    { key: 'smartReport',   label: 'Visit Summary',      has: !!visit },
     { key: 'prescription',  label: 'Prescription',        has: !!(visit?.prescriptions?.length || visit?.advices?.length) },
-    { key: 'clinicalNotes', label: 'Clinical Notes',      has: !!(visit?.consultation_notes?.length || visit?.chief_complaint || visit?.findings?.diagnosis_notes || visit?.findings?.soft_tissue?.length || visit?.findings?.tmj?.length || visit?.findings?.clinical_findings?.length) },
     { key: 'invoice',       label: 'Invoice',             has: !!effectiveInvoice },
     { key: 'report',        label: 'AI Clinical Report',  has: !!effectiveReport },
   ];
-  // Only show documents that exist for this visit — never show greyed/unavailable entries
-  const available = (restrictTo ? allAvailable.filter(d => restrictTo.includes(d.key)) : allAvailable)
-    .filter(d => d.has);
+  // Uploaded files attached to THIS visit (X-rays, lab/blood reports, photos).
+  // Each is listed as its own selectable entry and compiled into the combined PDF
+  // — images rendered as pages, PDFs merged in — by the backend.
+  const isImageMime = (mt) => /^image\/(png|jpe?g)$/i.test(mt || '');
+  const isPdfMime   = (mt) => /pdf/i.test(mt || '');
+  // The AI report is ALSO archived as a file in patient.files[] (Drive). Exclude
+  // those from the uploaded-files list so the report isn't shown twice — it's
+  // already listed as "AI Clinical Report". Match by the report's own drive_file_ids.
+  const reportFileIds = new Set(Object.values(effectiveReport?.driveFileIds || {}).map(String));
+  const visitUploadedFiles = (patient?.files || []).filter(pf =>
+    fileBelongsToVisit(pf, visit)
+    && !reportFileIds.has(String(pf.drive_file_id))
+    && (isImageMime(pf.mime_type) || isPdfMime(pf.mime_type))
+  );
+  const fileDocs = (restrictTo && !restrictTo.includes('files')) ? [] : visitUploadedFiles.map(pf => ({
+    key:    `file:${pf.drive_file_id}`,
+    label:  pf.file_name || (isPdfMime(pf.mime_type) ? 'Document.pdf' : 'Image'),
+    has:    true,
+    fileId: pf.drive_file_id,
+  }));
 
-  const include = available.filter(d => selected[d.key]).map(d => d.key);
+  // Only show documents that exist for this visit — never show greyed/unavailable entries
+  const available = [
+    ...(restrictTo ? allAvailable.filter(d => restrictTo.includes(d.key)) : allAvailable).filter(d => d.has),
+    ...fileDocs,
+  ];
+
+  const include = available.filter(d => selected[d.key] && !d.fileId).map(d => d.key);
+  // Selected uploaded files → appended to the combined PDF server-side.
+  const attachFileIds = available.filter(d => selected[d.key] && d.fileId).map(d => d.fileId);
+  // A valid selection = any core document OR any uploaded file.
+  const hasSelection = include.length > 0 || attachFileIds.length > 0;
   const idsPayload = {
     visitId:     visit?._id || null,
     patientId:   patient?._id || null,
     invoiceId:   effectiveInvoice?._id || invoiceId || null,
     reportJobId: reportJob?._id || reportJobId || null,
     include,
+    attachFileIds,
   };
 
   function buildFullHtml(imageData = {}) {
     const blocks = [];
     if (selected.smartReport   && available.find(d => d.key === 'smartReport')?.has)   blocks.push(smartReportHtml(ds, { visit, patient, doctor: resolvedDoctor, imageData }));
     if (selected.prescription  && available.find(d => d.key === 'prescription')?.has)  blocks.push(prescriptionHtml(ds, { visit, patient, doctor: resolvedDoctor }));
-    if (selected.clinicalNotes && available.find(d => d.key === 'clinicalNotes')?.has) blocks.push(clinicalNotesHtml(ds, { visit, patient, doctor: resolvedDoctor, imageData }));
     if (selected.invoice       && effectiveInvoice) blocks.push(invoiceHtml(ds, { invoice: effectiveInvoice, patient }));
     if (selected.report        && effectiveReport)  blocks.push(reportHtml(ds, { reportJob: effectiveReport, patient, doctor: resolvedDoctor }));
     const pages = blocks.filter(Boolean).map((b, i) =>
@@ -814,9 +910,9 @@ export default function VisitDocumentsModal({
 
   // Fetch base64 data URLs for all images attached to this visit (for inline embedding in print)
   async function fetchImageData() {
-    if (!selected.clinicalNotes && !selected.smartReport) return {};
+    if (!selected.smartReport) return {};
     const imageFiles = (patient?.files || []).filter(pf =>
-      String(pf.visit_id) === String(visit?._id) && pf.mime_type?.startsWith('image/')
+      fileBelongsToVisit(pf, visit) && pf.mime_type?.startsWith('image/')
     );
     const entries = await Promise.all(imageFiles.map(async (pf) => {
       try {
@@ -844,35 +940,40 @@ export default function VisitDocumentsModal({
   // produce a document identical to Print. `idsPayload` is still sent as a
   // fallback for the backend.
   async function fetchPdfBlob() {
-    const imageData = await fetchImageData();
-    const html = buildFullHtml(imageData);
+    // Only build/render document HTML when core documents are selected. If the
+    // user picked only uploaded files, send no html so the backend starts from an
+    // empty PDF and appends just those files (no blank leading page).
+    const imageData = include.length ? await fetchImageData() : {};
+    const html = include.length ? buildFullHtml(imageData) : '';
     const res = await api.post('/documents/pdf', { ...idsPayload, html }, { responseType: 'blob' });
     return res.data;
   }
 
+  // Print the server-built COMBINED PDF (core docs + merged uploaded files) so
+  // Print matches Save/Share/Email exactly and includes uploaded PDFs/images.
   async function handlePrint() {
-    if (!include.length) { setError('Select at least one document.'); return; }
+    if (!hasSelection) { setError('Select at least one document.'); return; }
     setBusy('print'); setError('');
+    let url;
     try {
-      const imageData = await fetchImageData();
+      const blob = await fetchPdfBlob();
+      url = URL.createObjectURL(blob);
       const iframe = document.createElement('iframe');
       iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+      iframe.src = url;
       document.body.appendChild(iframe);
-      const win = iframe.contentWindow;
-      win.document.open();
-      win.document.write(buildFullHtml(imageData));
-      win.document.close();
-      await waitForImages(win);
-      win.focus();
-      win.print();
-      setTimeout(() => document.body.removeChild(iframe), 1000);
+      iframe.onload = () => {
+        try { iframe.contentWindow.focus(); iframe.contentWindow.print(); } catch { /* noop */ }
+        setTimeout(() => { document.body.removeChild(iframe); URL.revokeObjectURL(url); }, 60000);
+      };
     } catch (e) {
-      setError('Print failed: ' + e.message);
+      if (url) URL.revokeObjectURL(url);
+      setError('Print failed: ' + (e.response?.data?.error || e.message));
     } finally { setBusy(''); }
   }
 
   async function handleSave() {
-    if (!include.length) { setError('Select at least one document.'); return; }
+    if (!hasSelection) { setError('Select at least one document.'); return; }
     setBusy('save'); setError('');
     try {
       const blob = await fetchPdfBlob();
@@ -888,7 +989,7 @@ export default function VisitDocumentsModal({
   }
 
   async function handleShare() {
-    if (!include.length) { setError('Select at least one document.'); return; }
+    if (!hasSelection) { setError('Select at least one document.'); return; }
     setBusy('share'); setError('');
     try {
       const blob = await fetchPdfBlob();
@@ -904,7 +1005,7 @@ export default function VisitDocumentsModal({
   }
 
   async function handleEmailSend() {
-    if (!include.length) { setError('Select at least one document.'); return; }
+    if (!hasSelection) { setError('Select at least one document.'); return; }
     if (!emailForm.to) { setError('Enter a recipient email.'); return; }
     setBusy('email'); setError('');
     try {

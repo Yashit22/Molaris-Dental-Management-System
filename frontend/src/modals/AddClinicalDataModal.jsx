@@ -5,6 +5,12 @@ const TAB_LABEL = {
   findings: 'Clinical Finding',
   diagnoses: 'Diagnosis',
   treatments: 'Suggested Treatment',
+  medicines: 'Medicine',
+};
+
+// Options to hide per tab (e.g. medicines have no inline quick-entry grid).
+const HIDDEN_OPTIONS = {
+  medicines: ['quick'],
 };
 
 const TAB_CONTEXT = {
@@ -19,6 +25,10 @@ const TAB_CONTEXT = {
   treatments: {
     what: 'Suggested Treatments are your clinic\'s standard procedures with default costs. They pre-fill the treatment plan board so you don\'t have to type the name and price every time.',
     example: 'E.g. Root Canal Treatment – ₹4,500, Scaling & Polishing – ₹800, Composite Filling – ₹1,200',
+  },
+  medicines: {
+    what: 'Medicines are your clinic\'s prescribable drug catalog with default dosage, duration, instructions, and cost. They pre-fill the medicine picker in prescriptions and can be billed as Pharmacy items on invoices.',
+    example: 'E.g. Amoxicillin 500mg – 1-0-1 for 5 days, Ibuprofen 400mg – 1-1-1 for 3 days',
   },
 };
 
@@ -82,6 +92,8 @@ export default function AddClinicalDataModal({ tab, onClose, onPickSingle, onPic
   const ctx = TAB_CONTEXT[tab];
 
   const handlers = { library: onPickLibrary, single: onPickSingle, quick: onPickQuickEntry, bulk: onPickBulkUpload };
+  const hidden = HIDDEN_OPTIONS[tab] || [];
+  const visibleOptions = OPTIONS.filter(o => !hidden.includes(o.key));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 backdrop-blur-sm p-4">
@@ -109,7 +121,7 @@ export default function AddClinicalDataModal({ tab, onClose, onPickSingle, onPic
 
           {/* Options */}
           <div className="p-6 space-y-3">
-            {OPTIONS.map(({ key, icon: Icon, title, badge, badgeColor, bestFor, description, need, iconBg, iconColor, borderHover }) => (
+            {visibleOptions.map(({ key, icon: Icon, title, badge, badgeColor, bestFor, description, need, iconBg, iconColor, borderHover }) => (
               <button
                 key={key}
                 onClick={handlers[key]}

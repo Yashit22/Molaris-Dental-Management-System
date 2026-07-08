@@ -1,5 +1,4 @@
 import PDFDocument from 'pdfkit';
-import { downloadFileFromDrive } from './googleDrive.service.js';
 
 // ─── Brand palette ────────────────────────────────────────────────────────────
 const BRAND_BLUE   = '#137fec';
@@ -176,18 +175,12 @@ const TOOTH_CFGS = {
 // isToothId: numeric entry in teeth_numbers is a real tooth ID
 const isToothId = n => n != null && !isNaN(Number(n)) && String(n).trim() !== '';
 
-function drawToothChart(doc, treatments = [], dentitionType = 'Adult') {
+// toothStatuses: { [toothId]: string[] } — statuses accumulated per tooth from
+// both treatments and per-tooth findings/diagnoses. Any tooth present here is
+// highlighted; a tooth noted with only a finding/diagnosis (status 'Noted') is
+// marked too, so the chart reflects everything clinically recorded on the visit.
+function drawToothChart(doc, toothStatuses = {}, dentitionType = 'Adult') {
   const cfg = TOOTH_CFGS[dentitionType] || TOOTH_CFGS.Adult;
-
-  // Accumulate all statuses per tooth (multiple treatments may target same tooth)
-  const toothStatuses = {};
-  treatments.forEach(t => (t.teeth_numbers || []).filter(isToothId).forEach(n => {
-    const id = Number(n);
-    if (!toothStatuses[id]) toothStatuses[id] = [];
-    const s = (t.treatment_name === 'Missing' || t.treatment_name === 'Extraction' || t.status === 'DirectMissing')
-      ? 'Missing' : t.status;
-    if (!toothStatuses[id].includes(s)) toothStatuses[id].push(s);
-  }));
   if (!Object.keys(toothStatuses).length) return;
 
   const priorityClr = (statuses) => {
@@ -196,6 +189,7 @@ function drawToothChart(doc, treatments = [], dentitionType = 'Adult') {
     if (statuses.some(s => s === 'Planned' || s === 'Recommended')) return { bg: '#f59e0b', border: '#f59e0b', txt: '#ffffff' };
     if (statuses.includes('Completed'))                 return { bg: '#16a34a', border: '#16a34a', txt: '#ffffff' };
     if (statuses.some(s => s === 'Missing' || s === 'DirectMissing')) return { bg: '#f1f5f9', border: '#94a3b8', txt: '#94a3b8' };
+    if (statuses.includes('Noted'))                     return { bg: '#e0edff', border: '#137fec', txt: '#137fec' };
     return { bg: '#137fec', border: '#137fec', txt: '#ffffff' };
   };
 
@@ -346,89 +340,6 @@ function drawPrescription(doc, { visit, patient, doctor, ds }) {
   if (ds.prescription_show_footer !== false) drawFooter(doc, ds, ds.prescription_footer_text);
 }
 
-// Clinical Notes = examination record (chief complaint → findings → consultation notes)
-// No treatment plan, no prescription — those are separate documents.
-function drawClinicalNotes(doc, { visit, patient, doctor, ds, imageBuffers = {} }) {
-  let y = drawClinicHeader(doc, ds, doc._logoBuf, { showLogo: ds.report_show_logo !== false });
-  y = drawPatientStrip(doc, patient, y, doctor?.name ? [`Doctor: ${doctor.name}`] : []);
-
-  doc.fillColor(BRAND_DARK).font('Helvetica-Bold').fontSize(13).text('Clinical Notes', doc.page.margins.left, y);
-  doc.moveDown(0.4);
-
-  const f = visit?.findings || {};
-  const softTissueItems = f.soft_tissue || [];
-  const tmjItems        = f.tmj         || [];
-
-  const blocks = [
-    ['Chief Complaint',   visit?.chief_complaint],
-    ['Clinical Findings', (f.clinical_findings || []).join(', ')],
-    ['Diagnosis',         f.diagnosis_notes],
-  ].filter(([, v]) => v && String(v).trim());
-
-  if (blocks.length || softTissueItems.length || tmjItems.length) {
-    sectionTitle(doc, 'Examination & Findings', doc.y);
-    blocks.forEach(([label, val]) => {
-      doc.fillColor(MUTED).font('Helvetica-Bold').fontSize(9).text(label.toUpperCase());
-      doc.fillColor(BODY_TEXT).font('Helvetica').fontSize(10).text(String(val), { width: 495 });
-      doc.moveDown(0.4);
-    });
-    if (softTissueItems.length) {
-      doc.fillColor(MUTED).font('Helvetica-Bold').fontSize(9).text('SOFT TISSUE');
-      doc.fillColor(BODY_TEXT).font('Helvetica').fontSize(10)
-         .text(softTissueItems.map((s, i) => `${i + 1}. ${s}`).join('   '), { width: 495 });
-      doc.moveDown(0.4);
-    }
-    if (tmjItems.length) {
-      doc.fillColor(MUTED).font('Helvetica-Bold').fontSize(9).text('TMJ');
-      doc.fillColor(BODY_TEXT).font('Helvetica').fontSize(10)
-         .text(tmjItems.map((s, i) => `${i + 1}. ${s}`).join('   '), { width: 495 });
-      doc.moveDown(0.4);
-    }
-  }
-
-  const notes = visit?.consultation_notes || [];
-  if (notes.length) {
-    doc.moveDown(0.3);
-    sectionTitle(doc, 'Consultation Notes', doc.y);
-    notes.forEach(n => {
-      doc.fillColor(BODY_TEXT).font('Helvetica').fontSize(10).text(htmlToText(n.content), { width: 495 });
-      doc.moveDown(0.3);
-    });
-  }
-
-  // Clinical files for this visit
-  const visitFiles = (patient?.files || []).filter(f => String(f.visit_id) === String(visit?._id));
-  if (visitFiles.length) {
-    doc.moveDown(0.3);
-    sectionTitle(doc, 'Clinical Files', doc.y);
-    const byCategory = {};
-    visitFiles.forEach(f => { (byCategory[f.category || 'Other'] ||= []).push(f); });
-    Object.entries(byCategory).forEach(([cat, files]) => {
-      doc.fillColor(MUTED).font('Helvetica-Bold').fontSize(8.5).text(cat.toUpperCase(), { width: 495 });
-      files.forEach(f => {
-        const dated = f.uploaded_at ? `  (${new Date(f.uploaded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })})` : '';
-        doc.fillColor(BODY_TEXT).font('Helvetica').fontSize(9.5)
-           .text(`• ${f.file_name}${dated}`, { width: 495 });
-        // Embed image if buffer was pre-fetched
-        const buf = imageBuffers?.[f.drive_file_id];
-        if (buf) {
-          try {
-            const ML = doc.page.margins.left;
-            const maxW = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-            doc.image(buf, ML, doc.y + 4, { fit: [maxW, 220] });
-            doc.y += 230;
-            doc.moveDown(0.3);
-          } catch { /* skip corrupt or unsupported image */ }
-        }
-      });
-      doc.moveDown(0.3);
-    });
-  }
-
-  drawDoctorSignOff(doc, doctor, ds);
-  drawFooter(doc, ds, ds.report_footer_text);
-}
-
 // Visit Summary = patient take-home (treatments done + advice)
 // No clinical examination data, no prescription duplicate.
 function drawSmartReport(doc, { visit, patient, doctor, ds }) {
@@ -463,54 +374,115 @@ function drawSmartReport(doc, { visit, patient, doctor, ds }) {
     doc.moveDown(0.2);
   }
 
-  const treatments = visit?.treatments || [];
-  if (treatments.length) {
-    sectionTitle(doc, 'Treatment Done', doc.y);
+  // ── Examination, Diagnosis & Treatment (unified per-target model) ───────────
+  // Every clinically-noted target (tooth / soft-tissue / TMJ) becomes one row
+  // carrying its findings, diagnoses and treatments together. The same model
+  // feeds the FDI chart so a tooth noted with only a finding is still marked.
+  const findings = visit?.findings || {};
+  const toothFindings  = (findings.tooth_findings  || []).filter(x => x?.name);
+  const toothDiagnoses = (findings.tooth_diagnoses || []).filter(x => x?.name);
+  const treatments     = visit?.treatments || [];
 
-    const SOFT_TISSUE_LABELS = new Set(['Buccal Mucosa','Floor of the Mouth','Frenum','Gingiva','Labial Mucosa','Palate','Salivary Glands','Tongue']);
-    const TMJ_LABELS         = new Set(['Left TMJ','Right TMJ','Both TMJ']);
+  const byTarget = {};
+  const targetOf = (tt) => (byTarget[String(tt)] ||= { findings: new Set(), diagnoses: new Set(), treatments: [] });
+  const addNamed = (arr, key) => arr.forEach(e => (e.teeth_numbers || []).forEach(tt => targetOf(tt)[key].add(e.name)));
+  addNamed(toothFindings,  'findings');
+  addNamed(toothDiagnoses, 'diagnoses');
+  treatments.forEach(t => {
+    const status = (t.treatment_name === 'Missing' || t.treatment_name === 'Extraction' || t.status === 'DirectMissing')
+      ? 'Missing' : t.status;
+    (t.teeth_numbers || []).forEach(tt => targetOf(tt).treatments.push({ name: t.treatment_name, status }));
+  });
 
-    const dentalTreatments = treatments.filter(t => (t.teeth_numbers || []).some(isToothId));
-    const softTreatments   = treatments.filter(t => (t.teeth_numbers || []).some(n => SOFT_TISSUE_LABELS.has(n)));
-    const tmjTreatments    = treatments.filter(t => (t.teeth_numbers || []).some(n => TMJ_LABELS.has(n)));
+  const targetKeys = Object.keys(byTarget).sort((a, b) => {
+    const na = isToothId(a), nb = isToothId(b);
+    if (na && nb) return Number(a) - Number(b);
+    if (na) return -1; if (nb) return 1;
+    return a.localeCompare(b);
+  });
 
-    drawToothChart(doc, dentalTreatments, patient?.dentition_type);
+  if (targetKeys.length) {
+    // Feed all noted teeth into the chart. Findings/diagnosis-only teeth get
+    // the 'Noted' status so they still light up.
+    const toothStatuses = {};
+    targetKeys.filter(isToothId).forEach(tt => {
+      const g = byTarget[tt];
+      const statuses = g.treatments.map(x => x.status).filter(Boolean);
+      if (!statuses.length && (g.findings.size || g.diagnoses.size)) statuses.push('Noted');
+      if (statuses.length) toothStatuses[Number(tt)] = [...new Set(statuses)];
+    });
+    drawToothChart(doc, toothStatuses, visit?.dentition_type || patient?.dentition_type);
 
-    if (softTreatments.length) {
-      doc.fillColor(MUTED).font('Helvetica-Bold').fontSize(9).text('SOFT TISSUE');
-      softTreatments.forEach(t => {
-        const targets = (t.teeth_numbers || []).filter(n => SOFT_TISSUE_LABELS.has(n)).join(', ');
-        const status  = t.status ? ` (${t.status})` : '';
-        doc.fillColor(BODY_TEXT).font('Helvetica').fontSize(10)
-           .text(`• ${t.treatment_name} — ${targets}${status}`, { width: 495 });
+    sectionTitle(doc, 'Examination, Diagnosis & Treatment', doc.y);
+
+    // ── Table: Tooth | Findings | Diagnosis | Treatment ───────────────────────
+    const ML = doc.page.margins.left;
+    const CW = doc.page.width - ML - doc.page.margins.right;
+    const COLS = [
+      { key: 'label',   title: 'Site',      w: Math.round(CW * 0.14) },
+      { key: 'find',    title: 'Findings',  w: Math.round(CW * 0.26) },
+      { key: 'dx',      title: 'Diagnosis', w: Math.round(CW * 0.26) },
+      { key: 'tx',      title: 'Treatment', w: 0 },
+    ];
+    COLS[3].w = CW - COLS[0].w - COLS[1].w - COLS[2].w;
+    const PAD = 5;
+
+    const drawRow = (cells, { header = false } = {}) => {
+      const font = header ? 'Helvetica-Bold' : 'Helvetica';
+      const size = header ? 8.5 : 9;
+      doc.font(font).fontSize(size);
+      // Measure tallest cell for row height.
+      let x = ML, h = 0;
+      COLS.forEach((c, i) => { h = Math.max(h, doc.heightOfString(cells[i] || '', { width: c.w - PAD * 2 })); });
+      h += PAD * 2;
+      if (doc.y + h > doc.page.height - doc.page.margins.bottom) { doc.addPage(); }
+      const y = doc.y;
+      if (header) doc.save().rect(ML, y, CW, h).fill('#f0f7ff').restore();
+      x = ML;
+      COLS.forEach((c, i) => {
+        doc.fillColor(header ? BRAND_DARK : BODY_TEXT).font(font).fontSize(size)
+           .text(cells[i] || '', x + PAD, y + PAD, { width: c.w - PAD * 2 });
+        x += c.w;
       });
-      doc.moveDown(0.3);
-    }
+      // Cell borders.
+      doc.save().strokeColor(BORDER_LIGHT).lineWidth(0.5);
+      doc.rect(ML, y, CW, h).stroke();
+      let bx = ML;
+      COLS.slice(0, -1).forEach(c => { bx += c.w; doc.moveTo(bx, y).lineTo(bx, y + h).stroke(); });
+      doc.restore();
+      doc.y = y + h;
+    };
 
-    if (tmjTreatments.length) {
-      doc.fillColor(MUTED).font('Helvetica-Bold').fontSize(9).text('TMJ');
-      tmjTreatments.forEach(t => {
-        const targets = (t.teeth_numbers || []).filter(n => TMJ_LABELS.has(n)).join(', ');
-        const status  = t.status ? ` (${t.status})` : '';
-        doc.fillColor(BODY_TEXT).font('Helvetica').fontSize(10)
-           .text(`• ${t.treatment_name} — ${targets}${status}`, { width: 495 });
-      });
-      doc.moveDown(0.3);
-    }
-
-    treatments.forEach(t => {
-      const dentalTeeth  = (t.teeth_numbers || []).filter(isToothId);
-      const otherTargets = (t.teeth_numbers || []).filter(n => !isToothId(n));
-      const parts = [
-        dentalTeeth.length ? `Teeth ${dentalTeeth.join(', ')}` : null,
-        otherTargets.length ? otherTargets.join(', ') : null,
-      ].filter(Boolean);
-      const loc    = parts.length ? ` — ${parts.join(' | ')}` : '';
-      const status = t.status ? ` (${t.status})` : '';
-      doc.fillColor(BODY_TEXT).font('Helvetica').fontSize(10)
-         .text(`• ${t.treatment_name}${loc}${status}`, { width: 495 });
+    drawRow(COLS.map(c => c.title), { header: true });
+    targetKeys.forEach(tt => {
+      const g = byTarget[tt];
+      const label = isToothId(tt) ? `Tooth ${tt}` : tt;
+      const find  = [...g.findings].join(', ') || '—';
+      const dx    = [...g.diagnoses].join(', ') || '—';
+      const tx    = g.treatments.length
+        ? g.treatments.map(t => `${t.name}${t.status ? ` (${t.status})` : ''}`).join('; ')
+        : '—';
+      drawRow([label, find, dx, tx]);
     });
     doc.moveDown(0.4);
+  } else {
+    // Legacy flat (no per-tooth) findings/diagnosis.
+    const clinicalFindings = (findings.clinical_findings || []).filter(Boolean);
+    const diagnosis = (findings.diagnosis_notes || '').trim();
+    if (clinicalFindings.length || diagnosis) {
+      sectionTitle(doc, 'Examination & Diagnosis', doc.y);
+      if (clinicalFindings.length) {
+        doc.fillColor(MUTED).font('Helvetica-Bold').fontSize(9).text('CLINICAL FINDINGS');
+        doc.fillColor(BODY_TEXT).font('Helvetica').fontSize(10).text(clinicalFindings.join('  ·  '), { width: 495 });
+        doc.moveDown(0.3);
+      }
+      if (diagnosis) {
+        doc.fillColor(MUTED).font('Helvetica-Bold').fontSize(9).text('DIAGNOSIS');
+        doc.fillColor(BODY_TEXT).font('Helvetica').fontSize(10).text(diagnosis, { width: 495 });
+        doc.moveDown(0.3);
+      }
+      doc.moveDown(0.2);
+    }
   }
 
   const advices    = visit?.advices || [];
@@ -639,7 +611,7 @@ function drawAiReport(doc, { reportText, templateName, patient, doctor, ds }) {
  * @param tenantModels  req.tenantModels
  * @param opts {
  *   visitId, patientId, invoiceId, reportJobId, reportTemplateId,
- *   include: string[]  // any of: 'prescription','clinicalNotes','invoice','report'
+ *   include: string[]  // any of: 'prescription','smartReport','invoice','report'
  * }
  * Returns a Buffer.
  */
@@ -690,19 +662,6 @@ async function renderDocsToBuffer(ds, { include, visit, patient, doctor, invoice
     }
   }
 
-  // Pre-fetch image files for clinical notes embedding
-  const imageBuffers = {};
-  if (include.includes('clinicalNotes') && tenantConfig?.refreshToken) {
-    const imageFiles = (patient?.files || []).filter(f =>
-      String(f.visit_id) === String(visit?._id) && f.mime_type?.startsWith('image/')
-    );
-    await Promise.all(imageFiles.map(async (f) => {
-      try {
-        const { data } = await downloadFileFromDrive(tenantConfig, f.drive_file_id);
-        imageBuffers[f.drive_file_id] = data;
-      } catch { /* silently skip unreadable files */ }
-    }));
-  }
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 50, size: 'A4', bufferPages: true });
@@ -722,7 +681,6 @@ async function renderDocsToBuffer(ds, { include, visit, patient, doctor, invoice
     };
 
     if (include.includes('prescription')) page(() => drawPrescription(doc, { visit, patient, doctor, ds }));
-    if (include.includes('clinicalNotes')) page(() => drawClinicalNotes(doc, { visit, patient, doctor, ds, imageBuffers }));
     if (include.includes('smartReport')) page(() => drawSmartReport(doc, { visit, patient, doctor, ds }));
     if (include.includes('invoice') && invoice) page(() => drawInvoice(doc, { invoice, patient, doctor, ds }));
     if (include.includes('report') && reportText) page(() => drawAiReport(doc, { reportText, templateName: reportTemplateName, patient, doctor, ds }));
@@ -764,7 +722,7 @@ export async function loadDocumentBranding(tenantModels) {
 }
 
 // ─── Single-document PDF for legacy callers passing already-fetched objects ──────
-// type: 'smartReport' | 'prescription' | 'clinicalNotes' | 'invoice' | 'report'
+// type: 'smartReport' | 'prescription' | 'invoice' | 'report'
 export async function buildSingleDocPdf(tenantModels, { type, visit, patient, doctor, doctorName, invoice, reportText, reportTemplateName }) {
   const ds = await loadDocumentBranding(tenantModels);
   if (!doctor && doctorName) doctor = { name: doctorName };

@@ -21,7 +21,9 @@ const AddTreatmentModal = ({ isOpen, onClose, selectedTeeth, onSave }) => {
   const [treatmentSearch, setTreatmentSearch] = useState('');
 
   const [openDropdown, setOpenDropdown] = useState(null); // 'clinical', 'diagnosis', 'treatment'
-  const dropdownRef = useRef(null);
+  const clinicalRef = useRef(null);
+  const diagnosisRef = useRef(null);
+  const treatmentRef = useRef(null);
 
   const [loading, setLoading] = useState(true);
 
@@ -61,12 +63,14 @@ const AddTreatmentModal = ({ isOpen, onClose, selectedTeeth, onSave }) => {
   useEffect(() => {
     if (!isOpen) return;
     const handleClickOutside = (event) => {
-      // Close dropdown only if clicking outside the form
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        // Check if we're clicking on an input or dropdown button
-        if (!event.target.closest('input') && !event.target.closest('button[type="button"]')) {
-          setOpenDropdown(null);
-        }
+      // Close the open dropdown whenever the click lands outside all three field containers.
+      // Clicking into another field re-opens the right dropdown via its onFocus handler.
+      const inField =
+        clinicalRef.current?.contains(event.target) ||
+        diagnosisRef.current?.contains(event.target) ||
+        treatmentRef.current?.contains(event.target);
+      if (!inField) {
+        setOpenDropdown(null);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -226,11 +230,11 @@ const AddTreatmentModal = ({ isOpen, onClose, selectedTeeth, onSave }) => {
             </div>
 
             {/* 1. Clinical Findings - Multi-select with Live Search */}
-            <div className="flex flex-col gap-2" ref={dropdownRef}>
+            <div className="flex flex-col gap-2">
               <label className="font-semibold text-base text-slate-800">
                 Clinical Findings
               </label>
-              <div className="relative">
+              <div className="relative" ref={clinicalRef}>
                 <Search className="absolute left-3 top-3 text-gray-400" size={18} />
                 <input
                   type="text"
@@ -299,7 +303,7 @@ const AddTreatmentModal = ({ isOpen, onClose, selectedTeeth, onSave }) => {
               <label className="font-semibold text-base text-slate-800">
                 Diagnosis
               </label>
-              <div className="relative">
+              <div className="relative" ref={diagnosisRef}>
                 <Search className="absolute left-3 top-3 text-gray-400" size={18} />
                 <input
                   type="text"
@@ -374,7 +378,7 @@ const AddTreatmentModal = ({ isOpen, onClose, selectedTeeth, onSave }) => {
               <label className="font-semibold text-base text-slate-800">
                 Suggested Treatments
               </label>
-              <div className="relative">
+              <div className="relative" ref={treatmentRef}>
                 <Search className="absolute left-3 top-3 text-gray-400" size={18} />
                 <input
                   type="text"

@@ -154,7 +154,7 @@ const NavigationLayout = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user: authUser, logout } = useAuth();
-  const { user, tenant } = useUser();
+  const { user, tenant, credits } = useUser();
   const [showClinicModal, setShowClinicModal] = React.useState(false);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [showSupportPopover, setShowSupportPopover] = useState(false);
@@ -173,6 +173,11 @@ const NavigationLayout = ({ children }) => {
   const showDoctorRoutes    = isOwner || isAssistant || isDoctor;  // Files, Lab
   const showAssistantRoutes = isOwner || isAssistant;
   const showOwnerRoutes     = isOwner;                             // + Insights, WhatsApp, Settings
+
+  // AI report credit balance (owner-only pill; links to Settings → AI Credits).
+  const creditsValue = credits == null ? null : Number(credits);
+  const creditsLabel = creditsValue == null ? '—' : creditsValue.toFixed(2);
+  const creditsLow   = creditsValue != null && creditsValue < 5;
 
   function handleLogout() {
     logout();
@@ -224,6 +229,20 @@ const NavigationLayout = ({ children }) => {
               {showOwnerRoutes && <SidebarItem icon="dashboard"   label="Insights"     to="/insights"  active={isActive('/insights')} />}
               {showOwnerRoutes && <SidebarItem icon="chat"        label="WhatsApp"     to="/whatsapp"  active={isActive('/whatsapp')} />}
               {showOwnerRoutes && <SidebarItem icon="settings"    label="Settings"     to="/settings"  active={isActive('/settings')} />}
+              {showOwnerRoutes && (
+                <Link
+                  to="/settings?tab=credits"
+                  title={`AI Credits: ${creditsLabel}`}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group relative ${
+                    creditsLow ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'
+                  } hover:bg-slate-100 dark:hover:bg-slate-800`}
+                >
+                  <span className={`material-symbols-outlined flex-shrink-0 ${creditsLow ? 'text-amber-500' : 'text-[#137fec]'}`}>toll</span>
+                  <span className="text-sm font-semibold opacity-0 w-0 group-hover/sidebar:w-auto group-hover/sidebar:opacity-100 transition-all duration-300 whitespace-nowrap overflow-hidden delay-75">
+                    {creditsLabel} credits
+                  </span>
+                </Link>
+              )}
               <SidebarItem icon="menu_book" label="Help Center" to="/help"      active={isActive('/help')} />
             </nav>
           </div>
@@ -309,6 +328,20 @@ const NavigationLayout = ({ children }) => {
             </div>
             <span className="font-bold text-slate-900 text-sm">{tenant?.name || 'Clinic'}</span>
           </button>
+          {showOwnerRoutes && (
+            <Link
+              to="/settings?tab=credits"
+              title={`AI Credits: ${creditsLabel}`}
+              className={`ml-auto flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-sm font-bold transition-colors ${
+                creditsLow
+                  ? 'border-amber-300 bg-amber-50 text-amber-600'
+                  : 'border-blue-200 bg-blue-50 text-[#137fec]'
+              }`}
+            >
+              <span className="material-symbols-outlined text-[18px]">toll</span>
+              {creditsLabel}
+            </Link>
+          )}
         </div>
 
         {/* Scrollable page content — extra bottom padding on mobile for the tab bar */}
@@ -376,6 +409,21 @@ const NavigationLayout = ({ children }) => {
 
             {/* Drawer nav */}
             <div className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
+              {showOwnerRoutes && (
+                <Link
+                  to="/settings?tab=credits"
+                  onClick={closeDrawer}
+                  className={`flex items-center justify-between gap-3 px-4 py-3 mb-2 rounded-xl border ${
+                    creditsLow ? 'border-amber-200 bg-amber-50' : 'border-blue-100 bg-blue-50'
+                  }`}
+                >
+                  <span className="flex items-center gap-3">
+                    <span className={`material-symbols-outlined text-[22px] ${creditsLow ? 'text-amber-500' : 'text-[#137fec]'}`}>toll</span>
+                    <span className="text-sm font-semibold text-slate-700">AI Credits</span>
+                  </span>
+                  <span className={`text-base font-bold ${creditsLow ? 'text-amber-600' : 'text-[#137fec]'}`}>{creditsLabel}</span>
+                </Link>
+              )}
               <DrawerItem icon="calendar_month" label="Appointments" to="/"          active={isActive('/')}           onClick={closeDrawer} />
               <DrawerItem icon="person"         label="Patients"     to="/patients"  active={isActive('/patients')}   onClick={closeDrawer} />
               {showDoctorRoutes    && <DrawerItem icon="folder"       label="Files"        to="/files"        active={isActive('/files')}        onClick={closeDrawer} />}

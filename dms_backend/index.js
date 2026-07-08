@@ -16,11 +16,14 @@ import visitRoutes from "./routes/visit.routes.js";
 import appointmentRoutes from "./routes/appointment.routes.js";
 import invoiceRoutes from "./routes/invoice.routes.js";
 import labRoutes from './routes/lab.routes.js';
+import vendorRoutes from './routes/vendor.routes.js';
+import inventoryRoutes from './routes/inventory.routes.js';
 import userRoutes from './routes/user.routes.js';
 import doctorRoutes from './routes/doctor.routes.js';
 import clinicalFindingRoutes from './routes/clinicalFinding.routes.js';
 import diagnosisRoutes from './routes/diagnosis.routes.js';
 import suggestedTreatmentRoutes from './routes/suggestedTreatment.routes.js';
+import medicineRoutes from './routes/medicine.routes.js';
 import fileRoutes from './routes/files.js';
 import reportRoutes from './routes/report.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
@@ -31,6 +34,7 @@ import settingsRoutes from './routes/settings.routes.js';
 import documentRoutes from './routes/documents.routes.js';
 import bookingRoutes from './routes/booking.routes.js';
 import integrationRoutes from './routes/integration.routes.js';
+import creditsRoutes from './routes/credits.routes.js';
 import superAdminRoutes from './routes/superAdmin.routes.js';
 import { startAppointmentStatusJob } from './services/appointmentStatusJob.js';
 import { handlePollResponse } from './controllers/whatsapp.controller.js';
@@ -76,10 +80,13 @@ app.use("/api/visits",       tenantStack, visitRoutes);
 app.use("/api/appointments", tenantStack, appointmentRoutes);
 app.use("/api",              tenantStack, invoiceRoutes);
 app.use('/api/labs',         tenantStack, labRoutes);
+app.use('/api/vendors',      tenantStack, vendorRoutes);
+app.use('/api/inventory',    tenantStack, inventoryRoutes);
 app.use('/api/doctors',              tenantStack, doctorRoutes);
 app.use('/api/clinical-findings',    tenantStack, clinicalFindingRoutes);
 app.use('/api/diagnoses',            tenantStack, diagnosisRoutes);
 app.use('/api/suggested-treatments', tenantStack, suggestedTreatmentRoutes);
+app.use('/api/medicines',            tenantStack, medicineRoutes);
 app.use('/api/files',                tenantStack, fileRoutes);
 app.use('/api/report',               tenantStack, reportRoutes);
 app.use('/api/analytics',            tenantStack, analyticsRoutes);
@@ -89,6 +96,8 @@ app.use('/api/email',                tenantStack, emailRoutes);
 app.use('/api/settings',             tenantStack, settingsRoutes);
 app.use('/api/documents',            tenantStack, documentRoutes);
 app.use('/api/integrations',         tenantStack, integrationRoutes);
+// Credits live in the analytics DB, keyed by tenantId — only needs authenticate.
+app.use('/api/credits',              authenticate, creditsRoutes);
 
 
 // Global error handler

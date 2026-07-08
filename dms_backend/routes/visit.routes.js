@@ -18,6 +18,7 @@ import {
   deleteAdvice,
   deleteTreatment,
   addPrescription,
+  updatePrescription,
   deletePrescription,
   addTreatments,
 } from '../controllers/visit.controller.js';
@@ -49,6 +50,7 @@ router.post('/patient/:patientId/prescription', addPrescription);
 
 // AI autofill — bulk add treatments to today's visit
 router.post('/patient/:patientId/treatments', addTreatments);
+router.patch('/:visitId/prescriptions/:prescriptionId', updatePrescription);
 router.delete('/:visitId/prescriptions/:prescriptionId', deletePrescription);
 
 export default router;

@@ -43,8 +43,9 @@ export async function getAllFiles(req, res) {
 // POST /api/files/upload
 export async function uploadFile(req, res) {
   try {
-    const { patient_id, category, visit_id } = req.body;
-    const { Patient } = req.tenantModels;
+    const { patient_id, category, appointment_id } = req.body;
+    let { visit_id } = req.body;
+    const { Patient, Visit } = req.tenantModels;
     const credentials = req.tenantConfig;
 
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
@@ -55,6 +56,18 @@ export async function uploadFile(req, res) {
 
     const patient = await Patient.findById(patient_id);
     if (!patient) return res.status(404).json({ error: 'Patient not found' });
+
+    // Appointment is the source of truth for linking documents. When an
+    // appointment_id is supplied, resolve (or create) its visit so the file
+    // carries a consistent visit_id too — the file stays findable by appointment
+    // even if it was uploaded before any clinical data created a visit.
+    if (appointment_id && !visit_id) {
+      let linkedVisit = await Visit.findOne({ patient_id, appointment_id });
+      if (!linkedVisit) {
+        linkedVisit = await Visit.create({ patient_id, appointment_id, date: new Date() });
+      }
+      visit_id = linkedVisit._id;
+    }
 
     if (!patient.drive_folders?.root) {
       const fullName = `${patient.first_name} ${patient.last_name || ''}`.trim();
@@ -84,6 +97,7 @@ export async function uploadFile(req, res) {
       web_view_link: driveFile.webViewLink,
       mime_type:     driveFile.mimeType,
       ...(visit_id ? { visit_id } : {}),
+      ...(appointment_id ? { appointment_id } : {}),
     };
 
     patient.files.push(fileRecord);

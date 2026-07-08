@@ -5,6 +5,7 @@ import {
   listTenants, getTenant, createTenant, updateTenant, deleteTenant,
   listTenantDoctors,
   listUsers, getUser, updateUser, deleteUser,
+  getTenantCredits, topUpTenantCredits, adjustTenantCredits, setTenantCredits, getTenantLedger,
 } from '../controllers/superAdmin.controller.js';
 
 const router = express.Router();
@@ -23,6 +24,13 @@ router.get   ('/tenants/:id/doctors', guard, listTenantDoctors);
 router.post  ('/tenants',             guard, createTenant);
 router.put   ('/tenants/:id',         guard, updateTenant);
 router.delete('/tenants/:id',         guard, deleteTenant);
+
+// Tenant credits
+router.get ('/tenants/:id/credits',        guard, getTenantCredits);
+router.get ('/tenants/:id/credits/ledger', guard, getTenantLedger);
+router.post('/tenants/:id/credits/topup',  guard, topUpTenantCredits);
+router.post('/tenants/:id/credits/adjust', guard, adjustTenantCredits);
+router.post('/tenants/:id/credits/set',    guard, setTenantCredits);
 
 // Users
 router.get   ('/users',     guard, listUsers);

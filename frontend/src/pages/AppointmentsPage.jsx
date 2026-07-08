@@ -346,20 +346,19 @@ const AppointmentsPage = () => {
       const invoices = invoicesRes.data || [];
       const reportJob = reportRes.data?.report || null;
 
-      // Resolve THIS appointment's visit. Prefer an explicit appointment_id link
-      // (populated to an object by the visits API, so read its _id). Many visits
-      // are auto-created for notes/prescriptions WITHOUT an appointment_id, so
-      // fall back to a visit dated the same day as the appointment.
+      // Resolve THIS appointment's documents STRICTLY by appointment_id — the
+      // single source of truth. No same-day / latest guessing: only documents
+      // generated for this exact appointment appear. Anything not linked to this
+      // appointment is another appointment's data and must not show here.
       const apptKey = String(apt.id);
-      const apptDay = (apt.utcStartIso || apt.rawTime) ? new Date(apt.utcStartIso || apt.rawTime).toDateString() : null;
-      const matchingVisit =
-        visits.find(v => {
-          const vApptId = typeof v.appointment_id === 'object' ? v.appointment_id?._id : v.appointment_id;
-          return String(vApptId) === apptKey;
-        })
-        || (apptDay ? visits.find(v => v.date && new Date(v.date).toDateString() === apptDay) : null)
-        || null;
-      const matchingInvoice = resolveVisitInvoice(matchingVisit, invoices);
+      const matchingVisit = visits.find(v => {
+        const vApptId = typeof v.appointment_id === 'object' ? v.appointment_id?._id : v.appointment_id;
+        return String(vApptId) === apptKey;
+      }) || null;
+      // Invoice keyed on appointment_id first; fall back to the visit link.
+      const invoiceByAppt = invoices.find(inv =>
+        String(inv.appointment_id?._id || inv.appointment_id) === apptKey);
+      const matchingInvoice = invoiceByAppt || resolveVisitInvoice(matchingVisit, invoices);
 
       setCompletedDocsState({ visit: matchingVisit, patient, invoice: matchingInvoice, reportJob, loading: false });
     } catch (err) {
@@ -382,10 +381,15 @@ const AppointmentsPage = () => {
       const patient  = patientRes.data;
       const visits   = visitsRes.data || [];
       const invoices = invoicesRes.data || [];
-      const visit    = visits.find(v => String(v.appointment_id) === String(apt.id)) || visits[0];
+      // Strictly this appointment's visit — no fallback to another visit.
+      const apptKey  = String(apt.id);
+      const visit    = visits.find(v =>
+        String(v.appointment_id?._id || v.appointment_id) === apptKey) || null;
 
-      // Existing invoice for this visit — same resolution the docs preview uses
-      const editInvoice = resolveVisitInvoice(visit, invoices, apt);
+      // Existing invoice for THIS appointment (appointment_id first, then visit link).
+      const editInvoice = invoices.find(inv =>
+        String(inv.appointment_id?._id || inv.appointment_id) === apptKey)
+        || resolveVisitInvoice(visit, invoices);
 
       // Suggested = this visit's not-yet-billed treatments (no invoice link, not cancelled/missing)
       const suggested = (visit?.treatments || []).filter(t =>
@@ -397,6 +401,7 @@ const AppointmentsPage = () => {
       setCompletedInvoiceState({
         apt, patient, suggestedTreatments: suggested,
         visitId: visit?._id || null,
+        appointmentId: apt.id,
         editInvoice,
       });
     } catch (err) {
@@ -494,6 +499,9 @@ const AppointmentsPage = () => {
   };
 
   const now = new Date();
+  // List views show latest appointment first; the source `appointments` array
+  // stays ascending so nextAppointment/day logic below keep working.
+  const appointmentsDesc = [...appointments].sort((a, b) => b.rawTime - a.rawTime);
   const nextAppointment = appointments.find(apt => {
     const isFuture = new Date(apt.rawTime) >= now;
     const isToday = new Date(apt.rawTime).toDateString() === now.toDateString();
@@ -579,7 +587,7 @@ const AppointmentsPage = () => {
             ) : (
               <>
                 <div className="md:hidden bg-white border border-slate-200 rounded-xl shadow-sm overflow-visible">
-                  {appointments.length > 0 ? appointments.map((apt) => (
+                  {appointmentsDesc.length > 0 ? appointmentsDesc.map((apt) => (
                     <div key={apt.id} className="relative border-b border-slate-100 last:border-b-0">
                       <div className="flex items-center gap-3 px-4 py-3.5">
                         <div className="text-xs font-bold text-slate-400 w-11 shrink-0 text-center leading-tight">{apt.time}</div>
@@ -678,8 +686,8 @@ const AppointmentsPage = () => {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {appointments.length > 0 ? (
-                            appointments.map((apt, index) => (
+                          {appointmentsDesc.length > 0 ? (
+                            appointmentsDesc.map((apt, index) => (
                               <tr key={index} className="hover:bg-slate-50 transition-colors group">
                                 <td className="px-6 py-4 font-medium text-slate-900 whitespace-nowrap">{apt.time}</td>
                                 <td className="px-6 py-4">
@@ -843,24 +851,28 @@ const AppointmentsPage = () => {
                         </select>
                       </div>
 
-                      {/* Sticky header row: time gutter + one cell per doctor */}
-                      <div className="flex border-b border-slate-200 bg-slate-50 sticky top-0 z-30">
-                        <div className="w-14 md:w-14 shrink-0 border-r border-slate-200" />
-                        {doctors.map((doc, i) => {
-                          const isVisible = !selectedDoctorId || selectedDoctorId === doc._id;
-                          const isHiddenOnMobile = selectedDoctorId && selectedDoctorId !== doc._id;
-                          return (
-                            <div key={doc._id} className={`${isHiddenOnMobile ? 'hidden' : ''} flex-1 min-w-[100px] md:min-w-[140px] px-3 py-2.5 text-center ${i > 0 ? 'border-l border-slate-200' : ''}`}>
-                              <p className="text-xs font-bold text-slate-800 truncate">{doc.name}</p>
-                              <p className="text-[10px] text-slate-400 truncate">{doc.specialization || 'Dentist'}</p>
-                            </div>
-                          );
-                        })}
-                      </div>
+                      {/* Single horizontal-scroll wrapper keeps the doctor header aligned with the columns below */}
+                      <div className="overflow-x-auto" ref={calendarRef}>
+                        <div style={{ minWidth: selectedDoctorId ? `${56 + 100}px` : `${56 + doctors.length * 140}px` }}>
 
-                      {/* Scrollable body */}
-                      <div className="overflow-x-auto overflow-y-auto max-h-[400px] md:max-h-[640px]" ref={calendarRef}>
-                        <div style={{ minWidth: selectedDoctorId ? `${56 + 100}px` : `${56 + doctors.length * 140}px` }} className="flex">
+                          {/* Sticky header row: time gutter + one cell per doctor */}
+                          <div className="flex border-b border-slate-200 bg-slate-50 sticky top-0 z-30">
+                            <div className="w-14 md:w-14 shrink-0 border-r border-slate-200" />
+                            {doctors.map((doc, i) => {
+                              const isVisible = !selectedDoctorId || selectedDoctorId === doc._id;
+                              const isHiddenOnMobile = selectedDoctorId && selectedDoctorId !== doc._id;
+                              return (
+                                <div key={doc._id} className={`${isHiddenOnMobile ? 'hidden' : ''} flex-1 min-w-[100px] md:min-w-[140px] px-3 py-2.5 text-center ${i > 0 ? 'border-l border-slate-200' : ''}`}>
+                                  <p className="text-xs font-bold text-slate-800 truncate">{doc.name}</p>
+                                  <p className="text-[10px] text-slate-400 truncate">{doc.specialization || 'Dentist'}</p>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Vertically scrollable body */}
+                          <div className="overflow-y-auto max-h-[400px] md:max-h-[640px]">
+                            <div className="flex">
 
                           {/* Hour gutter */}
                           <div className="w-14 shrink-0 border-r border-slate-100 bg-slate-50/70 select-none relative" style={{ height: `${TOTAL_HEIGHT}px` }}>
@@ -943,6 +955,8 @@ const AppointmentsPage = () => {
                               </div>
                             );
                           })}
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1009,8 +1023,8 @@ const AppointmentsPage = () => {
                           <p className="text-sm font-semibold text-slate-800 truncate">{apt.patient}</p>
                           <p className="text-xs text-slate-400">{apt.time} · {apt.treatment}</p>
                         </div>
-                        {/* Actions */}
-                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {/* Actions — always visible on mobile (no hover), reveal on hover on desktop */}
+                        <div className="flex items-center gap-0.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                           {/* All docs — print / share / save / email */}
                           <button
                             title="Documents (print, share, save)"
@@ -1045,7 +1059,7 @@ const AppointmentsPage = () => {
 
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
               <div className="flex items-center justify-between mb-4"><h3 className="text-base font-bold text-slate-900">Dentists</h3><button className="text-xs font-semibold text-[#137fec]">See All</button></div>
-              <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-4 overflow-y-auto max-h-[320px] pr-1 -mr-1">
                 {doctors.length > 0 ? doctors.map((doc) => {
                   const statusObj = getDoctorStatus(doc._id);
                   const fullName = doc.name || 'Unknown';
@@ -1117,6 +1131,8 @@ const AppointmentsPage = () => {
           initialPatient={completedInvoiceState?.patient}
           suggestedTreatments={completedInvoiceState?.suggestedTreatments}
           suggestedVisitId={completedInvoiceState?.visitId}
+          visitId={completedInvoiceState?.visitId}
+          appointmentId={completedInvoiceState?.appointmentId}
           editInvoice={completedInvoiceState?.editInvoice}
         />
 

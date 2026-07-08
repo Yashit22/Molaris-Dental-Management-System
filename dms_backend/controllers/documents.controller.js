@@ -1,5 +1,6 @@
 import { buildVisitDocumentPdfFromIds } from '../services/documentPdf.service.js';
 import { htmlToPdfBuffer } from '../services/htmlPdf.service.js';
+import { appendDriveFilesToPdf, emptyPdfBuffer } from '../services/pdfMerge.service.js';
 import { uploadFile } from '../services/cloudinary.service.js';
 import { sendEmail } from '../services/email.service.js';
 
@@ -7,13 +8,32 @@ import { sendEmail } from '../services/email.service.js';
 // Preferred path: the client sends the exact rich HTML it renders for Print, and
 // we render it with headless Chromium → pixel-identical PDF. Fallback (no html,
 // e.g. AI-report / WhatsApp callers): rebuild from DB ids with PDFKit.
-async function resolveDocumentPdf(req, { visitId, patientId, invoiceId, reportJobId, include, html }) {
+// Any selected uploaded visit files (attachFileIds — X-rays, lab-report PDFs,
+// images) are then appended so everything compiles into ONE PDF.
+async function resolveDocumentPdf(req, { visitId, patientId, invoiceId, reportJobId, include, html, attachFileIds }) {
+  const hasAttachments = Array.isArray(attachFileIds) && attachFileIds.length;
+  const hasCoreDocs = (html && String(html).trim()) || (Array.isArray(include) && include.length);
+
+  let buffer;
+  let baseIsPlaceholder = false;
   if (html && String(html).trim()) {
-    return htmlToPdfBuffer(html);
+    buffer = await htmlToPdfBuffer(html);
+  } else if (hasCoreDocs || !hasAttachments) {
+    // Core docs requested (or nothing at all) → build the normal document PDF.
+    buffer = await buildVisitDocumentPdfFromIds(req.tenantModels, {
+      visitId, patientId, invoiceId, reportJobId, include,
+    }, req.tenantConfig);
+  } else {
+    // Only uploaded files selected → start from an empty placeholder PDF whose
+    // page is dropped after the files are appended (no blank leading page).
+    buffer = await emptyPdfBuffer();
+    baseIsPlaceholder = true;
   }
-  return buildVisitDocumentPdfFromIds(req.tenantModels, {
-    visitId, patientId, invoiceId, reportJobId, include,
-  }, req.tenantConfig);
+
+  if (hasAttachments) {
+    buffer = await appendDriveFilesToPdf(buffer, attachFileIds, req.tenantConfig, { replaceBase: baseIsPlaceholder });
+  }
+  return buffer;
 }
 
 // Seed document branding from existing settings/tenant the first time it's read.
@@ -93,8 +113,8 @@ export async function uploadDocumentImage(req, res) {
 // POST /api/documents/pdf  → streams a combined PDF (inline) for Save/Share
 export async function generateDocumentPdf(req, res) {
   try {
-    const { visitId, patientId, invoiceId, reportJobId, include, html } = req.body;
-    const buffer = await resolveDocumentPdf(req, { visitId, patientId, invoiceId, reportJobId, include, html });
+    const { visitId, patientId, invoiceId, reportJobId, include, html, attachFileIds } = req.body;
+    const buffer = await resolveDocumentPdf(req, { visitId, patientId, invoiceId, reportJobId, include, html, attachFileIds });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="documents.pdf"`);
     res.send(buffer);
@@ -107,7 +127,7 @@ export async function generateDocumentPdf(req, res) {
 export async function emailDocumentPdf(req, res) {
   try {
     const { EmailSettings } = req.tenantModels;
-    const { visitId, patientId, invoiceId, reportJobId, include, to, subject, body, patientName, html } = req.body;
+    const { visitId, patientId, invoiceId, reportJobId, include, to, subject, body, patientName, html, attachFileIds } = req.body;
 
     if (!to) return res.status(400).json({ error: 'Recipient email (to) is required' });
 
@@ -116,7 +136,7 @@ export async function emailDocumentPdf(req, res) {
       return res.status(400).json({ error: 'Email delivery is not enabled. Configure SMTP in Settings → Email.' });
     }
 
-    const buffer = await resolveDocumentPdf(req, { visitId, patientId, invoiceId, reportJobId, include, html });
+    const buffer = await resolveDocumentPdf(req, { visitId, patientId, invoiceId, reportJobId, include, html, attachFileIds });
 
     await sendEmail({
       tenantModels: req.tenantModels,

@@ -79,6 +79,7 @@ export default function EditPrescriptionsModal({ isOpen, onClose, patient, appoi
               patientId={patient?._id}
               onRefresh={fetchVisits}
               targetVisitId={targetVisitId}
+              appointmentId={appointmentId}
             />
           )}
         </div>

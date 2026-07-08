@@ -116,6 +116,15 @@ export default function CatalogImporter({ type, sourceData, endpoint, onImportDo
         is_active: true,
         ...(type === 'treatments' && { cost: override.cost ?? entry.default_cost }),
         ...(type === 'diagnoses' && { code: override.code ?? entry.code ?? '' }),
+        ...(type === 'medicines' && {
+          composition:          override.composition ?? entry.composition ?? '',
+          strength:             override.strength ?? entry.strength ?? '',
+          form:                 override.form ?? entry.form ?? '',
+          default_dosage:       override.default_dosage ?? entry.default_dosage ?? '',
+          default_duration:     override.default_duration ?? entry.default_duration ?? '',
+          default_instructions: override.default_instructions ?? entry.default_instructions ?? '',
+          cost:                 override.cost ?? entry.cost ?? 0,
+        }),
       };
       try {
         await API.post(endpoint, payload);
