@@ -7,6 +7,7 @@ import {
 import { TEMPLATES, getTemplateById } from '../config/templates.config.js';
 import { buildSingleDocPdf } from '../services/documentPdf.service.js';
 import { debit as debitCredits } from '../services/credits.service.js';
+import { getBeautifyPrompt } from '../config/notesBeautify.config.js';
 
 // ─── Emoji stripping ───────────────────────────────────────────────────────────
 // PDFKit's standard fonts can't render emoji/pictographs, so they corrupt the
@@ -188,52 +189,6 @@ Generate the document now following the structure and detail level above. Return
   return stripEmojis(fullText);
 }
 
-// ─── LLM: Structured autofill extraction ──────────────────────────────────────
-async function parseAutofillWithLLM(apiKey, transcript) {
-  if (!apiKey) return null;
-
-  const systemPrompt = `Extract structured clinical data from a dental consultation transcript. Return ONLY valid JSON. Write all text in English only.`;
-
-  const userPrompt = `Extract from this transcript:
-"""
-${transcript}
-"""
-
-Return JSON:
-{
-  "chief_complaint": "string",
-  "medical_history": ["string"],
-  "dental_history": "string",
-  "treatment_plan": [ { "tooth_numbers": [], "clinical_findings": "", "diagnosis": "", "suggested_treatment": "", "estimated_price": 0 } ],
-  "consultation_note": "HTML summarizing visit",
-  "advice": "HTML combined advice",
-  "medications": [ { "drug_name": "", "dosage": "", "duration": "", "instructions": "" } ],
-  "recall": { "days_later": 0, "notes": "" }
-}`;
-
-  const res = await fetch('https://api.sarvam.ai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'sarvam-105b',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user',   content: userPrompt   },
-      ],
-      max_tokens:  4096,
-      temperature: 0.1,
-      top_p:       1.0,
-    }),
-  });
-
-  if (!res.ok) return null;
-  const data = await res.json();
-  return JSON.parse(data.choices?.[0]?.message?.content || '{}');
-}
-
 // ─── Resolve the visit to pair the report file with ────────────────────────────
 // Prefer the visit linked to the job's appointment; otherwise fall back to the
 // patient's visit dated today (creating one if none exists), matching how
@@ -335,7 +290,7 @@ export async function transcribeAudio(req, res) {
   const { Patient, ReportJob, Visit } = req.tenantModels;
 
   try {
-    const { patient_id, template_id, detail_level, save_report, autofill, appointment_id, audio_duration_seconds } = req.body;
+    const { patient_id, template_id, detail_level, save_report, appointment_id, audio_duration_seconds } = req.body;
     if (!patient_id)  return res.status(400).json({ error: 'patient_id is required' });
     if (!template_id) return res.status(400).json({ error: 'template_id is required' });
 
@@ -390,7 +345,6 @@ export async function transcribeAudio(req, res) {
       templateId:    template_id,
       detailLevel:   detail_level || 'standard',
       saveReport:    save_report !== 'false',
-      runAutofill:   autofill === 'true',
       audioDurationSeconds: durationSeconds,
       creditDebited, // already charged at transcription → generate is free
       createdBy:     req.user?.name || 'unknown',
@@ -399,6 +353,72 @@ export async function transcribeAudio(req, res) {
     return res.json({ jobId: job._id, status: 'transcribed', transcript });
   } catch (err) {
     console.error('[Report] transcribeAudio error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ─── POST /api/report/beautify ─────────────────────────────────────────────────
+// Rewrites a raw dictation transcript into clean clinical HTML for the Treatment
+// page's consultation-note / advice editors. NOT a styling pass — a language
+// rewrite. Two prompts (note = clinician-facing, advice = patient-facing).
+//
+// Credits: charged here per second of dictation (1 credit = 60s), the SAME way
+// AI reports charge at transcription. The WS relay only GATES on credits (never
+// debits), so this is the only debit for a notes/advice dictation — no double
+// charge. Typed text with no audio_duration_seconds is free.
+//
+// Body: { type:'note'|'advice', transcript_text, audio_duration_seconds? }
+// Returns { html }.
+export async function beautifyNote(req, res) {
+  try {
+    const { type, transcript_text, audio_duration_seconds } = req.body;
+    const transcript = (transcript_text || '').trim();
+    if (!transcript) return res.status(400).json({ error: 'transcript_text is required' });
+
+    const apiKey = req.tenantConfig?.sarvamApiKey;
+    if (!apiKey) return res.status(400).json({ error: 'Sarvam API Key not configured for this tenant.' });
+
+    const durationSeconds = Math.max(0, Math.round(Number(audio_duration_seconds) || 0));
+    if (durationSeconds > 0) {
+      const ok = await debitCredits(req.user.tenantId, durationSeconds, {
+        durationSeconds, stage: 'beautify', noteType: type === 'advice' ? 'advice' : 'note',
+        createdBy: req.user?.name,
+      });
+      if (!ok) {
+        return res.status(402).json({
+          error: 'insufficient_credits',
+          message: 'Your clinic has run out of AI report credits. Please contact your administrator.',
+        });
+      }
+    }
+
+    const systemPrompt = getBeautifyPrompt(type);
+    const userPrompt = `Raw dictation:\n"""\n${transcript}\n"""\n\nRewrite it now following the rules above. Return the HTML fragment only.`;
+
+    const upstream = await fetch('https://api.sarvam.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'sarvam-105b',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user',   content: userPrompt   },
+        ],
+        max_tokens:  2048,
+        temperature: 0.3,
+        top_p:       1.0,
+      }),
+    });
+
+    if (!upstream.ok) throw new Error(`LLM API error ${upstream.status}: ${await upstream.text()}`);
+    const data = await upstream.json();
+    let html = stripEmojis(data.choices?.[0]?.message?.content?.trim() || '');
+    // Strip any markdown code fences the model may wrap the fragment in.
+    html = html.replace(/^```(?:html)?\s*/i, '').replace(/\s*```$/i, '').trim();
+
+    return res.json({ html });
+  } catch (err) {
+    console.error('[Report] beautifyNote error:', err.message);
     res.status(500).json({ error: err.message });
   }
 }
@@ -497,7 +517,7 @@ export async function editTranscript(req, res) {
 }
 
 // ─── POST /api/report/generate ─────────────────────────────────────────────────
-// Accepts { jobId, template_id OR template_ids, detail_level, save_report, autofill }
+// Accepts { jobId, template_id OR template_ids, detail_level, save_report }
 // OR legacy { patient_id, template_id, transcript_text, ... } for backwards compat.
 // Streams the LLM response via SSE.
 // Supports single template (backward compat) or multiple templates (sequential generation)
@@ -526,7 +546,6 @@ export async function generateReport(req, res) {
       // Support both single template_id and multiple template_ids
       const detailLevel = req.body.detail_level  || job.detailLevel;
       const saveReport  = req.body.save_report !== undefined ? req.body.save_report !== 'false' : job.saveReport;
-      const runAutofill = req.body.autofill !== undefined ? req.body.autofill === 'true' : job.runAutofill;
 
       const templateIds = req.body.template_ids || (req.body.template_id ? [req.body.template_id] : [job.templateId]);
       if (!Array.isArray(templateIds) || templateIds.length === 0) {
@@ -591,15 +610,11 @@ export async function generateReport(req, res) {
         patientId: job.patientId, appointmentId: job.appointmentId,
       });
 
-      // Autofill (once, parallel with Drive save)
-      let autofill_v2 = null;
       const drive_links = {};
       const fileRecords = [];                            // NEW files to add to patient.files[]
       const drive_file_ids = { ...(job.driveFileIds || {}) }; // template.id -> drive_file_id (carried across regenerations)
 
-      const [autofillResult, driveResult] = await Promise.allSettled([
-        runAutofill ? parseAutofillWithLLM(credentials.sarvamApiKey, transcript) : Promise.resolve(null),
-        (async () => {
+      await (async () => {
           if (!saveReport) return;
           if (!patient.drive_folders?.root) {
             patient.drive_folders = await createPatientDriveFolders(credentials, patient.patientId, patientName);
@@ -666,10 +681,11 @@ export async function generateReport(req, res) {
               }
             }
           }
-        })(),
-      ]);
+      })().catch(err => {
+        // Drive save is best-effort — never fail the generated report over it.
+        console.warn('[Report] Drive save failed:', err.message);
+      });
 
-      if (autofillResult.status === 'fulfilled') autofill_v2 = autofillResult.value;
       if (fileRecords.length > 0) {
         patient.files.push(...fileRecords);
         await patient.save();
@@ -678,7 +694,7 @@ export async function generateReport(req, res) {
       await ReportJob.findByIdAndUpdate(jobId, {
         status: 'done', reportText: reports[templateIds[0]], driveLinks: drive_links,
         driveFileIds: drive_file_ids,
-        autofillData: autofill_v2, transcript,
+        transcript,
       });
 
       // Send final metadata event
@@ -687,14 +703,13 @@ export async function generateReport(req, res) {
         jobId, transcript,
         reports,
         drive_links,
-        autofill_v2,
       })}\n\n`);
       res.end();
       return;
     }
 
     // ── Legacy path: direct transcript_text (no jobId) ──
-    const { patient_id, template_id, template_ids, detail_level, save_report, autofill, transcript_text, appointment_id, audio_duration_seconds } = req.body;
+    const { patient_id, template_id, template_ids, detail_level, save_report, transcript_text, appointment_id, audio_duration_seconds } = req.body;
     if (!patient_id)  return res.status(400).json({ error: 'patient_id required' });
 
     const templateIds = template_ids || (template_id ? [template_id] : []);
@@ -725,7 +740,6 @@ export async function generateReport(req, res) {
     const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
     const detailLevel = detail_level || 'standard';
     const saveRep     = save_report !== 'false';
-    const runAuto     = autofill === 'true';
 
     // Credits are debited at transcription (see transcribeAudio). This legacy
     // direct-transcript path (typed Quick Notes) carries no audio duration and is
@@ -753,13 +767,10 @@ export async function generateReport(req, res) {
       }
     }
 
-    let autofill_v2 = null;
     const drive_links = {};
     const fileRecords = [];
 
-    const [afResult, drResult] = await Promise.allSettled([
-      runAuto ? parseAutofillWithLLM(credentials.sarvamApiKey, transcript) : Promise.resolve(null),
-      (async () => {
+    await (async () => {
         if (!saveRep) return;
         if (!patient.drive_folders?.root) {
           patient.drive_folders = await createPatientDriveFolders(credentials, patient.patientId, patientName);
@@ -785,15 +796,16 @@ export async function generateReport(req, res) {
             });
           }
         }
-      })(),
-    ]);
+    })().catch(err => {
+      // Drive save is best-effort — never fail the generated report over it.
+      console.warn('[Report] Drive save failed:', err.message);
+    });
 
-    if (afResult.status === 'fulfilled') autofill_v2 = afResult.value;
     if (fileRecords.length > 0) { patient.files.push(...fileRecords); await patient.save(); }
 
     res.write(`data: ${JSON.stringify({
       done: true, transcript,
-      reports, drive_links, autofill_v2,
+      reports, drive_links,
     })}\n\n`);
     res.end();
 

@@ -1,5 +1,5 @@
 import { logEvent } from '../services/analyticsLogger.js';
-import { triggerWhatsApp } from '../services/whatsapp.service.js';
+import { triggerWhatsApp, normalizePhone } from '../services/whatsapp.service.js';
 
 // Helper: Generate ID
 const generateInvoiceId = async (Invoice) => {
@@ -41,7 +41,7 @@ export async function createInvoice(req, res) {
   try {
     const {
         patient_id, patient_name, patient_phone, date, items,
-        subtotal, total_amount, visit_id, appointment_id,
+        subtotal, discount, taxRatePct, tax, total_amount, visit_id, appointment_id,
     } = req.body;
 
     // One-and-only-one invoice per appointment. If one already exists for this
@@ -70,6 +70,9 @@ export async function createInvoice(req, res) {
         date,
         items,
         subtotal,
+        discount: discount || undefined,
+        taxRatePct: taxRatePct || 0,
+        tax: tax || 0,
         total_amount,
     });
 
@@ -121,7 +124,8 @@ export async function createInvoice(req, res) {
               name: fullName,
               firstName,
               patientId: patient.patientId,
-              mobile: patient.contact?.mobile || '',
+              // normalize so {{mobile}} renders identically across every event
+              mobile: normalizePhone(patient.contact?.mobile) || '',
               amount: formatted,
               invoiceId: newInvoice.invoice_id,
               drug: rx?.drug_name || '',
@@ -160,8 +164,11 @@ export async function updateInvoice(req, res) {
   try {
       const invoice = await Invoice.findById(req.params.id);
       if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
-      const { subtotal, total_amount, items, notes, date, appointment_id, visit_id } = req.body;
+      const { subtotal, discount, taxRatePct, tax, total_amount, items, notes, date, appointment_id, visit_id } = req.body;
       if (subtotal !== undefined)     invoice.subtotal     = subtotal;
+      if (discount !== undefined)     invoice.discount     = discount;
+      if (taxRatePct !== undefined)   invoice.taxRatePct   = taxRatePct;
+      if (tax !== undefined)          invoice.tax          = tax;
       if (total_amount !== undefined) invoice.total_amount = total_amount;
       if (items !== undefined)        invoice.items        = items;
       if (notes !== undefined)        invoice.notes        = notes;

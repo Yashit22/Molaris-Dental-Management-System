@@ -1,9 +1,18 @@
-import mongoose from 'mongoose';
-import { getAnalyticsDb } from '../config/analyticsDb.js';
 
 function startOfCurrentMonth() {
   const d = new Date();
   return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+// Visit.doctor_id stores a Doctor _id, but the schema mislabels its ref as
+// 'User', so Mongoose populate() resolves nothing. Resolve names directly from
+// the Doctor collection instead. Returns a Map<doctorIdString, name>.
+async function buildDoctorNameMap(models) {
+  const map = new Map();
+  if (!models.Doctor) return map;
+  const doctors = await models.Doctor.find({}).select('name').lean();
+  doctors.forEach(d => map.set(d._id.toString(), d.name || 'Unknown Doctor'));
+  return map;
 }
 
 // Group array of {date, amount} by day label
@@ -52,8 +61,11 @@ async function getSummary(models, start, end) {
 // ── REVENUE ───────────────────────────────────────────────────────────────────
 async function getRevenue(models, start, end) {
   const { Invoice, Visit } = models;
-  const invoices = await Invoice.find({ createdAt: { $gte: start, $lte: end } }).lean();
-  const visits = await Visit.find({ date: { $gte: start, $lte: end } }).populate('doctor_id', 'name').lean();
+  const [invoices, visits, doctorNames] = await Promise.all([
+    Invoice.find({ createdAt: { $gte: start, $lte: end } }).lean(),
+    Visit.find({ date: { $gte: start, $lte: end } }).lean(),
+    buildDoctorNameMap(models),
+  ]);
 
   const total = invoices.reduce((s, i) => s + (i.total_amount || 0), 0);
   const collected = total;
@@ -74,33 +86,36 @@ async function getRevenue(models, start, end) {
     .sort((a, b) => b.total - a.total)
     .slice(0, 10);
 
-  // Revenue by doctors
+  // Revenue by doctors — attribute each invoice to its visit's treating doctor.
+  // Invoices link to a visit via `visit_id`; the visit carries `doctor_id`.
+  // (Invoice item_id refs the InventoryItem catalog, NOT a visit treatment, so
+  //  it can't be used to map revenue back to a doctor.)
+  const visitById = {};
+  visits.forEach(v => { visitById[v._id.toString()] = v; });
+
   const doctorMap = {};
-  visits.forEach(v => {
-    const doctorId = v.doctor_id?._id?.toString() || 'Unknown';
-    const doctorName = v.doctor_id?.name || 'Unknown Doctor';
+  const ensureDoctor = (v) => {
+    const doctorId = v?.doctor_id?.toString();
+    if (!doctorId) return null;
     if (!doctorMap[doctorId]) {
-      doctorMap[doctorId] = { name: doctorName, count: 0, total: 0 };
+      doctorMap[doctorId] = { name: doctorNames.get(doctorId) || 'Unknown Doctor', count: 0, total: 0 };
     }
-    doctorMap[doctorId].count += 1;
-  });
+    return doctorMap[doctorId];
+  };
 
+  // Count visits handled per doctor in the period.
+  visits.forEach(v => { const e = ensureDoctor(v); if (e) e.count += 1; });
+
+  // Sum invoice revenue against the treating doctor of the linked visit.
   invoices.forEach(inv => {
-    const treatments = inv.items || [];
-    treatments.forEach(item => {
-      if (item.item_id) {
-        const visit = visits.find(v => v.treatments?.some(t => t._id?.toString() === item.item_id?.toString()));
-        if (visit && visit.doctor_id) {
-          const doctorId = visit.doctor_id._id?.toString();
-          if (doctorMap[doctorId]) {
-            doctorMap[doctorId].total += item.total || 0;
-          }
-        }
-      }
-    });
+    const v = inv.visit_id ? visitById[inv.visit_id.toString()] : null;
+    const e = v ? ensureDoctor(v) : null;
+    if (e) e.total += inv.total_amount || 0;
   });
 
-  const by_doctors = Object.values(doctorMap).sort((a, b) => b.total - a.total);
+  const by_doctors = Object.values(doctorMap)
+    .filter(d => d.total > 0 || d.count > 0)
+    .sort((a, b) => b.total - a.total);
 
   return { total, collected, pending, trend, by_payment_method, top_patients, by_doctors };
 }
@@ -108,32 +123,27 @@ async function getRevenue(models, start, end) {
 // ── DOCTORS ───────────────────────────────────────────────────────────────────
 async function getDoctors(models, tenantId, start, end) {
   const { Visit } = models;
-  const analyticsDb = getAnalyticsDb();
 
-  const [visits, doctors] = await Promise.all([
+  // Visits reference the Doctor collection via doctor_id. The schema mislabels
+  // its ref as 'User' so populate() fails — resolve names via buildDoctorNameMap.
+  const [visits, doctorNames] = await Promise.all([
     Visit.find({ date: { $gte: start, $lte: end } }).lean(),
-    analyticsDb.collection('dms_users').find({
-      product: 'dms',
-      tenantId: new mongoose.Types.ObjectId(tenantId),
-      role: 'Doctor',
-      status: 'active'
-    }).toArray()
+    buildDoctorNameMap(models),
   ]);
 
   const doctorMap = {};
-  doctors.forEach(d => {
-    doctorMap[d._id.toString()] = { name: `${d.firstName} ${d.lastName}`.trim(), patient_count: 0, treatment_count: 0 };
-  });
-
   visits.forEach(v => {
     const key = v.doctor_id?.toString();
-    if (!key || !doctorMap[key]) return;
+    if (!key) return;
+    if (!doctorMap[key]) {
+      doctorMap[key] = { name: doctorNames.get(key) || 'Unknown Doctor', patient_count: 0, treatment_count: 0 };
+    }
     doctorMap[key].patient_count += 1;
     doctorMap[key].treatment_count += (v.treatments?.length || 0);
   });
 
-  const chart = Object.values(doctorMap).filter(d => d.patient_count > 0 || d.treatment_count > 0);
-  const rows = Object.values(doctorMap);
+  const rows = Object.values(doctorMap).sort((a, b) => b.patient_count - a.patient_count);
+  const chart = rows.filter(d => d.patient_count > 0 || d.treatment_count > 0);
 
   return { chart, rows };
 }
@@ -210,8 +220,33 @@ async function getPatients(models, start, end) {
   ]);
 
   const newPatientIds = new Set(newPatients.map(p => p._id.toString()));
-  const visitPatientIds = new Set(allVisits.map(v => v.patient_id?.toString()));
-  const returning = [...visitPatientIds].filter(id => !newPatientIds.has(id)).length;
+  const visitPatientIds = new Set(allVisits.map(v => v.patient_id?.toString()).filter(Boolean));
+  const returningIds = [...visitPatientIds].filter(id => !newPatientIds.has(id));
+  const returning = returningIds.length;
+
+  // Build display rows for the drill-down lists (clickable New / Return boxes).
+  const fmtRow = (p) => ({
+    _id: p._id,
+    patientId: p.patientId,
+    name: `${p.first_name} ${p.last_name || ''}`.trim(),
+    mobile: p.contact?.mobile || '',
+    created_at: p.createdAt || null,
+    last_visit_date: p.last_visit_date || null,
+  });
+
+  const new_patient_rows = newPatients
+    .map(fmtRow)
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  // Returning = patients with a visit in the period who were NOT created in it.
+  const returnPatients = returningIds.length
+    ? await Patient.find({ _id: { $in: returningIds } })
+        .select('first_name last_name patientId contact last_visit_date createdAt')
+        .lean()
+    : [];
+  const return_patient_rows = returnPatients
+    .map(fmtRow)
+    .sort((a, b) => new Date(b.last_visit_date) - new Date(a.last_visit_date));
 
   const monthMap = {};
   newPatients.forEach(p => {
@@ -233,7 +268,14 @@ async function getPatients(models, start, end) {
     .sort((a, b) => b.count - a.count)
     .slice(0, 10);
 
-  return { new_patients: newPatients.length, return_patients: returning, trend, top_treatments };
+  return {
+    new_patients: newPatients.length,
+    return_patients: returning,
+    new_patient_rows,
+    return_patient_rows,
+    trend,
+    top_treatments,
+  };
 }
 
 // ── RECALL ────────────────────────────────────────────────────────────────────

@@ -60,6 +60,7 @@ export const DocumentSettingsSchema = new mongoose.Schema(
     prescription_show_qualification:{ type: Boolean, default: true },
     prescription_show_advice:       { type: Boolean, default: true },
     prescription_show_footer:       { type: Boolean, default: true },
+    prescription_show_signature:    { type: Boolean, default: true }, // embed doctor's digital signature/stamp image
     // ── Smart Report (visit summary) document ────────────────────────────────
     smart_show_logo:     { type: Boolean, default: true },
     smart_show_footer:   { type: Boolean, default: true },

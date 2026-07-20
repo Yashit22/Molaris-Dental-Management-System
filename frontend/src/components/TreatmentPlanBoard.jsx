@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Trash2, Check, ArrowRight, X, Clock, FileText, AlertCircle, DollarSign, Calendar } from 'lucide-react';
+import { Trash2, Check, ArrowRight, X, Clock, FileText, AlertCircle, IndianRupee, Calendar } from 'lucide-react';
 import API from '../services/api';
 
 // --- SUB-COMPONENT: DETAILED TREATMENT MODAL ---
@@ -12,7 +12,7 @@ const TreatmentStatusModal = ({ isOpen, onClose, treatment, onUpdate, onDelete }
       setEditData({
         treatment_name: treatment.treatmentName || '',
         cost: treatment.cost || 0,
-        teeth_numbers: treatment.teeth || [],
+        notes: treatment.notes || '',
       });
     }
   }, [treatment]);
@@ -27,8 +27,6 @@ const TreatmentStatusModal = ({ isOpen, onClose, treatment, onUpdate, onDelete }
       alert('Failed to update treatment');
     }
   };
-
-  const teethInput = editData.teeth_numbers?.join(', ') || '';
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
@@ -75,17 +73,15 @@ const TreatmentStatusModal = ({ isOpen, onClose, treatment, onUpdate, onDelete }
           <div className="grid grid-cols-2 gap-4 mb-6">
             <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
               <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Teeth Involved</span>
-              {isEditing ? (
-                <input
-                  type="text"
-                  value={teethInput}
-                  onChange={(e) => setEditData({ ...editData, teeth_numbers: e.target.value.split(',').map(t => t.trim()).filter(t => t) })}
-                  placeholder="e.g. 11, 12, 13"
-                  className="text-sm border border-blue-300 rounded px-2 py-1 w-full focus:outline-none focus:ring-2 focus:ring-blue-400"
-                />
-              ) : (
-                <span className="text-lg font-bold text-slate-800">
-                  {treatment.teeth && treatment.teeth.length > 0 ? treatment.teeth.join(', ') : 'General'}
+              {/* Teeth are NOT editable — the diagnosis/finding charted per tooth
+                  can't be safely re-mapped when teeth change. To fix a wrong tooth,
+                  delete this treatment and add it again on the correct tooth. */}
+              <span className="text-lg font-bold text-slate-800">
+                {treatment.teeth && treatment.teeth.length > 0 ? treatment.teeth.join(', ') : 'General'}
+              </span>
+              {isEditing && (
+                <span className="text-[11px] text-slate-400 mt-1 block">
+                  To change teeth, delete this treatment and re-add it.
                 </span>
               )}
             </div>
@@ -100,7 +96,7 @@ const TreatmentStatusModal = ({ isOpen, onClose, treatment, onUpdate, onDelete }
                 />
               ) : (
                 <span className="text-lg font-bold text-slate-800 flex items-center">
-                  <DollarSign size={16} className="text-slate-400 mr-1"/> {treatment.cost}
+                  <IndianRupee size={16} className="text-slate-400 mr-1"/> {treatment.cost}
                 </span>
               )}
             </div>
@@ -112,8 +108,10 @@ const TreatmentStatusModal = ({ isOpen, onClose, treatment, onUpdate, onDelete }
               <div className="mt-1 p-1.5 bg-blue-50 text-blue-600 rounded-lg">
                 <AlertCircle size={18} />
               </div>
-              <div>
+              <div className="flex-1">
                 <h5 className="text-sm font-bold text-slate-700">Diagnosis / Findings</h5>
+                {/* Read-only: per-tooth diagnosis/findings are charted on the
+                    dental chart, not edited here. */}
                 <p className="text-sm text-slate-600 mt-1">
                   {treatment.diagnosis || "No specific diagnosis recorded."}
                 </p>
@@ -124,11 +122,21 @@ const TreatmentStatusModal = ({ isOpen, onClose, treatment, onUpdate, onDelete }
               <div className="mt-1 p-1.5 bg-purple-50 text-purple-600 rounded-lg">
                 <FileText size={18} />
               </div>
-              <div>
+              <div className="flex-1">
                 <h5 className="text-sm font-bold text-slate-700">Clinical Notes</h5>
-                <p className="text-sm text-slate-600 mt-1">
-                  {treatment.notes || "No additional notes provided."}
-                </p>
+                {isEditing ? (
+                  <textarea
+                    value={editData.notes}
+                    onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
+                    rows={2}
+                    placeholder="Clinical notes for this visit"
+                    className="text-sm text-slate-700 mt-1 w-full border border-blue-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  />
+                ) : (
+                  <p className="text-sm text-slate-600 mt-1">
+                    {treatment.notes || "No additional notes provided."}
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -160,12 +168,20 @@ const TreatmentStatusModal = ({ isOpen, onClose, treatment, onUpdate, onDelete }
                 </button>
 
                 {treatment.status === 'Planned' && (
-                  <button
-                    onClick={() => onUpdate(treatment.visitId, treatment.id, 'In Progress')}
-                    className="w-full py-3.5 flex items-center justify-center gap-2 bg-[#137fec] hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-200 transition-all active:scale-[0.98]"
-                  >
-                    <Clock size={20} /> Start Treatment (In Progress)
-                  </button>
+                  <>
+                    <button
+                      onClick={() => onUpdate(treatment.visitId, treatment.id, 'In Progress')}
+                      className="w-full py-3.5 flex items-center justify-center gap-2 bg-[#137fec] hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-200 transition-all active:scale-[0.98]"
+                    >
+                      <Clock size={20} /> Start Treatment (In Progress)
+                    </button>
+                    <button
+                      onClick={() => onUpdate(treatment.visitId, treatment.id, 'Completed')}
+                      className="w-full py-3 flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-200 transition-all active:scale-[0.98]"
+                    >
+                      <Check size={20} /> Mark as Completed
+                    </button>
+                  </>
                 )}
 
                 {treatment.status === 'In Progress' && (
@@ -231,7 +247,23 @@ const TreatmentCard = ({ data, status, onClick }) => {
       className="p-4 bg-white border border-[#DCE5EE] rounded-xl shadow-sm flex flex-col gap-3 relative cursor-pointer hover:shadow-md hover:border-blue-300 transition-all group"
     >
       <div className="flex justify-between items-start">
-        <p className="text-xs font-medium text-slate-400">{data.date}</p>
+        {/* Date display varies by column:
+            Planned      -> date added
+            In Progress  -> planned -> started
+            Completed    -> planned / started / completed timeline */}
+        {status === 'Completed' ? (
+          <div className="flex flex-col gap-0.5 text-[10px] font-medium text-slate-400 leading-tight">
+            <span>Planned: <span className="text-slate-500">{data.plannedAt}</span></span>
+            {data.startedAt && <span>Started: <span className="text-slate-500">{data.startedAt}</span></span>}
+            {data.completedAt && <span>Completed: <span className="text-emerald-600">{data.completedAt}</span></span>}
+          </div>
+        ) : status === 'In Progress' ? (
+          <p className="text-[10px] font-medium text-slate-400 leading-tight">
+            {data.plannedAt}{data.startedAt ? ` → ${data.startedAt}` : ''}
+          </p>
+        ) : (
+          <p className="text-xs font-medium text-slate-400">{data.plannedAt}</p>
+        )}
         <div className="flex items-center gap-1.5">
           <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded border ${
             data.invoiceStatus === 'Billed'
@@ -289,9 +321,44 @@ const TreatmentPlanBoard = ({ visits = [], onRefresh }) => {
   const { planned, inProgress, completed } = useMemo(() => {
     const p = [], i = [], c = [];
 
+    const fmt = (d) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
+
+    const uniq = (arr) => Array.from(new Set(arr.filter(Boolean)));
+
     visits.forEach(visit => {
         const visitDate = new Date(visit.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-        const findings = visit.findings?.diagnosis_notes || ''; // Extract diagnosis from visit findings
+
+        const f = visit.findings || {};
+        // Legacy flat fields carry NO tooth link, so they can only be shown as
+        // visit-general fallback (used when a treatment has no teeth of its own).
+        const flatDiag = f.diagnosis_notes
+          ? f.diagnosis_notes.split(',').map(s => s.trim()).filter(Boolean) : [];
+        const flatFindings = (f.clinical_findings || []).map(n => String(n).trim()).filter(Boolean);
+
+        // Diagnoses/findings ARE tied to teeth (tooth_diagnoses / tooth_findings).
+        // Build the "Diagnosis / Findings" string for a specific treatment by
+        // matching on the teeth that treatment is charted on.
+        const buildDiagnosis = (teeth = []) => {
+            const teethSet = new Set((teeth || []).map(String));
+            const matches = (entryTeeth = []) =>
+              (entryTeeth || []).some(t => teethSet.has(String(t)));
+
+            let diagnoses, findings;
+            if (teethSet.size > 0) {
+                // Tooth-specific: only entries tagged with one of this treatment's teeth.
+                diagnoses = uniq((f.tooth_diagnoses || []).filter(d => matches(d.teeth_numbers)).map(d => d.name?.trim()));
+                findings  = uniq((f.tooth_findings  || []).filter(x => matches(x.teeth_numbers)).map(x => x.name?.trim()));
+            } else {
+                // General treatment (no teeth) → fall back to the visit-flat fields
+                // plus any tooth entries (there's no tooth to match against).
+                diagnoses = uniq([...flatDiag, ...(f.tooth_diagnoses || []).map(d => d.name?.trim())]);
+                findings  = uniq([...flatFindings, ...(f.tooth_findings || []).map(x => x.name?.trim())]);
+            }
+            return [
+              diagnoses.join(', '),
+              findings.length ? `Findings: ${findings.join(', ')}` : '',
+            ].filter(Boolean).join(' · ');
+        };
 
         if (visit.treatments) {
             visit.treatments.filter(t => t.treatment_name !== 'Missing').forEach(treatment => {
@@ -301,13 +368,20 @@ const TreatmentPlanBoard = ({ visits = [], onRefresh }) => {
                     visitId: visit._id,
                     id: treatment._id,
                     date: visitDate,
+                    // Status-transition dates (fall back to visit date for legacy
+                    // treatments created before these fields existed).
+                    plannedAt: fmt(treatment.planned_at) || visitDate,
+                    startedAt: fmt(treatment.started_at),
+                    completedAt: fmt(treatment.completed_at),
                     treatmentName: treatment.treatment_name,
                     teeth: treatment.teeth_numbers,
                     cost: treatment.cost,
                     status: treatment.status,
                     invoiceStatus,
-                    diagnosis: findings,
-                    notes: "No notes"
+                    diagnosis: buildDiagnosis(treatment.teeth_numbers),
+                    // Clinical notes entered in the Add Treatment modal are saved on
+                    // the visit (visit.notes), not per-treatment — surface them here.
+                    notes: visit.notes || ''
                 };
 
                 if (item.status === 'Completed') c.push(item);

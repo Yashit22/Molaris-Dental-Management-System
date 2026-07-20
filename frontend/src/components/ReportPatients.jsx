@@ -104,14 +104,31 @@ function Appointments({ from, to }) {
 // ── Patients Report ───────────────────────────────────────────────────────────
 function PatientsReport({ from, to }) {
   const { data, loading, error } = useAnalytics('patients', from, to);
+  const [openList, setOpenList] = useState(null); // 'new' | 'return' | null
+
+  // Reset any open drill-down when the selected period changes.
+  useEffect(() => { setOpenList(null); }, [from, to]);
+
   if (loading) return <Loading />;
   if (error)   return <Err msg={error} />;
   const d = data || {};
 
+  const toggle = (key) => setOpenList(prev => (prev === key ? null : key));
+
+  const listRows   = openList === 'new' ? (d.new_patient_rows || []) : (d.return_patient_rows || []);
+  const listTitle  = openList === 'new' ? 'New Patients' : 'Return Patients';
+  const dateLabel  = openList === 'new' ? 'Registered' : 'Last Visit';
+  const dateField  = openList === 'new' ? 'created_at' : 'last_visit_date';
+
   return (
     <div className="space-y-4 md:space-y-6">
       <div className="grid grid-cols-2 gap-3 md:gap-4">
-        <div className="bg-white p-4 md:p-6 rounded-2xl border shadow-sm flex gap-3 md:gap-4 items-center">
+        <button
+          type="button"
+          onClick={() => toggle('new')}
+          aria-pressed={openList === 'new'}
+          className={`text-left bg-white p-4 md:p-6 rounded-2xl border shadow-sm flex gap-3 md:gap-4 items-center transition hover:shadow-md hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-200 ${openList === 'new' ? 'ring-2 ring-blue-300 border-blue-300' : ''}`}
+        >
           <div className="size-10 md:size-12 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
             <UserPlus size={20} className="text-blue-600" />
           </div>
@@ -119,8 +136,13 @@ function PatientsReport({ from, to }) {
             <p className="text-slate-500 text-xs md:text-sm">New Patients</p>
             <p className="text-2xl md:text-3xl font-bold text-slate-800">{d.new_patients || 0}</p>
           </div>
-        </div>
-        <div className="bg-white p-4 md:p-6 rounded-2xl border shadow-sm flex gap-3 md:gap-4 items-center">
+        </button>
+        <button
+          type="button"
+          onClick={() => toggle('return')}
+          aria-pressed={openList === 'return'}
+          className={`text-left bg-white p-4 md:p-6 rounded-2xl border shadow-sm flex gap-3 md:gap-4 items-center transition hover:shadow-md hover:border-green-300 focus:outline-none focus:ring-2 focus:ring-green-200 ${openList === 'return' ? 'ring-2 ring-green-300 border-green-300' : ''}`}
+        >
           <div className="size-10 md:size-12 rounded-xl bg-green-50 flex items-center justify-center flex-shrink-0">
             <RefreshCw size={20} className="text-green-600" />
           </div>
@@ -128,8 +150,46 @@ function PatientsReport({ from, to }) {
             <p className="text-slate-500 text-xs md:text-sm">Return Patients</p>
             <p className="text-2xl md:text-3xl font-bold text-slate-800">{d.return_patients || 0}</p>
           </div>
-        </div>
+        </button>
       </div>
+
+      {/* Drill-down list for the clicked box */}
+      {openList && (
+        <div className="bg-white border rounded-2xl shadow-sm overflow-hidden">
+          <div className="p-4 border-b bg-slate-50 flex items-center justify-between">
+            <h3 className="font-bold text-slate-800 text-sm md:text-base">{listTitle} ({listRows.length})</h3>
+            <button type="button" onClick={() => setOpenList(null)} className="text-slate-400 hover:text-slate-600 text-xs font-medium">Close</button>
+          </div>
+          {listRows.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[380px]">
+                <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
+                  <tr>
+                    <th className="p-3 text-left">Patient ID</th>
+                    <th className="p-3 text-left">Name</th>
+                    <th className="p-3 text-left">Mobile</th>
+                    <th className="p-3 text-left">{dateLabel}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {listRows.map((r, i) => (
+                    <tr key={r._id || i} className="border-t border-slate-50 hover:bg-slate-50">
+                      <td className="p-3 text-slate-400 font-mono text-xs">{r.patientId}</td>
+                      <td className="p-3 font-medium">{r.name}</td>
+                      <td className="p-3 text-slate-500">{r.mobile || '—'}</td>
+                      <td className="p-3 text-slate-500">
+                        {r[dateField] ? new Date(r[dateField]).toLocaleDateString('en-GB') : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-slate-400 text-sm text-center py-12">No {listTitle.toLowerCase()} in this period.</p>
+          )}
+        </div>
+      )}
 
       {/* Top treatments */}
       <div className="bg-white p-4 md:p-6 rounded-2xl border shadow-sm">

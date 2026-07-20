@@ -1,4 +1,4 @@
-import { triggerWhatsApp, triggerJourney } from '../services/whatsapp.service.js';
+import { triggerWhatsApp, triggerJourney, normalizePhone } from '../services/whatsapp.service.js';
 import PDFDocument from 'pdfkit';
 import { uploadFile } from '../services/cloudinary.service.js';
 
@@ -339,7 +339,8 @@ export async function addPrescription(req, res) {
             name: fullName,
             firstName,
             patientId: patient.patientId,
-            mobile: patient.contact.mobile,
+            // normalize so {{mobile}} renders identically across every event
+            mobile: normalizePhone(patient.contact.mobile),
             drug: drug_name,
             dosage: dosage || '',
             duration: duration || '',
@@ -357,7 +358,7 @@ export async function addPrescription(req, res) {
   } catch (err) { res.status(500).json({ error: err.message }); }
 }
 
-// POST /api/visits/patient/:patientId/treatments  (used by AI autofill)
+// POST /api/visits/patient/:patientId/treatments  — bulk-add treatments to today's visit
 export async function addTreatments(req, res) {
   const { Visit } = req.tenantModels;
   try {
@@ -415,12 +416,46 @@ export async function deleteTreatment(req, res) {
   const { Visit } = req.tenantModels;
   try {
     const { visitId, treatmentId } = req.params;
-    const visit = await Visit.findByIdAndUpdate(
-      visitId,
-      { $pull: { treatments: { _id: treatmentId } } },
-      { new: true }
-    );
+
+    const visit = await Visit.findById(visitId);
     if (!visit) return res.status(404).json({ error: 'Visit not found' });
+
+    const target = (visit.treatments || []).find(t => String(t._id) === String(treatmentId));
+    if (!target) return res.status(404).json({ error: 'Treatment not found' });
+
+    // Teeth this treatment was charted on.
+    const targetTeeth = new Set((target.teeth_numbers || []).map(String));
+
+    // Teeth still referenced by OTHER treatments — their findings/diagnoses stay.
+    const teethStillUsed = new Set();
+    (visit.treatments || []).forEach(t => {
+      if (String(t._id) === String(treatmentId)) return;
+      (t.teeth_numbers || []).forEach(tt => teethStillUsed.add(String(tt)));
+    });
+
+    // Orphaned teeth = this treatment's teeth that no remaining treatment uses.
+    // Their per-tooth findings/diagnoses would otherwise linger on the Visit
+    // Summary PDF (a row/chart mark with an empty Treatment column), so prune them.
+    const orphanTeeth = new Set([...targetTeeth].filter(tt => !teethStillUsed.has(tt)));
+
+    // Remove the treatment itself.
+    visit.treatments = (visit.treatments || []).filter(t => String(t._id) !== String(treatmentId));
+
+    if (orphanTeeth.size && visit.findings) {
+      // Drop a tooth number from an entry; keep the entry if it still targets
+      // other (non-orphaned) teeth. Entries left with no teeth are removed.
+      const prune = (arr = []) => arr
+        .map(e => ({
+          ...(e.toObject ? e.toObject() : e),
+          teeth_numbers: (e.teeth_numbers || []).filter(tt => !orphanTeeth.has(String(tt))),
+        }))
+        .filter(e => (e.teeth_numbers || []).length > 0);
+
+      visit.findings.tooth_findings  = prune(visit.findings.tooth_findings);
+      visit.findings.tooth_diagnoses = prune(visit.findings.tooth_diagnoses);
+    }
+
+    await visit.save();
     res.json(visit);
   } catch (err) { res.status(500).json({ error: err.message }); }
 }
@@ -496,15 +531,37 @@ export async function updateTreatmentStatus(req, res) {
   const { Visit } = req.tenantModels;
   try {
     const { visitId, treatmentId } = req.params;
-    const { status } = req.body; // 'In Progress' or 'Completed'
+    const { status } = req.body; // 'Planned' | 'In Progress' | 'Completed'
 
-    const visit = await Visit.findOneAndUpdate(
+    // Stamp the transition timestamp for this status. Only set a stage's date the
+    // first time it's entered (don't overwrite on revert-then-redo). A direct
+    // Planned -> Completed also backfills started_at so the timeline stays ordered.
+    const now = new Date();
+    const setFields = { "treatments.$.status": status };
+    if (status === 'In Progress') {
+      setFields["treatments.$.started_at"] = now;
+    } else if (status === 'Completed') {
+      setFields["treatments.$.completed_at"] = now;
+    }
+
+    let visit = await Visit.findOneAndUpdate(
       { _id: visitId, "treatments._id": treatmentId },
-      {
-        $set: { "treatments.$.status": status }
-      },
+      { $set: setFields },
       { new: true }
     );
+
+    // Backfill started_at when a treatment jumped straight to Completed without ever
+    // being In Progress, so the Completed card's timeline has a coherent start date.
+    if (visit && status === 'Completed') {
+      const t = visit.treatments?.find(x => x._id.toString() === treatmentId);
+      if (t && !t.started_at) {
+        visit = await Visit.findOneAndUpdate(
+          { _id: visitId, "treatments._id": treatmentId },
+          { $set: { "treatments.$.started_at": now } },
+          { new: true }
+        );
+      }
+    }
 
     if (!visit) return res.status(404).json({ error: "Visit or Treatment not found" });
 
@@ -514,7 +571,7 @@ export async function updateTreatmentStatus(req, res) {
       const completedAt = new Date();
 
       req.tenantModels.Patient.findById(visit.patient_id)
-        .select('first_name last_name contact patientId')
+        .select('first_name last_name contact patientId whatsapp_language')
         .lean()
         .then(async patient => {
           if (!patient?.contact?.mobile) return;
@@ -522,22 +579,34 @@ export async function updateTreatmentStatus(req, res) {
           const firstName = patient.first_name;
           const fullName = `${firstName} ${patient.last_name || ''}`.trim();
           const patientId = patient._id.toString();
+          // Post-op language is a property of the patient, not the appointment.
+          const lang = patient.whatsapp_language || null;
+          const treatingDoctor = visit.doctor_id
+            ? await req.tenantModels.Doctor?.findById(visit.doctor_id).select('name').lean()
+            : null;
           const data = {
             name: fullName,
             firstName,
             patientId: patient.patientId,
             mobile: phone,
-            date: completedAt.toLocaleDateString('en-IN'),
+            // Pin the timezone explicitly — without it the date is formatted in the
+            // host's zone, so a late-evening IST treatment prints the previous day
+            // on a UTC server.
+            date: completedAt.toLocaleDateString('en-IN', {
+              timeZone: 'Asia/Kolkata', year: 'numeric', month: 'long', day: 'numeric',
+            }),
             treatment: treatment?.treatment_name ?? '',
             teethNumbers: treatment?.teeth_numbers?.join(', ') ?? '',
-            doctorName: visit.doctor_id ? (await req.tenantModels.Doctor?.findById(visit.doctor_id).select('name').lean() || {}).name || '' : '',
+            // Fall back to 'Doctor' like every other event — an empty string would
+            // leave a hole mid-sentence in the patient's message.
+            doctorName: treatingDoctor?.name || 'Doctor',
           };
 
           // 1. Immediate treatment-completed message
           triggerWhatsApp(
             req.tenantModels, req.user.tenantId, process.env.WAAPI_BASE_URL,
             'treatmentScheduled', phone, data, patientId,
-            null, null, null, `treatmentCompleted:${visitId}:${treatmentId}`
+            lang, null, null, `treatmentCompleted:${visitId}:${treatmentId}`
           );
 
           // 2. Post-care journey — only if not already started for this treatment
@@ -550,7 +619,7 @@ export async function updateTreatmentStatus(req, res) {
 
             triggerJourney(
               req.tenantModels, req.user.tenantId, process.env.WAAPI_BASE_URL,
-              phone, treatment.treatment_name, completedAt, data, patientId
+              phone, treatment.treatment_name, completedAt, data, patientId, lang
             );
           }
         })
@@ -568,26 +637,26 @@ export async function updateTreatment(req, res) {
   const { Visit } = req.tenantModels;
   try {
     const { visitId, treatmentId } = req.params;
-    const { treatment_name, cost, qty, teeth_numbers, status } = req.body;
+    // Teeth are intentionally NOT editable here — changing them can't safely
+    // re-map the per-tooth findings/diagnoses, so a wrong tooth is fixed by
+    // deleting the treatment and re-adding it. teeth_numbers is ignored.
+    const { treatment_name, cost, qty, status, notes } = req.body;
 
-    const updateObj = {};
-    if (treatment_name !== undefined) updateObj['treatments.$.treatment_name'] = treatment_name;
-    if (cost !== undefined) updateObj['treatments.$.cost'] = cost;
-    if (qty !== undefined) updateObj['treatments.$.qty'] = qty;
-    if (teeth_numbers !== undefined) updateObj['treatments.$.teeth_numbers'] = teeth_numbers;
-    if (status !== undefined) updateObj['treatments.$.status'] = status;
+    const visit = await Visit.findById(visitId);
+    if (!visit) return res.status(404).json({ error: 'Visit not found' });
 
-    if (Object.keys(updateObj).length === 0) {
-      return res.status(400).json({ error: 'No fields to update' });
-    }
+    const treatment = (visit.treatments || []).find(t => String(t._id) === String(treatmentId));
+    if (!treatment) return res.status(404).json({ error: 'Treatment not found' });
 
-    const visit = await Visit.findOneAndUpdate(
-      { _id: visitId, 'treatments._id': treatmentId },
-      { $set: updateObj },
-      { new: true }
-    );
+    if (treatment_name !== undefined) treatment.treatment_name = treatment_name;
+    if (cost !== undefined) treatment.cost = cost;
+    if (qty !== undefined) treatment.qty = qty;
+    if (status !== undefined) treatment.status = status;
 
-    if (!visit) return res.status(404).json({ error: 'Visit or Treatment not found' });
+    // Visit-level field (shared across all treatments in this visit).
+    if (notes !== undefined) visit.notes = notes;
+
+    await visit.save();
     res.json(visit);
   } catch (err) {
     res.status(400).json({ error: err.message });

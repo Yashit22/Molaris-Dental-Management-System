@@ -11,6 +11,15 @@ const FeedbackPollSchema = new mongoose.Schema({
   pollTemplateId: { type: String, default: null }, // Links to PollTemplate._id
 }, { _id: false });
 
+// Manual feedback has no `enabled` flag — it never fires automatically. It only
+// stores how the on-demand message is composed: `text` uses the WhatsAppTemplate
+// for event 'feedbackManual'; `poll` uses the PollTemplate named here (and its
+// per-rating auto-replies, which still fire once the patient votes).
+const FeedbackManualSchema = new mongoose.Schema({
+  contentType:    { type: String, enum: ['text', 'poll'], default: 'text' },
+  pollTemplateId: { type: String, default: null },
+}, { _id: false });
+
 const ReminderToggleSchema = new mongoose.Schema({
   enabled:               { type: Boolean, default: false },
   hoursBeforeAppointment: { type: Number,  default: 24 },
@@ -28,6 +37,7 @@ const WhatsAppSettingsSchema = new mongoose.Schema({
     treatmentCompleted:      { type: EventToggleSchema, default: () => ({}) },
     feedbackMessage:         { type: EventToggleSchema, default: () => ({}) },
     feedbackPoll:            { type: FeedbackPollSchema, default: () => ({}) },
+    feedbackManual:          { type: FeedbackManualSchema, default: () => ({}) },
     postCare:                { type: EventToggleSchema, default: () => ({}) },
   },
 }, { timestamps: true });

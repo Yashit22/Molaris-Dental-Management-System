@@ -11,11 +11,9 @@ const ReportJobSchema = new mongoose.Schema({
   reportText:    { type: String },
   driveLinks:    { type: mongoose.Schema.Types.Mixed, default: {} },
   driveFileIds:  { type: mongoose.Schema.Types.Mixed, default: {} }, // template.id -> drive_file_id (for overwrite on regenerate)
-  autofillData:  { type: mongoose.Schema.Types.Mixed },
   templateId:    { type: String },
   detailLevel:   { type: String, enum: ['brief', 'standard', 'detailed'], default: 'standard' },
   saveReport:    { type: Boolean, default: true },
-  runAutofill:   { type: Boolean, default: false },
   audioFilename: { type: String },
   audioMimetype: { type: String },
   audioDurationSeconds: { type: Number, default: 0 },

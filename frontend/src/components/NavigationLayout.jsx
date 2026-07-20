@@ -243,7 +243,6 @@ const NavigationLayout = ({ children }) => {
                   </span>
                 </Link>
               )}
-              <SidebarItem icon="menu_book" label="Help Center" to="/help"      active={isActive('/help')} />
             </nav>
           </div>
 
@@ -305,6 +304,14 @@ const NavigationLayout = ({ children }) => {
                 {copied ? 'Copied!' : 'Copy'}
               </button>
             </div>
+            <Link
+              to="/help"
+              onClick={() => setShowSupportPopover(false)}
+              className="mt-3 flex items-center gap-2 text-sm font-semibold text-[#137fec] hover:text-blue-700"
+            >
+              <span className="material-symbols-outlined text-[18px]">menu_book</span>
+              Visit Help Center
+            </Link>
           </div>
         </div>
       )}
@@ -432,7 +439,6 @@ const NavigationLayout = ({ children }) => {
               {showOwnerRoutes && <DrawerItem icon="dashboard"   label="Insights"     to="/insights"  active={isActive('/insights')}  onClick={closeDrawer} />}
               {showOwnerRoutes && <DrawerItem icon="chat"        label="WhatsApp"     to="/whatsapp"  active={isActive('/whatsapp')}  onClick={closeDrawer} />}
               {showOwnerRoutes && <DrawerItem icon="settings"    label="Settings"     to="/settings"  active={isActive('/settings')}  onClick={closeDrawer} />}
-              <DrawerItem icon="menu_book" label="Help Center" to="/help"      active={isActive('/help')}      onClick={closeDrawer} />
             </div>
 
             {/* Support */}

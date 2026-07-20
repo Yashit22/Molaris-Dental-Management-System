@@ -6,7 +6,10 @@ import { logEvent } from '../services/analyticsLogger.js';
 export async function getPollTemplates(req, res) {
   const { PollTemplate } = req.tenantModels;
   try {
-    const templates = await PollTemplate.find({ tenantId: req.user.tenantId })
+    const filter = { tenantId: req.user.tenantId };
+    if (req.query.language) filter.language = req.query.language;
+
+    const templates = await PollTemplate.find(filter)
       .sort({ createdAt: -1 })
       .lean();
     res.json(templates);
@@ -36,7 +39,7 @@ export async function getPollTemplate(req, res) {
 export async function createPollTemplate(req, res) {
   const { PollTemplate } = req.tenantModels;
   try {
-    const { name, options, sendDelayMinutes, isActive } = req.body;
+    const { name, options, sendDelayMinutes, isActive, language } = req.body;
 
     // Validate options
     if (!Array.isArray(options) || options.length !== 5) {
@@ -54,14 +57,25 @@ export async function createPollTemplate(req, res) {
       });
     }
 
-    const template = new PollTemplate({
-      tenantId: req.user.tenantId,
-      name,
-      options,
-      sendDelayMinutes: sendDelayMinutes ?? 15,
-    });
-
-    const saved = await template.save();
+    // One ACTIVE poll per (tenant, language) — upsert so re-saving a language replaces
+    // its poll instead of accumulating orphans the resolver can never pick.
+    //
+    // Match on isActive too: tenants can carry deactivated duplicates from before polls
+    // were language-aware, and matching without it would grab an arbitrary dead row and
+    // resurrect it (leaving the live poll stale).
+    const lang = language || 'en';
+    const saved = await PollTemplate.findOneAndUpdate(
+      { tenantId: req.user.tenantId, language: lang, isActive: true },
+      {
+        tenantId: req.user.tenantId,
+        language: lang,
+        name,
+        options,
+        sendDelayMinutes: sendDelayMinutes ?? 15,
+        isActive: isActive !== false,
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
 
     logEvent(req.user.tenantId, 'poll_template_created', {
       templateId: saved._id,
@@ -78,7 +92,7 @@ export async function createPollTemplate(req, res) {
 export async function updatePollTemplate(req, res) {
   const { PollTemplate } = req.tenantModels;
   try {
-    const { name, options, sendDelayMinutes, isActive } = req.body;
+    const { name, options, sendDelayMinutes, isActive, language } = req.body;
 
     // Validate options if provided
     if (options) {
@@ -108,6 +122,7 @@ export async function updatePollTemplate(req, res) {
         options,
         sendDelayMinutes,
         isActive,
+        ...(language ? { language } : {}),
       },
       { new: true }
     );

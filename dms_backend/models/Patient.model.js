@@ -39,6 +39,12 @@ const PatientSchema = new mongoose.Schema({
   tea_consumption: { type: String, default: '' }, // e.g. "None", "1 cup", "2-3 cups", etc.
   coffee_consumption: { type: String, default: '' }, // e.g. "None", "1 cup", "2-3 cups", etc.
   
+  // --- COMMUNICATION PREFERENCES ---
+  // Standing WhatsApp language for this patient. Overwritten by the language
+  // chosen on each new/edited appointment (latest booking wins), and read when
+  // building every WhatsApp payload — appointment messages AND post-op journeys.
+  whatsapp_language: { type: String, enum: ['en', 'hi', 'mr'], default: null },
+
   // --- META ---
   reference_source: { type: String }, // Who referred them?
   general_notes: { type: String },    // Private clinic notes
@@ -80,6 +86,12 @@ const PatientSchema = new mongoose.Schema({
   }],
 
 }, { timestamps: true });
+
+// Indexes to support the patient search (anchored-prefix regex on names, substring on phone).
+// patientId is already indexed via its field definition (unique: true, index: true).
+PatientSchema.index({ first_name: 1 });
+PatientSchema.index({ last_name: 1 });
+PatientSchema.index({ 'contact.mobile': 1 });
 
 // Virtual for Full Name
 PatientSchema.virtual('full_name').get(function() {

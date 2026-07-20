@@ -14,6 +14,7 @@ const WhatsAppTemplateSchema = new mongoose.Schema({
       'appointmentRescheduled',
       'treatmentCompleted',
       'feedbackMessage',
+      'feedbackManual',
       'postCare',
     ],
     required: true,
@@ -38,6 +39,11 @@ const WhatsAppTemplateSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 WhatsAppTemplateSchema.index({ event: 1, language: 1, isActive: 1 });
+
+// Exactly one template per (event, language). These models live in a per-tenant DB,
+// so the connection already scopes this to the tenant. Editing a template updates it
+// in place — it must never insert a second row for the same event+language.
+WhatsAppTemplateSchema.index({ event: 1, language: 1 }, { unique: true });
 
 export { WhatsAppTemplateSchema, CONTENT_TYPES };
 export default mongoose.model('WhatsAppTemplate', WhatsAppTemplateSchema);

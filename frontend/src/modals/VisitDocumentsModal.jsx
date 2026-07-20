@@ -290,20 +290,23 @@ const drName = (name) => {
   return /^dr\.?\s/i.test(n) ? n : `Dr. ${n}`;
 };
 
-function doctorSignOffHtml(doctor) {
+function doctorSignOffHtml(doctor, showSignature = true) {
   if (!doctor?.name && !doctor?.license_number) return '';
-  const sig = doctor.signature_url
-    ? `<img src="${esc(doctor.signature_url)}" style="height:48px;width:auto;object-fit:contain;display:block;margin-left:auto;margin-bottom:2px" crossorigin="anonymous"/>`
-    : '<div style="height:48px"></div>'; // empty space to hand-sign/stamp
+  // Embed the signature image only when both a signature is on file AND the
+  // "Digital Signature" setting is on; otherwise leave blank space to hand-sign.
+  const useSignatureImage = showSignature && !!doctor.signature_url;
+  const sig = useSignatureImage
+    ? `<img src="${esc(doctor.signature_url)}" style="height:64px;width:auto;max-width:240px;object-fit:contain;display:block;margin:0 auto 4px" crossorigin="anonymous"/>`
+    : '<div style="height:64px"></div>'; // empty space to hand-sign/stamp
   return `
-  <div style="margin-top:40px;text-align:right">
-    <div style="display:inline-block;min-width:200px">
+  <div style="margin-top:44px;text-align:right">
+    <div style="display:inline-block;min-width:260px;text-align:center">
       ${sig}
-      <div style="border-top:1px solid #cbd5e0;padding-top:4px">
+      <div style="border-top:1px solid #cbd5e0;padding-top:6px">
         ${doctor.name ? `<div style="font-size:12px;font-weight:700;color:#0d1b2a">${esc(drName(doctor.name))}</div>` : ''}
         ${doctor.qualification ? `<div style="font-size:10px;color:#718096">${esc(doctor.qualification)}</div>` : ''}
         ${doctor.license_number ? `<div style="font-size:10px;color:#718096">Reg. No: ${esc(doctor.license_number)}</div>` : ''}
-        ${!doctor.signature_url ? `<div style="font-size:8px;color:#cbd5e0;margin-top:2px">Signature / Stamp</div>` : ''}
+        ${!useSignatureImage ? `<div style="font-size:8px;color:#cbd5e0;margin-top:2px">Signature / Stamp</div>` : ''}
       </div>
     </div>
   </div>`;
@@ -374,7 +377,7 @@ function prescriptionHtml(ds, { visit, patient, doctor }) {
     ${medicationsTable}
     ${legend}
     ${advices.length && ds.prescription_show_advice !== false ? sectionTitle('Advice') + advices.map(a => `<div style="font-size:12px;color:#2d3748;margin-bottom:4px">${(a.content || '')}</div>`).join('') : ''}
-    ${doctorSignOffHtml(doctor)}
+    ${doctorSignOffHtml(doctor, ds.prescription_show_signature !== false)}
     ${ds.prescription_show_footer !== false ? footerHtml(ds, ds.prescription_footer_text) : ''}`;
 }
 
@@ -388,8 +391,12 @@ function invoiceHtml(ds, { invoice, patient }) {
       <td style="padding:6px 4px;font-size:11px;text-align:right;border-bottom:1px solid #f1f5f9">${c}${esc(it.rate)}</td>
       <td style="padding:6px 4px;font-size:11px;text-align:right;border-bottom:1px solid #f1f5f9">${c}${esc(it.total)}</td>
     </tr>`).join('');
-  const totalRow = (label, val, bold, color) =>
-    `<tr><td colspan="2"></td><td style="padding:3px 4px;font-size:11px;text-align:right;${bold ? 'font-weight:700' : ''};color:${color || '#2d3748'}">${esc(label)}</td><td style="padding:3px 4px;font-size:11px;text-align:right;${bold ? 'font-weight:700' : ''};color:${color || '#2d3748'}">${c}${esc(val)}</td></tr>`;
+  const totalRow = (label, val, bold, color) => {
+    // Render negatives (e.g. discount) as "− ₹500" rather than "₹-500".
+    const neg = Number(val) < 0;
+    const disp = `${neg ? '− ' : ''}${c}${esc(neg ? Math.abs(Number(val)) : val)}`;
+    return `<tr><td colspan="2"></td><td style="padding:3px 4px;font-size:11px;text-align:right;${bold ? 'font-weight:700' : ''};color:${color || '#2d3748'}">${esc(label)}</td><td style="padding:3px 4px;font-size:11px;text-align:right;${bold ? 'font-weight:700' : ''};color:${color || '#2d3748'}">${disp}</td></tr>`;
+  };
   const payRow = (lbl, val) => val ? `<div style="font-size:10px;color:#718096"><span style="color:#4a5568">${esc(lbl)}:</span> ${esc(val)}</div>` : '';
   const pay = (ds.invoice_show_payment !== false && (ds.payment_modes || []).length)
     ? sectionTitle('Payment Options') + `<div style="display:flex;gap:24px;flex-wrap:wrap">${ds.payment_modes.map(pm => {
@@ -414,7 +421,8 @@ function invoiceHtml(ds, { invoice, patient }) {
       <tbody>${items}</tbody>
       <tfoot>
         ${invoice.subtotal != null && invoice.subtotal !== invoice.total_amount ? totalRow('Subtotal', invoice.subtotal, false) : ''}
-        ${(ds.invoice_show_gst !== false && invoice.tax) ? totalRow(ds.gstin ? 'GST' : 'Tax', invoice.tax, false) : ''}
+        ${invoice.discount?.amount > 0 ? totalRow(`Discount${invoice.discount.type === 'percent' ? ` (${invoice.discount.value}%)` : ''}`, -invoice.discount.amount, false) : ''}
+        ${(ds.invoice_show_gst !== false && invoice.tax) ? totalRow(`${ds.gstin ? 'GST' : 'Tax'}${invoice.taxRatePct > 0 ? ` (${invoice.taxRatePct}%)` : ''}`, invoice.tax, false) : ''}
         ${totalRow('Total', invoice.total_amount, true, '#0d1b2a')}
       </tfoot>
     </table>
@@ -467,7 +475,9 @@ function examinationHtml(visit, dentitionType = 'Adult') {
   const toothFindings  = (f.tooth_findings  || []).filter(x => x?.name);
   const toothDiagnoses = (f.tooth_diagnoses || []).filter(x => x?.name);
 
-  // Legacy flat entries that were saved WITHOUT per-tooth arrays.
+  // Flat (no per-tooth) entries. Only shown when there is no per-tooth data —
+  // the per-tooth table already carries findings & diagnosis, so showing the
+  // flat fields too would duplicate them.
   const hasPerTooth = toothFindings.length || toothDiagnoses.length;
   const flatFindings = hasPerTooth ? [] : (f.clinical_findings || []).filter(x => x && String(x).trim());
   const flatDiagnosis = hasPerTooth ? '' : (f.diagnosis_notes || '').trim();
@@ -516,7 +526,7 @@ function examinationHtml(visit, dentitionType = 'Adult') {
     ? `${sub('Findings & Diagnosis by Tooth')}${perToothRows}`
     : '';
 
-  // Legacy general (no-tooth) block.
+  // General (no-tooth) block — only when there is no per-tooth data.
   const generalBlock = (!hasPerTooth && (flatFindings.length || flatDiagnosis))
     ? `${flatFindings.length ? `${sub('Clinical Findings')}<div style="margin-bottom:${flatDiagnosis ? '12px' : '0'}">${flatFindings.map(n => chip(n, 'fn')).join('')}</div>` : ''}
        ${flatDiagnosis ? `${sub('Diagnosis')}<div style="background:#ecfeff;border:1px solid #a5f3fc;border-left:4px solid #0891b2;border-radius:8px;padding:10px 14px;font-size:12px;color:#0e4f5c;line-height:1.55;font-weight:500">${esc(flatDiagnosis)}</div>` : ''}`
@@ -602,11 +612,14 @@ function smartReportHtml(ds, { visit, patient, doctor, imageData = {} }) {
   const stGrid      = softTissueGridHtml(Object.keys(softStatusMap), softStatusMap);
   const tmjGrid     = tmjGridHtml(Object.keys(tmjStatusMap), tmjStatusMap);
 
-  // Consultation notes from the Visit Notes tab
+  // Consultation notes from the Visit Notes tab, plus the visit-level Clinical
+  // Notes field (visit.notes) edited from the treatment card modal.
   const consultationNotes = visit?.consultation_notes || [];
-  const consultationNotesHtml = consultationNotes.length
-    ? consultationNotes.map(n => `<div style="font-size:12px;color:#334155;margin-bottom:6px;line-height:1.6">${n.content || ''}</div>`).join('')
-    : '';
+  const visitNotes = (visit?.notes || '').trim();
+  const consultationNotesHtml = [
+    ...consultationNotes.map(n => `<div style="font-size:12px;color:#334155;margin-bottom:6px;line-height:1.6">${n.content || ''}</div>`),
+    ...(visitNotes ? [`<div style="font-size:12px;color:#334155;margin-bottom:6px;line-height:1.6">${esc(visitNotes)}</div>`] : []),
+  ].join('');
 
   // Advice entries from the Visit Notes tab
   const visitAdviceHtml = advices.length
@@ -949,6 +962,13 @@ export default function VisitDocumentsModal({
     return res.data;
   }
 
+  // Mobile browsers cannot print a PDF from a hidden iframe: iOS (all browsers are
+  // WebKit) has no window.print() for embedded PDFs and Android Chrome refuses to
+  // render PDF blobs in an iframe. There we hand the file to the OS instead, which
+  // exposes print in its native viewer / share sheet.
+  const isMobile = () => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+    || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent)); // iPadOS masquerades as Mac
+
   // Print the server-built COMBINED PDF (core docs + merged uploaded files) so
   // Print matches Save/Share/Email exactly and includes uploaded PDFs/images.
   async function handlePrint() {
@@ -957,6 +977,21 @@ export default function VisitDocumentsModal({
     let url;
     try {
       const blob = await fetchPdfBlob();
+      const fileName = `documents-${patient?.patientId || 'patient'}.pdf`;
+
+      if (isMobile()) {
+        const file = new File([blob], fileName, { type: 'application/pdf' });
+        if (navigator.canShare?.({ files: [file] })) {
+          await navigator.share({ files: [file], title: fileName });
+        } else {
+          url = URL.createObjectURL(blob);
+          const win = window.open(url, '_blank');
+          if (!win) throw new Error('Please allow pop-ups to print.');
+          setTimeout(() => URL.revokeObjectURL(url), 60000);
+        }
+        return;
+      }
+
       url = URL.createObjectURL(blob);
       const iframe = document.createElement('iframe');
       iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
@@ -968,6 +1003,7 @@ export default function VisitDocumentsModal({
       };
     } catch (e) {
       if (url) URL.revokeObjectURL(url);
+      if (e.name === 'AbortError') return; // user dismissed the share sheet
       setError('Print failed: ' + (e.response?.data?.error || e.message));
     } finally { setBusy(''); }
   }

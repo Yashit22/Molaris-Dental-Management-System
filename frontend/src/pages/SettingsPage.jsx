@@ -7,6 +7,32 @@ import SingleClinicalItemModal from '../modals/SingleClinicalItemModal';
 import BulkUploadClinicalModal from '../modals/BulkUploadClinicalModal';
 import { useAuth } from '../Context/AuthContext';
 
+// Best-effort cleanup of a replaced/removed branding image (logo, payment QR,
+// doctor signature) from Cloudinary. Fire-and-forget: never blocks or fails the
+// UI action — an orphaned asset is harmless, so we only log on error.
+function deleteBrandingImage(url) {
+  if (!url) return;
+  API.delete('/documents/image', { data: { url } })
+    .catch(err => console.warn('Branding image cleanup failed (non-fatal):', err?.message));
+}
+
+function ToggleSwitch({ enabled, onChange, disabled = false }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={!!enabled}
+      disabled={disabled}
+      onClick={() => !disabled && onChange?.(!enabled)}
+      className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#137fec] focus:ring-offset-2 ${enabled ? 'bg-[#137fec]' : 'bg-slate-300 dark:bg-slate-600'} ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+    >
+      <span
+        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0.5'}`}
+      />
+    </button>
+  );
+}
+
 // ─── Booking helpers ──────────────────────────────────────────────────────────
 
 const BOOKING_DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
@@ -1812,7 +1838,7 @@ function DocumentBrandingTab() {
 
   const set = (k, v) => setDs(d => ({ ...d, [k]: v }));
 
-  async function uploadImage(file, onUrl, key) {
+  async function uploadImage(file, onUrl, key, previousUrl) {
     if (!file) return;
     setUploading(key);
     try {
@@ -1820,6 +1846,8 @@ function DocumentBrandingTab() {
       fd.append('file', file);
       const r = await API.post('/documents/upload-image', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       onUrl(r.data.url);
+      // Clean up the replaced image from Cloudinary (best-effort).
+      if (previousUrl && previousUrl !== r.data.url) deleteBrandingImage(previousUrl);
     } catch (e) {
       setMsg('Upload failed: ' + (e.response?.data?.error || e.message));
     } finally { setUploading(''); }
@@ -1861,7 +1889,7 @@ function DocumentBrandingTab() {
           {ds.clinic_logo_url && <img src={ds.clinic_logo_url} alt="logo" className="h-12 w-12 object-contain border rounded" />}
           <label className="px-3 py-2 text-sm border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-50">
             {uploading === 'logo' ? 'Uploading…' : 'Upload Logo'}
-            <input type="file" accept="image/*" className="hidden" onChange={e => uploadImage(e.target.files[0], u => set('clinic_logo_url', u), 'logo')} />
+            <input type="file" accept="image/*" className="hidden" onChange={e => uploadImage(e.target.files[0], u => set('clinic_logo_url', u), 'logo', ds.clinic_logo_url)} />
           </label>
         </div>
       </Group>
@@ -1904,7 +1932,7 @@ function DocumentBrandingTab() {
                     <div className="flex items-center gap-2 sm:col-span-2">
                       {m.qr_url && <img src={m.qr_url} alt="qr" className="h-10 w-10 object-contain border rounded" />}
                       <label className="px-3 py-2 text-sm border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-50">{uploading === `qr${i}` ? '…' : 'Upload QR'}
-                        <input type="file" accept="image/*" className="hidden" onChange={e => uploadImage(e.target.files[0], u => setMode(i, 'qr_url', u), `qr${i}`)} /></label>
+                        <input type="file" accept="image/*" className="hidden" onChange={e => uploadImage(e.target.files[0], u => setMode(i, 'qr_url', u), `qr${i}`, m.qr_url)} /></label>
                     </div>
                   </>
                 ) : (
@@ -1956,7 +1984,9 @@ function DocumentBrandingTab() {
           <DocBrandToggle ds={ds} set={set} label="Qualification" k="prescription_show_qualification" />
           <DocBrandToggle ds={ds} set={set} label="Advice" k="prescription_show_advice" />
           <DocBrandToggle ds={ds} set={set} label="Footer" k="prescription_show_footer" />
+          <DocBrandToggle ds={ds} set={set} label="Digital Signature" k="prescription_show_signature" />
         </div>
+        <p className="text-[11px] text-slate-400 mt-2">When on, the prescribing doctor's saved signature/stamp image is printed above their name. When off, a blank space is left to hand-sign.</p>
       </Group>
 
       <Group title="Visit Summary — settings">
@@ -2323,12 +2353,17 @@ const SettingsPage = () => {
   const uploadDoctorSignature = async (file) => {
     if (!file) return;
     setSigUploading(true);
+    const previousUrl = doctorFormData.signature_url;
     try {
       const fd = new FormData();
       fd.append('file', file);
       const r = await API.post('/documents/upload-image', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       const url = r.data?.url || r.data?.secure_url || '';
-      if (url) setDoctorFormData(prev => ({ ...prev, signature_url: url }));
+      if (url) {
+        setDoctorFormData(prev => ({ ...prev, signature_url: url }));
+        // Clean up the replaced image from Cloudinary (best-effort).
+        if (previousUrl && previousUrl !== url) deleteBrandingImage(previousUrl);
+      }
     } catch (err) {
       console.error('Signature upload failed:', err);
       alert('Failed to upload signature image.');
@@ -3256,7 +3291,11 @@ const SettingsPage = () => {
                     <input type="file" accept="image/*" className="hidden" onChange={e => uploadDoctorSignature(e.target.files[0])} />
                   </label>
                   {doctorFormData.signature_url && (
-                    <button type="button" onClick={() => setDoctorFormData(prev => ({ ...prev, signature_url: '' }))}
+                    <button type="button" onClick={() => {
+                      const removed = doctorFormData.signature_url;
+                      setDoctorFormData(prev => ({ ...prev, signature_url: '' }));
+                      deleteBrandingImage(removed);
+                    }}
                       className="text-xs text-red-500 hover:underline">Remove</button>
                   )}
                 </div>

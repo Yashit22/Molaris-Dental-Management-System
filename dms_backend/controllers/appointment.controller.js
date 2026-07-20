@@ -1,5 +1,5 @@
 import { logEvent } from '../services/analyticsLogger.js';
-import { triggerWhatsApp, triggerJourney } from '../services/whatsapp.service.js';
+import { triggerWhatsApp } from '../services/whatsapp.service.js';
 import {
   triggerAppointmentCompleted,
   triggerBookingConfirmed,
@@ -74,13 +74,23 @@ export async function createAppointment(req, res) {
     const newAppt = new Appointment(req.body);
     const saved = await newAppt.save();
 
+    // Write the chosen appointment language through to the patient (latest booking
+    // wins). This is the single source of truth read when building every WhatsApp
+    // payload — appointment messages and post-op journeys alike.
+    if (saved.whatsapp_language && saved.patient_id) {
+      req.tenantModels.Patient.updateOne(
+        { _id: saved.patient_id },
+        { $set: { whatsapp_language: saved.whatsapp_language } }
+      ).catch(err => console.error('[Appointment] patient language write-through failed:', err.message));
+    }
+
     // Log to analytics
     logEvent(req.user.tenantId, 'appointment_created', { appointmentId: saved._id, status: saved.status });
 
     // Fire-and-forget WhatsApp notifications
     if (saved.patient_id) {
       req.tenantModels.Patient.findById(saved.patient_id)
-        .select('first_name last_name contact patientId total_due')
+        .select('first_name last_name contact patientId total_due whatsapp_language')
         .lean()
         .then(async patient => {
           if (!patient?.contact?.mobile) {
@@ -92,7 +102,12 @@ export async function createAppointment(req, res) {
           const phone = rawPhone.startsWith('91') ? rawPhone : `91${rawPhone}`;
           const firstName = patient.first_name;
           const name = `${firstName} ${patient.last_name || ''}`.trim();
-          const lang = saved.whatsapp_language || null;
+          // For THIS booking, the language the user just chose on the appointment
+          // is authoritative — prefer saved.whatsapp_language. The write-through to
+          // the patient (above) races this read, so patient.whatsapp_language may
+          // still hold the OLD value here; it's only the fallback when this
+          // appointment carried no explicit language.
+          const lang = saved.whatsapp_language || patient.whatsapp_language || null;
           const patientId = patient._id.toString();
 
           let doctor = null;
@@ -166,11 +181,10 @@ export async function updateStatus(req, res) {
     // Fire-and-forget WhatsApp notifications on completion — only when transitioning into Completed
     if (status === 'Completed' && currentAppt?.status !== 'Completed' && appt?.patient_id) {
       Promise.all([
-        req.tenantModels.Patient.findById(appt.patient_id).select('first_name last_name contact patientId').lean(),
+        req.tenantModels.Patient.findById(appt.patient_id).select('first_name last_name contact patientId whatsapp_language').lean(),
         req.tenantModels.Doctor ? req.tenantModels.Doctor.findById(appt.doctor_id).select('name').lean() : Promise.resolve(null),
-        req.tenantModels.Visit ? req.tenantModels.Visit.findOne({ appointment_id: appt._id }).lean() : Promise.resolve(null),
       ])
-        .then(([patient, doctor, visit]) => {
+        .then(([patient, doctor]) => {
           if (!patient?.contact?.mobile) return;
           const firstName = patient.first_name;
           const name = `${firstName} ${patient.last_name || ''}`.trim();
@@ -193,6 +207,7 @@ export async function updateStatus(req, res) {
 
           const patientMongoId  = patient._id.toString();
           const appointmentId   = appt._id.toString();
+          const lang            = patient.whatsapp_language || null;
 
           // 1. Send feedback message if enabled (scheduled with delayMinutes from settings)
           triggerWhatsApp(
@@ -203,7 +218,7 @@ export async function updateStatus(req, res) {
             phone,
             baseData,
             patientMongoId,
-            appt.whatsapp_language || null,
+            lang,
             null,
             null,
             `feedback:${appointmentId}`
@@ -218,41 +233,16 @@ export async function updateStatus(req, res) {
             phone,
             baseData,
             patientMongoId,
-            appt.whatsapp_language || null,
+            lang,
             null,
             appointmentId,
             `feedbackPoll:${appointmentId}`
           );
 
-          // 2. Trigger post-care journeys for each treatment in the visit
-          // journey_started flag prevents duplicate sends if the same visit treatment
-          // is updated to Completed more than once
-          if (visit?.treatments && Array.isArray(visit.treatments)) {
-            for (const treatment of visit.treatments) {
-              if (treatment.treatment_name && !treatment.journey_started) {
-                // Mark before firing to prevent concurrent duplicates
-                req.tenantModels.Visit.updateOne(
-                  { _id: visit._id, 'treatments._id': treatment._id },
-                  { $set: { 'treatments.$.journey_started': true } }
-                ).catch(() => {});
-
-                triggerJourney(
-                  req.tenantModels,
-                  req.user.tenantId,
-                  process.env.WAAPI_BASE_URL,
-                  phone,
-                  treatment.treatment_name,
-                  new Date(),
-                  {
-                    ...baseData,
-                    treatment: treatment.treatment_name,
-                  },
-                  patient._id.toString(),
-                  appt.whatsapp_language || null
-                );
-              }
-            }
-          }
+          // NOTE: Post-care journeys are intentionally NOT triggered here.
+          // They are an effect of an individual TREATMENT being marked Completed
+          // (visit.controller.js updateTreatmentStatus), not of the appointment
+          // being concluded. Concluding an appointment sends feedback only.
         })
         .catch(err => {
           console.error('Error triggering WhatsApp messages:', err.message);
@@ -268,8 +258,13 @@ export async function updateStatus(req, res) {
 
     // Email & WhatsApp: booking scheduled (Requested → Scheduled)
     if (status === 'Scheduled' && currentAppt?.status === 'Requested' && appt?.patient_id) {
-      req.tenantModels.Patient.findById(appt.patient_id).lean()
-        .then(patient => {
+      Promise.all([
+        req.tenantModels.Patient.findById(appt.patient_id).lean(),
+        appt.doctor_id && req.tenantModels.Doctor
+          ? req.tenantModels.Doctor.findById(appt.doctor_id).select('name').lean()
+          : Promise.resolve(null),
+      ])
+        .then(([patient, doctor]) => {
           if (!patient) return;
           triggerBookingConfirmed({ tenantModels: req.tenantModels, patient, appointment: appt, serviceName: appt.type });
 
@@ -291,17 +286,25 @@ export async function updateStatus(req, res) {
             const firstName = patient.first_name;
             const name = `${firstName} ${patient.last_name || ''}`.trim();
             const startInstant = new Date(appt.start_time);
+            const apptDate = startInstant.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', year: 'numeric', month: 'long', day: 'numeric' });
+            const apptTime = startInstant.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
             const data = {
               name,
               firstName,
               patientId: patient.patientId,
               mobile: phone,
-              appointmentDate: startInstant.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', year: 'numeric', month: 'long', day: 'numeric' }),
-              appointmentTime: startInstant.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }),
+              // date/time are the names every other appointment event uses; the
+              // appointmentDate/appointmentTime aliases are kept so templates already
+              // written against the old names keep resolving.
+              date: apptDate,
+              time: apptTime,
+              appointmentDate: apptDate,
+              appointmentTime: apptTime,
+              doctorName: doctor?.name || 'Doctor',
               appointmentType: appt.type || 'Consultation',
             };
             triggerWhatsApp(req.tenantModels, req.user.tenantId, process.env.WAAPI_BASE_URL,
-              'appointmentScheduled', phone, data, patient._id.toString(), appt.whatsapp_language,
+              'appointmentScheduled', phone, data, patient._id.toString(), patient.whatsapp_language || null,
               null, null, `apptScheduled:${appt._id}`);
           }
         })
@@ -355,10 +358,19 @@ export async function updateAppointment(req, res) {
 
     const appt = await Appointment.findByIdAndUpdate(req.params.id, req.body, { new: true });
 
+    // Write the (possibly changed) appointment language through to the patient —
+    // latest edit wins, same as create. Only when the field was part of this update.
+    if (req.body.whatsapp_language && appt?.patient_id) {
+      req.tenantModels.Patient.updateOne(
+        { _id: appt.patient_id },
+        { $set: { whatsapp_language: req.body.whatsapp_language } }
+      ).catch(err => console.error('[Appointment] patient language write-through failed:', err.message));
+    }
+
     // Fire-and-forget WhatsApp notification if start_time changed
     if (req.body.start_time && appt?.patient_id) {
       Promise.all([
-        req.tenantModels.Patient.findById(appt.patient_id).select('first_name last_name contact patientId').lean(),
+        req.tenantModels.Patient.findById(appt.patient_id).select('first_name last_name contact patientId whatsapp_language').lean(),
         req.tenantModels.Doctor ? req.tenantModels.Doctor.findById(appt.doctor_id).select('name').lean() : Promise.resolve(null),
       ])
         .then(([patient, doctor]) => {
@@ -387,7 +399,9 @@ export async function updateAppointment(req, res) {
               appointmentType: appt.type || 'Consultation',
             },
             patient._id.toString(),
-            appt.whatsapp_language || null,
+            // appt is the freshly-updated doc (findByIdAndUpdate {new:true}), so its
+            // language is authoritative and doesn't race the patient write-through.
+            appt.whatsapp_language || patient.whatsapp_language || null,
             null,
             null,
             `apptRescheduled:${appt._id.toString()}:${new Date(appt.start_time).getTime()}`

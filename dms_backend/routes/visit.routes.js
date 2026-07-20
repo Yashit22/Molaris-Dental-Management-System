@@ -48,7 +48,7 @@ router.delete('/:visitId/treatments/:treatmentId', deleteTreatment);
 // Prescriptions
 router.post('/patient/:patientId/prescription', addPrescription);
 
-// AI autofill — bulk add treatments to today's visit
+// Bulk add treatments to today's visit
 router.post('/patient/:patientId/treatments', addTreatments);
 router.patch('/:visitId/prescriptions/:prescriptionId', updatePrescription);
 router.delete('/:visitId/prescriptions/:prescriptionId', deletePrescription);

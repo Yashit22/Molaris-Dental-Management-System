@@ -98,22 +98,6 @@ function ReportDisplay({ text }) {
   );
 }
 
-function Toggle({ checked, onChange }) {
-  return (
-    <button
-      type="button"
-      onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-        checked ? 'bg-[#137fec]' : 'bg-slate-200'
-      }`}
-    >
-      <span className={`inline-block size-4 rounded-full bg-white shadow transition-transform ${
-        checked ? 'translate-x-6' : 'translate-x-1'
-      }`} />
-    </button>
-  );
-}
-
 // ── Audio waveform visualizer ──────────────────────────────────────────────────
 function WaveformBar({ analyserRef, active }) {
   const canvasRef = useRef(null);
@@ -197,7 +181,6 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
   const [isEditingReport, setIsEditingReport] = useState(false);
   const [streamingText, setStreamingText] = useState('');
   const [driveLinks, setDriveLinks]     = useState({});
-  const [autofillData, setAutofillData] = useState(null);
   const [templateId, setTemplateId]     = useState('');
   const [error, setError]               = useState('');
   const [textInput, setTextInput]       = useState('');
@@ -220,7 +203,6 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
   const [selectedTemplate, setSelectedTemplate]     = useState(null);
   const [detailLevel, setDetailLevel]               = useState('standard');
   const [saveReport, setSaveReport]                 = useState(true);
-  const [autofillEnabled, setAutofillEnabled]       = useState(false);
 
   // Playback preview state
   const [playbackUrl, setPlaybackUrl]               = useState(null);
@@ -324,14 +306,12 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
     setIsEditingReport(false);
     setStreamingText('');
     setDriveLinks({});
-    setAutofillData(null);
     setTemplateId('');
     setError('');
     setMinimized(false);
     setSelectedTemplate(null);
     setDetailLevel('standard');
     setSaveReport(true);
-    setAutofillEnabled(false);
     setTextInput('');
     setJobId(null);
     setCachedTranscript(false);
@@ -601,7 +581,6 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
       template_id:  selectedTemplate.id,
       detail_level: detailLevel,
       save_report:  String(saveReport),
-      autofill:     String(autofillEnabled),
       ...(appointmentId ? { appointment_id: appointmentId } : {}),
       ...overrides,
     };
@@ -741,7 +720,6 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
         template_id:  selectedTemplate?.id,
         detail_level: detailLevel,
         save_report:  String(saveReport),
-        autofill:     String(autofillEnabled),
         ...(transcriptOverride != null ? { transcript: transcriptOverride } : {}),
       }, controller.signal);
 
@@ -761,13 +739,11 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
       setStreamingText('');
       setTranscript(finalData?.transcript || transcript);
       setDriveLinks(finalData?.drive_links || {});
-      setAutofillData(finalData?.autofill_v2 || null);
       setTemplateId(resolvedTemplateId);
       setIsEditingTranscript(false);
       setStage('done');
       setMinimized(false);
 
-      if (autofillEnabled && finalData?.autofill_v2) await applyAutofill(finalData.autofill_v2);
       onSuccess?.();
     } catch (err) {
       if (err.name === 'AbortError') return;
@@ -795,62 +771,6 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
       setError(err.response?.data?.error || err.message || 'Unknown error');
       setStage('idle');
     }
-  }
-
-  async function applyAutofill(payload) {
-    const calls = [];
-    const patientUpdate = {};
-    if (payload.chief_complaint) patientUpdate.chief_complaint = payload.chief_complaint;
-    if (payload.dental_history)  patientUpdate.dental_history  = payload.dental_history;
-    if (Array.isArray(payload.medical_history) && payload.medical_history.length > 0) {
-      const existing = patient?.medical_history || [];
-      patientUpdate.medical_history = Array.from(new Set([...existing, ...payload.medical_history]));
-    }
-    if (Object.keys(patientUpdate).length > 0) calls.push(API.put(`/patients/${patientId}`, patientUpdate));
-    // appointment_id links the auto-created visit to this appointment (no same-day guess).
-    if (payload.consultation_note) calls.push(API.post(`/visits/patient/${patientId}/note`, { content: payload.consultation_note, appointment_id: appointmentId || null }));
-    const adviceHtml = payload.advice || (Array.isArray(payload.advices) ? payload.advices.filter(Boolean).join('') : '');
-    if (adviceHtml) calls.push(API.post(`/visits/patient/${patientId}/advice`, { content: adviceHtml, appointment_id: appointmentId || null }));
-    if (Array.isArray(payload.treatment_plan) && payload.treatment_plan.length > 0) {
-      payload.treatment_plan.forEach(t => {
-        calls.push(API.post(`/visits/patient/${patientId}/treatments`, {
-          appointment_id: appointmentId || null,
-          treatments: [{
-            treatment_name: [t.suggested_treatment, t.diagnosis].filter(Boolean).join(' — ') || 'Treatment',
-            teeth_numbers: Array.isArray(t.tooth_numbers) ? t.tooth_numbers.map(String) : [],
-            cost: Number(t.estimated_price) || 0,
-            qty: 1,
-            status: 'Planned',
-          }],
-        }));
-      });
-    }
-    (payload.medications || []).forEach(m => {
-      if (m?.drug_name) {
-        calls.push(API.post(`/visits/patient/${patientId}/prescription`, {
-          drug_name: m.drug_name, dosage: m.dosage || '',
-          duration: m.duration || '', instructions: m.instructions || '',
-          appointment_id: appointmentId || null,
-        }));
-      }
-    });
-    const recallDays = Number(payload.recall?.days_later);
-    if (recallDays > 0 && user?._id && patient) {
-      const start = new Date(Date.now() + recallDays * 24 * 60 * 60 * 1000);
-      start.setHours(10, 0, 0, 0);
-      const end = new Date(start.getTime() + 30 * 60 * 1000);
-      calls.push(API.post('/appointments', {
-        patient_id: patientId, doctor_id: user._id,
-        start_time: start.toISOString(), end_time: end.toISOString(),
-        title: `Recall - ${patient.first_name || ''} ${patient.last_name || ''}`.trim(),
-        type: 'Consultation', status: 'Scheduled', room_number: 'Room 1',
-        notes: payload.recall?.notes || 'AI-scheduled recall',
-      }));
-    }
-    if (calls.length === 0) return;
-    const results = await Promise.allSettled(calls);
-    const failures = results.filter(r => r.status === 'rejected');
-    if (failures.length > 0) console.warn('[Autofill] Some endpoints failed:', failures.map(f => f.reason?.message));
   }
 
   if (!isOpen) return null;
@@ -997,39 +917,6 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
                       <Save size={14} className="text-slate-400" />
                       <span className="text-sm font-medium text-slate-700">Save to Connect Cloud</span>
                     </label>
-
-                    <div onClick={() => setAutofillEnabled(v => !v)}
-                      className={`rounded-xl border-2 p-4 cursor-pointer transition-all ${
-                        autofillEnabled
-                          ? 'border-[#137fec] bg-blue-50/60 shadow-sm shadow-blue-100'
-                          : 'border-slate-200 bg-slate-50 hover:border-slate-300'
-                      }`}>
-                      <div className="flex items-center justify-between gap-4">
-                        <div className="flex items-start gap-3">
-                          <div className={`mt-0.5 size-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${
-                            autofillEnabled ? 'bg-[#137fec] text-white' : 'bg-white border border-slate-200 text-slate-400'
-                          }`}>
-                            <Sparkles size={16} />
-                          </div>
-                          <div>
-                            <p className={`font-semibold text-sm ${autofillEnabled ? 'text-[#137fec]' : 'text-slate-700'}`}>
-                              Auto-fill Treatment Page
-                            </p>
-                            <p className="hidden sm:block text-xs text-slate-500 mt-0.5 leading-relaxed">
-                              Consultation note, patient advice, and treatment plan entries will be auto-filled from the dictation.
-                            </p>
-                          </div>
-                        </div>
-                        <Toggle checked={autofillEnabled} onChange={setAutofillEnabled} />
-                      </div>
-                      {autofillEnabled && (
-                        <div className="mt-3 pt-3 border-t border-blue-100 flex flex-wrap gap-2">
-                          {['Clinical History', 'Notes', 'Advice', 'Treatments', 'Medications', 'Recall'].map(s => (
-                            <span key={s} className="text-[11px] bg-[#137fec]/10 text-[#137fec] px-2.5 py-1 rounded-full font-medium">{s}</span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
                   </div>
 
                   <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
@@ -1256,7 +1143,7 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
                   <div>
                     <p className="text-slate-700 font-semibold text-sm">Generating {selectedTemplate?.name || 'report'}…</p>
                     <p className="text-slate-400 text-xs mt-0.5">
-                      {autofillEnabled ? 'Will auto-fill treatment page after generation.' : 'Saving to Connect Cloud after generation.'}
+                      Saving to Connect Cloud after generation.
                     </p>
                   </div>
                 </div>
@@ -1324,37 +1211,6 @@ export default function ClinicalReportModal({ isOpen, onClose, patientId, appoin
                   >
                     <ExternalLink size={11} /> {selectedTemplate?.name || 'Report'}
                   </button>
-                </div>
-              )}
-
-              {autofillEnabled && autofillData && (
-                <div className="bg-[#137fec]/5 border border-[#137fec]/20 rounded-xl p-4">
-                  <p className="text-sm font-semibold text-[#137fec] flex items-center gap-1.5 mb-1">
-                    <Sparkles size={14} /> Treatment Page Auto-filled
-                  </p>
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {autofillData.chief_complaint && (
-                      <span className="text-[11px] bg-[#137fec]/10 text-[#137fec] px-2.5 py-1 rounded-full font-medium flex items-center gap-1"><CheckCircle size={10} /> Chief Complaint</span>
-                    )}
-                    {autofillData.medical_history?.length > 0 && (
-                      <span className="text-[11px] bg-[#137fec]/10 text-[#137fec] px-2.5 py-1 rounded-full font-medium flex items-center gap-1"><CheckCircle size={10} /> Medical History</span>
-                    )}
-                    {autofillData.consultation_note && (
-                      <span className="text-[11px] bg-[#137fec]/10 text-[#137fec] px-2.5 py-1 rounded-full font-medium flex items-center gap-1"><CheckCircle size={10} /> Consultation Note</span>
-                    )}
-                    {(autofillData.advice || autofillData.advices?.length > 0) && (
-                      <span className="text-[11px] bg-[#137fec]/10 text-[#137fec] px-2.5 py-1 rounded-full font-medium flex items-center gap-1"><CheckCircle size={10} /> Advice</span>
-                    )}
-                    {autofillData.treatment_plan?.length > 0 && (
-                      <span className="text-[11px] bg-[#137fec]/10 text-[#137fec] px-2.5 py-1 rounded-full font-medium flex items-center gap-1"><CheckCircle size={10} /> {autofillData.treatment_plan.length} Treatment{autofillData.treatment_plan.length > 1 ? 's' : ''}</span>
-                    )}
-                    {autofillData.medications?.length > 0 && (
-                      <span className="text-[11px] bg-[#137fec]/10 text-[#137fec] px-2.5 py-1 rounded-full font-medium flex items-center gap-1"><CheckCircle size={10} /> {autofillData.medications.length} Medication{autofillData.medications.length > 1 ? 's' : ''}</span>
-                    )}
-                    {Number(autofillData.recall?.days_later) > 0 && (
-                      <span className="text-[11px] bg-[#137fec]/10 text-[#137fec] px-2.5 py-1 rounded-full font-medium flex items-center gap-1"><CheckCircle size={10} /> Recall in {autofillData.recall.days_later}d</span>
-                    )}
-                  </div>
                 </div>
               )}
 

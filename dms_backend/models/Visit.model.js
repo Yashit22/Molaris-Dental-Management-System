@@ -35,6 +35,12 @@ const VisitSchema = new mongoose.Schema({
     cost:   { type: Number, default: 0 },
     qty:    { type: Number, default: 1 },
     status: { type: String, enum: ['Planned', 'In Progress', 'Completed', 'Cancelled'], default: 'Planned' },
+    // Status-transition timestamps, stamped in updateTreatmentStatus. planned_at
+    // defaults at creation; started_at/completed_at are set when the treatment
+    // first enters that stage. Used by the Kanban board to show date ranges.
+    planned_at:    { type: Date, default: Date.now },
+    started_at:    { type: Date, default: null },
+    completed_at:  { type: Date, default: null },
     invoice_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Invoice', default: null },
     journey_started: { type: Boolean, default: false },
     consumables_used: [{

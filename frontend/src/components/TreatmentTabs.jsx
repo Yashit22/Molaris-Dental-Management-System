@@ -53,13 +53,87 @@ const useStatusMap = (visits, activeTab) => {
 };
 
 
+// --- HELPER: Today's clinical content, per tooth ---
+// Powers the hover tooltip: what was charted on this tooth TODAY (findings,
+// diagnoses, treatments). Keyed by tooth as a STRING — teeth_numbers are stored as
+// strings while the chart's tooth ids are numbers.
+const useToothDetails = (visits) => {
+  return useMemo(() => {
+    const map = {};
+    const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+
+    const bucket = (tooth) => {
+      const key = String(tooth);
+      if (!map[key]) map[key] = { findings: [], diagnoses: [], treatments: [] };
+      return map[key];
+    };
+
+    visits
+      .filter(v => new Date(v.date) >= startOfDay)
+      .forEach(visit => {
+        (visit.findings?.tooth_findings || []).forEach(f => {
+          (f.teeth_numbers || []).forEach(t => {
+            const b = bucket(t);
+            if (!b.findings.includes(f.name)) b.findings.push(f.name);
+          });
+        });
+        (visit.findings?.tooth_diagnoses || []).forEach(d => {
+          (d.teeth_numbers || []).forEach(t => {
+            const b = bucket(t);
+            if (!b.diagnoses.includes(d.name)) b.diagnoses.push(d.name);
+          });
+        });
+        (visit.treatments || []).forEach(t => {
+          if (t.treatment_name === 'Missing') return;
+          (t.teeth_numbers || []).forEach(tooth => {
+            const b = bucket(tooth);
+            if (!b.treatments.some(x => x.name === t.treatment_name)) {
+              b.treatments.push({ name: t.treatment_name, status: t.status, cost: t.cost });
+            }
+          });
+        });
+      });
+
+    return map;
+  }, [visits]);
+};
+
+// --- Sub-Component: per-tooth hover tooltip ---
+const ToothTooltip = ({ detail }) => {
+  if (!detail) return null;
+  const { findings, diagnoses, treatments } = detail;
+  if (!findings.length && !diagnoses.length && !treatments.length) return null;
+
+  return (
+    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 hidden group-hover:block pointer-events-none">
+      <div className="bg-slate-800 text-white rounded-lg shadow-xl px-3 py-2 w-max max-w-[220px] text-left">
+        <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1">Today</p>
+        {findings.map((f, i) => (
+          <p key={`f${i}`} className="text-[11px] leading-snug"><span className="text-slate-400">Finding:</span> {f}</p>
+        ))}
+        {diagnoses.map((d, i) => (
+          <p key={`d${i}`} className="text-[11px] leading-snug"><span className="text-slate-400">Dx:</span> {d}</p>
+        ))}
+        {treatments.map((t, i) => (
+          <p key={`t${i}`} className="text-[11px] leading-snug">
+            <span className="text-slate-400">Tx:</span> {t.name}
+            {t.cost > 0 && <span className="text-slate-300"> · ₹{t.cost.toLocaleString('en-IN')}</span>}
+          </p>
+        ))}
+        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" />
+      </div>
+    </div>
+  );
+};
+
 // --- Sub-Component: Dental Chart ---
-const DentalChart = ({ selectedItems, onSelectionChange, dentition, setDentition, lockedDentition = null, visits = [], onContextMenuAction }) => {
-  const [contextMenu, setContextMenu] = useState(null); 
+const DentalChart = ({ selectedItems, onSelectionChange, dentition, setDentition, lockedDentition = null, visits = [], onContextMenuAction, highlightTeeth = [] }) => {
+  const [contextMenu, setContextMenu] = useState(null);
   const menuRef = useRef(null);
-  
+
   // Use the Hook for Logic
-  const statusMap = useStatusMap(visits, 'Dental Chart');
+  const statusMap    = useStatusMap(visits, 'Dental Chart');
+  const toothDetails = useToothDetails(visits);
 
   useEffect(() => {
     const handleClick = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setContextMenu(null); };
@@ -92,13 +166,18 @@ const DentalChart = ({ selectedItems, onSelectionChange, dentition, setDentition
         const statuses = statusMap[id] || [];
         const isSelected = selectedItems.includes(id);
         const isMissing = statuses.includes('Missing');
-        
+        // Teeth a hovered draft entry refers to — glow so the dentist can verify the
+        // entry against the chart by glancing rather than reading tooth numbers.
+        const isHighlighted = highlightTeeth.includes(String(id));
+        const detail = toothDetails[String(id)];
+
         return (
           <div key={id} className="flex flex-col items-center gap-2 cursor-pointer min-w-[50px] sm:min-w-[60px] group relative" onClick={() => onSelectionChange(id)} onContextMenu={(e) => handleRightClick(e, id)}>
-            <button type="button" className={`w-[50px] sm:w-[60px] md:w-[70px] bg-transparent border-none p-0 cursor-pointer transition-transform duration-300 transform group-hover:scale-110 ${isSelected ? 'drop-shadow-lg scale-110' : ''}`}>
+            <ToothTooltip detail={detail} />
+            <button type="button" className={`w-[50px] sm:w-[60px] md:w-[70px] bg-transparent border-none p-0 cursor-pointer transition-all duration-300 transform group-hover:scale-110 ${isSelected ? 'drop-shadow-lg scale-110' : ''} ${isHighlighted ? 'scale-110 drop-shadow-[0_0_10px_rgba(19,127,236,0.9)]' : ''}`}>
               <img src={getImageSrc(dentition, id)} alt={`Tooth ${id}`} className="w-full h-auto object-contain transition-opacity duration-300" loading="lazy" style={{ opacity: isMissing ? 0.3 : 1 }} />
             </button>
-            <span className={`font-[Montserrat] font-medium text-[12px] sm:text-[14px] md:text-[16px] h-[24px] w-[24px] sm:h-[28px] sm:w-[28px] flex items-center justify-center rounded-full transition-colors duration-300 mt-2 sm:mt-4 ${isSelected ? 'bg-[#137fec] text-white shadow-md' : statuses.length > 0 ? `${getStatusColor(statuses)} text-[#1D2D39] shadow-sm` : 'text-[#1D2D39] bg-transparent group-hover:bg-gray-100'}`}>
+            <span className={`font-[Montserrat] font-medium text-[12px] sm:text-[14px] md:text-[16px] h-[24px] w-[24px] sm:h-[28px] sm:w-[28px] flex items-center justify-center rounded-full transition-colors duration-300 mt-2 sm:mt-4 ${isHighlighted ? 'bg-[#137fec] text-white shadow-md ring-2 ring-[#137fec]/40' : isSelected ? 'bg-[#137fec] text-white shadow-md' : statuses.length > 0 ? `${getStatusColor(statuses)} text-[#1D2D39] shadow-sm` : 'text-[#1D2D39] bg-transparent group-hover:bg-gray-100'}`}>
               {id}
             </span>
           </div>
@@ -286,7 +365,7 @@ const currentApptId = (visits) => {
   return (typeof v.appointment_id === 'object' ? v.appointment_id?._id : v.appointment_id) || null;
 };
 
-const TreatmentTabs = ({ onTreatmentAdded, visits = [], patientId, appointmentId = null, initialDentition = 'Adult' }) => {
+const TreatmentTabs = ({ onTreatmentAdded, visits = [], patientId, appointmentId = null, initialDentition = 'Adult', highlightTeeth = [] }) => {
   // Every /visits write below stamps this so the visit links to the appointment
   // (documents are matched by appointment_id — no same-day guessing).
   const apptId = appointmentId || currentApptId(visits);
@@ -451,6 +530,7 @@ const TreatmentTabs = ({ onTreatmentAdded, visits = [], patientId, appointmentId
             lockedDentition={lockedDentition}
             visits={visits}
             onContextMenuAction={handleContextMenuAction}
+            highlightTeeth={highlightTeeth}
           />
         )}
         {activeTab === 'Soft Tissue' && (

@@ -16,6 +16,7 @@ import NewInvoiceModal from '../modals/NewInvoiceModal.jsx';
 import ClinicalReportModal from '../modals/ClinicalReportModal.jsx';
 import VisitDocumentsModal from '../modals/VisitDocumentsModal.jsx';
 import TreatmentTabs from '../components/TreatmentTabs.jsx';
+// import AssessmentDictation from '../components/AssessmentDictation.jsx'; // re-enable with the dictation button below
 import TreatmentPlanBoard from '../components/TreatmentPlanBoard.jsx';
 import ReportsNotesSection from '../components/ReportNotesSection.jsx';
 import MedicationsPanel from '../components/MedicationsPanel.jsx';
@@ -981,6 +982,9 @@ export default function TreatmentPage({ patientIdProp }) {
   const [concludingAppointment, setConcludingAppointment] = useState(null);
   const [pageBanner, setPageBanner] = useState(null); // { type: 'success'|'error', msg: string }
   const [activeTab, setActiveTab]           = useState('assessment');
+  // Teeth to glow on the chart — set while hovering a draft entry in the dictation
+  // review drawer, so an entry can be verified against the chart at a glance.
+  const [highlightTeeth, setHighlightTeeth] = useState([]);
   const [visitInvoice, setVisitInvoice]     = useState(null); // the single invoice for the current visit
   const invoiceModalRef                     = useRef(null);
 
@@ -1269,20 +1273,33 @@ export default function TreatmentPage({ patientIdProp }) {
 
         {/* ── Tab: Assessment ── */}
         {activeTab === 'assessment' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            <ClinicalHistory
-              patient={patient}
-              currentVisit={visits[0] || null}
-              onSaveHistory={handleSaveHistory}
-              onSaveVisitComplaint={handleSaveVisitComplaint}
-            />
-            <TreatmentTabs
-              onTreatmentAdded={fetchPageData}
-              visits={visits}
+          <div>
+            {/* AI assessment dictation — hidden for now. Uncomment to re-enable;
+                the backend (/api/assessment/autofill) and the component are intact. */}
+            {/* <AssessmentDictation
               patientId={id}
+              patient={patient}
               appointmentId={activeApptId}
-              initialDentition={patient?.dentition_type || 'Adult'}
-            />
+              currentVisit={visits[0] || null}
+              onHighlightTeeth={setHighlightTeeth}
+              onCommitted={fetchPageData}
+            /> */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <ClinicalHistory
+                patient={patient}
+                currentVisit={visits[0] || null}
+                onSaveHistory={handleSaveHistory}
+                onSaveVisitComplaint={handleSaveVisitComplaint}
+              />
+              <TreatmentTabs
+                onTreatmentAdded={fetchPageData}
+                visits={visits}
+                patientId={id}
+                appointmentId={activeApptId}
+                initialDentition={patient?.dentition_type || 'Adult'}
+                highlightTeeth={highlightTeeth}
+              />
+            </div>
           </div>
         )}
 

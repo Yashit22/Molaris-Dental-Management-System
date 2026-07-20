@@ -77,16 +77,24 @@ export async function getPatients(req, res) {
     let query = {};
     
     if (search) {
+      // Escape regex metacharacters so user input can't break the query or inject regex
+      const safe = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // Anchored (^) prefix match on indexed fields -> index range seek instead of a full collection scan.
+      const prefix = new RegExp('^' + safe, 'i');
+      // Phone stays an unanchored substring so searching by the last few digits still works.
+      const phone = new RegExp(safe, 'i');
       query = {
         $or: [
-          { first_name: { $regex: search, $options: 'i' } },
-          { 'contact.mobile': { $regex: search, $options: 'i' } },
-          { patientId: { $regex: search, $options: 'i' } }
+          { first_name: prefix },
+          { last_name: prefix },
+          { patientId: prefix },
+          { 'contact.mobile': phone }
         ]
       };
     }
-    
-    const patients = await Patient.find(query).sort({ updatedAt: -1 });
+
+    // limit(10): the search dropdown only shows a handful; stop scanning once we have enough.
+    const patients = await Patient.find(query).sort({ updatedAt: -1 }).limit(10);
     res.json(patients);
   } catch (err) { res.status(500).json({ error: err.message }); }
 }

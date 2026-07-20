@@ -23,6 +23,17 @@ const InvoiceSchema = new mongoose.Schema({
   }],
 
   subtotal:     Number,
+  // Overall invoice discount. `type` picks how `value` is interpreted; `amount`
+  // is the resolved rupee amount subtracted from subtotal (stored so historical
+  // invoices don't re-derive against changed settings).
+  discount: {
+    type:   { type: String, enum: ['percent', 'flat'], default: 'flat' },
+    value:  { type: Number, default: 0 },
+    amount: { type: Number, default: 0 },
+  },
+  // GST/tax applied to the post-discount base. `ratePct` is the rate used at
+  // creation time; `tax` is the resolved rupee amount.
+  taxRatePct:   { type: Number, default: 0 },
   tax:          { type: Number, default: 0 },
   total_amount: { type: Number, required: true },
 

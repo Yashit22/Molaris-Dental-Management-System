@@ -1,5 +1,6 @@
+import mongoose from 'mongoose';
 import { uploadFile, deleteFile } from '../services/cloudinary.service.js';
-import { buildMessage, sendToWAAPI, normalizePhone } from '../services/whatsapp.service.js';
+import { buildMessage, sendToWAAPI, normalizePhone, triggerWhatsApp } from '../services/whatsapp.service.js';
 import { getTransporter, buildEmailMessage, sendEmail } from '../services/email.service.js';
 import { buildSingleDocPdf } from '../services/documentPdf.service.js';
 
@@ -135,17 +136,24 @@ export async function getTemplates(req, res) {
 export async function createTemplate(req, res) {
   const { WhatsAppTemplate } = req.tenantModels;
   try {
-    const { event, language, isActive } = req.body;
+    const { event, language } = req.body;
 
-    if (isActive !== false) {
-      await WhatsAppTemplate.updateMany(
-        { event, language, isActive: true },
-        { $set: { isActive: false } }
-      );
+    if (!event || !language) {
+      return res.status(400).json({ error: 'event and language are required' });
     }
 
-    const template = await new WhatsAppTemplate(req.body).save();
-    res.status(201).json(template);
+    // Exactly one template per (event, language). Saving the same pair again REPLACES
+    // it rather than inserting another row — previously this deactivated the old one
+    // and inserted a new one, quietly accumulating a dead duplicate on every edit.
+    const existing = await WhatsAppTemplate.findOne({ event, language });
+
+    const template = await WhatsAppTemplate.findOneAndUpdate(
+      { event, language },
+      { ...req.body, event, language },
+      { new: true, upsert: true, setDefaultsOnInsert: true, runValidators: true }
+    );
+
+    res.status(existing ? 200 : 201).json(template);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -155,13 +163,18 @@ export async function createTemplate(req, res) {
 export async function updateTemplate(req, res) {
   const { WhatsAppTemplate } = req.tenantModels;
   try {
-    const { event, language, isActive } = req.body;
+    const { event, language } = req.body;
 
-    if (isActive === true) {
-      await WhatsAppTemplate.updateMany(
-        { event, language, isActive: true, _id: { $ne: req.params.id } },
-        { $set: { isActive: false } }
-      );
+    // Editing must not collide with another (event, language) — that pair is unique.
+    if (event && language) {
+      const clash = await WhatsAppTemplate.findOne({
+        event, language, _id: { $ne: req.params.id },
+      });
+      if (clash) {
+        return res.status(409).json({
+          error: `A ${language} template already exists for ${event}. Edit that one instead.`,
+        });
+      }
     }
 
     const template = await WhatsAppTemplate.findByIdAndUpdate(
@@ -400,14 +413,22 @@ export async function handlePollResponse(req, res) {
     }
 
     const tenantConn = await getTenantConnection(tenant.mongoUri, tenant.mongoDbName);
+    const tenantModels = getTenantModels(tenantConn);
     const { PollResponse, Patient, WhatsAppLog } = tenantModels;
 
-    // Parse rating from selectedOption (e.g., "4-Satisfied" → 4)
-    const ratingMatch = selectedOption.match(/^(\d)/);
-    if (!ratingMatch) {
-      return res.status(400).json({ error: 'Invalid selectedOption format' });
+    // Resolve the rating (1-5). Prefer selectedIndex — it's language-independent, so
+    // Hindi/Marathi polls whose option labels are not prefixed with a Latin digit still
+    // resolve. Fall back to parsing a leading digit off selectedOption (e.g. "4 - Satisfied").
+    let rating = null;
+    if (Number.isInteger(selectedIndex) && selectedIndex >= 0 && selectedIndex <= 4) {
+      rating = selectedIndex + 1;
+    } else {
+      const ratingMatch = typeof selectedOption === 'string' ? selectedOption.match(/(\d)/) : null;
+      if (ratingMatch) rating = parseInt(ratingMatch[1], 10);
     }
-    const rating = parseInt(ratingMatch[1], 10);
+    if (!rating || rating < 1 || rating > 5) {
+      return res.status(400).json({ error: 'Could not resolve rating from poll response' });
+    }
 
     // Map rating to feedbackType
     const feedbackTypeMap = {
@@ -577,6 +598,77 @@ export async function sendFeedbackPoll(req, res) {
   }
 }
 
+// POST /api/whatsapp/feedback/manual/:appointmentId
+// Sends the manually-configured feedback template ('feedbackManual') to the patient of a
+// completed appointment. Used when the feedback automations are toggled off and the dentist
+// picks per-patient who gets a feedback request. Bypasses the automation toggles by design —
+// the click IS the authorization.
+export async function sendManualFeedback(req, res) {
+  const { Appointment, Patient, Doctor } = req.tenantModels;
+  try {
+    if (!mongoose.isValidObjectId(req.params.appointmentId)) {
+      return res.status(404).json({ error: 'Appointment not found' });
+    }
+    const appt = await Appointment.findById(req.params.appointmentId).lean();
+    if (!appt) return res.status(404).json({ error: 'Appointment not found' });
+    if (appt.status !== 'Completed') {
+      return res.status(400).json({ error: 'Feedback can only be sent for completed appointments' });
+    }
+
+    const [patient, doctor] = await Promise.all([
+      Patient.findById(appt.patient_id).select('first_name last_name contact patientId').lean(),
+      appt.doctor_id ? Doctor.findById(appt.doctor_id).select('name').lean() : Promise.resolve(null),
+    ]);
+
+    if (!patient?.contact?.mobile) {
+      return res.status(400).json({ error: 'Patient has no mobile number on file' });
+    }
+
+    const phone = normalizePhone(patient.contact.mobile);
+    const firstName = patient.first_name;
+    const startInstant = new Date(appt.start_time);
+
+    const data = {
+      name: `${firstName} ${patient.last_name || ''}`.trim(),
+      firstName,
+      patientId: patient.patientId,
+      mobile: phone,
+      date: startInstant.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', year: 'numeric', month: 'long', day: 'numeric' }),
+      time: startInstant.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }),
+      doctorName: doctor?.name || 'Doctor',
+    };
+
+    const result = await triggerWhatsApp(
+      req.tenantModels,
+      req.user.tenantId,
+      process.env.WAAPI_BASE_URL,
+      'feedbackManual',
+      phone,
+      data,
+      patient._id.toString(),
+      appt.whatsapp_language || null,
+      null,
+      appt._id.toString(),
+      `feedbackManual:${appt._id}`,
+      { force: true }
+    );
+
+    if (!result.ok) {
+      const messages = {
+        waapi_not_configured: 'WhatsApp gateway is not configured',
+        no_message: 'No manual feedback message is configured. Set one up in WhatsApp → Messages → Manual Feedback.',
+        send_failed: result.error || 'Failed to send message',
+      };
+      console.warn(`[ManualFeedback] not sent (${result.reason}) for appt ${appt._id}`);
+      return res.status(400).json({ error: messages[result.reason] || 'Failed to send feedback message' });
+    }
+
+    res.json({ ok: true, status: result.status, to: phone });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 // ─── Send AI Report via WhatsApp ──────────────────────────────────────────
 
 export async function sendReportWhatsApp(req, res) {
@@ -598,6 +690,7 @@ export async function sendReportWhatsApp(req, res) {
     const waapiBaseUrl = process.env.WAAPI_BASE_URL || 'https://api.example.com';
     const doctorName = req.user?.name || 'Attending Doctor';
     const today = new Date().toLocaleDateString('en-GB', {
+      timeZone: 'Asia/Kolkata',
       day: 'numeric',
       month: 'long',
       year: 'numeric',

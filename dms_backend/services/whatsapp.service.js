@@ -45,7 +45,16 @@ function formatTimeIST(date) {
 
 function replacePlaceholders(str, data) {
   if (typeof str !== 'string') return str;
-  return str.replace(/\{\{(\w+)\}\}/g, (_, key) => data[key] ?? `{{${key}}}`);
+  return str.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+    const value = data[key];
+    if (value === undefined || value === null) {
+      // An unknown placeholder must never reach the patient as literal "{{doctor}}".
+      // Resolve it to empty and log loudly so the bad template gets noticed.
+      console.warn(`[WhatsApp] Unknown template variable {{${key}}} — sent as empty. Known: ${Object.keys(data).join(', ')}`);
+      return '';
+    }
+    return value;
+  });
 }
 
 function replacePlaceholdersDeep(obj, data) {
@@ -153,50 +162,78 @@ export function buildContent(contentType, templateContent, data) {
  * @param {object} data          placeholder values
  * @param {string} [explicitLang]
  * @param {Date|string} [appointmentStartTime] appointment start for reminder scheduling
+ * @param {object} [opts]
+ * @param {boolean} [opts.force]  bypass the enabled/event-toggle gates (manual, user-initiated sends)
  * @returns {object|null}        WAAPI payload (without .to)
  */
-export async function buildMessage(tenantModels, tenantId, eventType, data, explicitLang, appointmentStartTime) {
+export async function buildMessage(tenantModels, tenantId, eventType, data, explicitLang, appointmentStartTime, opts = {}) {
   const { WhatsAppSettings, WhatsAppTemplate, PollTemplate } = tenantModels;
+  const force = opts.force === true;
 
   const settings = await WhatsAppSettings.findOne({}).lean();
-  console.log(`[WhatsApp] buildMessage: event=${eventType}, settingsEnabled=${settings?.enabled}`);
-  if (!settings?.enabled) return null;
+  console.log(`[WhatsApp] buildMessage: event=${eventType}, settingsEnabled=${settings?.enabled}, force=${force}`);
+  if (!settings?.enabled && !force) return null;
 
-  const eventConfig = settings.events?.[eventType];
+  const eventConfig = settings?.events?.[eventType];
   console.log(`[WhatsApp] Event config for ${eventType}:`, eventConfig);
-  if (!eventConfig?.enabled) return null;
+  if (!eventConfig?.enabled && !force) return null;
 
   let content, contentType;
 
-  // Special handling for feedbackPoll — use PollTemplate
-  if (eventType === 'feedbackPoll') {
-    const pollTemplateId = eventConfig.pollTemplateId;
-    if (!pollTemplateId) {
-      console.log(`[WhatsApp] feedbackPoll enabled but no pollTemplateId configured`);
+  // Language resolution chain — deduplicated. Shared by text templates AND polls so
+  // every message for an appointment goes out in that appointment's language
+  // (explicitLang = appointment.whatsapp_language).
+  const chain = [];
+  const push  = (l) => { if (l && !chain.includes(l)) chain.push(l); };
+  push(explicitLang);
+  push(settings?.defaultLanguage);
+  push(settings?.fallbackLanguage);
+  push('en');
+
+  // feedbackPoll is always a poll; feedbackManual is a poll only when the dentist
+  // configured it as one (otherwise it falls through to the normal text template).
+  const isPollEvent =
+    eventType === 'feedbackPoll' ||
+    (eventType === 'feedbackManual' && eventConfig?.contentType === 'poll');
+
+  if (isPollEvent) {
+    // Resolve the poll by language, exactly as text templates resolve. The configured
+    // pollTemplateId is the anchor: it pins the tenant's primary poll, and we prefer a
+    // same-language sibling when one exists, falling back to the anchor itself.
+    const pollTemplateId = eventConfig?.pollTemplateId;
+
+    let pollTemplate = null;
+    for (const lang of chain) {
+      pollTemplate = await PollTemplate.findOne({
+        tenantId, language: lang, isActive: true,
+      }).lean();
+      if (pollTemplate) {
+        console.log(`[WhatsApp] PollTemplate resolved for language=${lang}`);
+        break;
+      }
+    }
+
+    // Nothing in any language of the chain — fall back to the explicitly pinned poll
+    // so tenants that never set a language keep working.
+    if (!pollTemplate && pollTemplateId) {
+      pollTemplate = await PollTemplate.findById(pollTemplateId).lean();
+      if (pollTemplate && !pollTemplate.isActive) pollTemplate = null;
+    }
+
+    if (!pollTemplate) {
+      console.log(`[WhatsApp] ${eventType}: no active PollTemplate found (languages tried: ${chain.join(', ')})`);
       return null;
     }
-    const pollTemplate = await PollTemplate.findById(pollTemplateId).lean();
-    if (!pollTemplate || !pollTemplate.isActive) {
-      console.log(`[WhatsApp] PollTemplate ${pollTemplateId} not found or inactive`);
-      return null;
-    }
+
     content = buildContent('poll', {
       name: pollTemplate.name,
       values: pollTemplate.options,
       selectableCount: 1,
     }, data);
     contentType = 'poll';
-    console.log(`[WhatsApp] Using PollTemplate ${pollTemplateId} for feedbackPoll`);
+    console.log(`[WhatsApp] Using PollTemplate ${pollTemplate._id} (${pollTemplate.language}) for ${eventType}`);
   } else {
     // Standard template lookup for all other events
-    // Language resolution chain — deduplicated
-    const chain = [];
-    const push  = (l) => { if (l && !chain.includes(l)) chain.push(l); };
-    push(explicitLang);
-    push(settings.defaultLanguage);
-    push(settings.fallbackLanguage);
-    push('en');
-
     let template = null;
     console.log(`[WhatsApp] Looking for template with chain:`, chain);
     for (const lang of chain) {
@@ -217,9 +254,13 @@ export async function buildMessage(tenantModels, tenantId, eventType, data, expl
     console.log(`[WhatsApp] Built message for ${eventType}, contentType=${contentType}`);
   }
 
-  // Map internal event types to WAAPI-accepted messageType values
+  // Map internal event types to WAAPI-accepted messageType values.
+  // WAAPI validates messageType against a fixed list that has no 'feedbackManual',
+  // so a manual send is declared as the feedback type matching its content — the
+  // event name stays 'feedbackManual' everywhere on our side (templates, settings, logs).
   const WAAPI_TYPE_MAP = {
     appointmentScheduled: 'appointmentBooked',
+    feedbackManual: contentType === 'poll' ? 'feedbackPoll' : 'feedbackMessage',
   };
   const payload = {
     tenantId,
@@ -230,7 +271,7 @@ export async function buildMessage(tenantModels, tenantId, eventType, data, expl
   };
 
   if (eventType === 'appointmentReminder' && appointmentStartTime) {
-    const hoursBeforeMs = (eventConfig.hoursBeforeAppointment ?? 24) * 3_600_000;
+    const hoursBeforeMs = (eventConfig?.hoursBeforeAppointment ?? 24) * 3_600_000;
     const appointmentTimeMs = new Date(appointmentStartTime).getTime();
     const fireAtMs = appointmentTimeMs - hoursBeforeMs;
     const nowMs = Date.now();
@@ -238,14 +279,14 @@ export async function buildMessage(tenantModels, tenantId, eventType, data, expl
     // Skip reminder if there's not enough time before appointment
     // (i.e., if the scheduled send time would be in the past or very close to now)
     if (fireAtMs <= nowMs) {
-      console.log(`[WhatsApp:Timing] appointmentReminder skipped: appointment is within ${eventConfig.hoursBeforeAppointment ?? 24} hours from now. appointmentTime=${new Date(appointmentTimeMs).toISOString()}, fireAt=${new Date(fireAtMs).toISOString()}, now=${new Date(nowMs).toISOString()}`);
+      console.log(`[WhatsApp:Timing] appointmentReminder skipped: appointment is within ${eventConfig?.hoursBeforeAppointment ?? 24} hours from now. appointmentTime=${new Date(appointmentTimeMs).toISOString()}, fireAt=${new Date(fireAtMs).toISOString()}, now=${new Date(nowMs).toISOString()}`);
       return null;
     }
 
     // Schedule for the calculated time
     payload.scheduledAt = new Date(fireAtMs).toISOString();
     console.log(`[WhatsApp:Timing] appointmentReminder scheduled for ${payload.scheduledAt}`);
-  } else if (eventConfig.delayMinutes > 0) {
+  } else if (eventConfig?.delayMinutes > 0) {
     payload.scheduledAt = new Date(Date.now() + eventConfig.delayMinutes * 60 * 1000).toISOString();
   }
 
@@ -413,8 +454,12 @@ export async function triggerJourney(tenantModels, tenantId, waapiBaseUrl, patie
  * @param {string} [patientId]
  * @param {string} [explicitLang]
  * @param {Date|string} [appointmentStartTime] appointment start for reminder scheduling
+ * @param {object} [opts]
+ * @param {boolean} [opts.force] bypass enabled/toggle gates (manual, user-initiated sends)
+ * @returns {Promise<{ok: boolean, status?: string, reason?: string, error?: string}>}
+ *          Result of the attempt. Fire-and-forget callers may ignore it.
  */
-export async function triggerWhatsApp(tenantModels, tenantId, waapiBaseUrl, eventType, patientPhone, data, patientId, explicitLang, appointmentStartTime, appointmentId, idempotencyKey) {
+export async function triggerWhatsApp(tenantModels, tenantId, waapiBaseUrl, eventType, patientPhone, data, patientId, explicitLang, appointmentStartTime, appointmentId, idempotencyKey, opts = {}) {
   const { WhatsAppLog } = tenantModels;
   let payload = null;
   try {
@@ -422,13 +467,13 @@ export async function triggerWhatsApp(tenantModels, tenantId, waapiBaseUrl, even
     console.log(`[WhatsApp] triggerWhatsApp called: event=${eventType}, phone=${phone} (raw=${patientPhone}), waapiUrl=${waapiBaseUrl}`);
     if (!waapiBaseUrl) {
       console.log('[WhatsApp] WAAPI_BASE_URL not configured, skipping');
-      return;
+      return { ok: false, reason: 'waapi_not_configured' };
     }
 
-    payload = await buildMessage(tenantModels, tenantId, eventType, data, explicitLang, appointmentStartTime);
+    payload = await buildMessage(tenantModels, tenantId, eventType, data, explicitLang, appointmentStartTime, opts);
     if (!payload) {
       console.log(`[WhatsApp] buildMessage returned null for ${eventType}`);
-      return;
+      return { ok: false, reason: 'no_message' };
     }
     console.log(`[WhatsApp] Built payload for ${eventType}, scheduledAt=${payload.scheduledAt}`);
 
@@ -455,6 +500,7 @@ export async function triggerWhatsApp(tenantModels, tenantId, waapiBaseUrl, even
     }
     await WhatsAppLog.create(logPayload);
     console.log(`[WhatsApp] ${eventType} logged as ${logStatus}`, payload.scheduledAt ? `scheduled for ${payload.scheduledAt}` : '');
+    return { ok: true, status: logStatus, scheduledAt: payload.scheduledAt || null };
   } catch (err) {
     console.error(`[WhatsApp] triggerWhatsApp failed [${eventType}]:`, err.message);
     if (payload) {
@@ -465,5 +511,6 @@ export async function triggerWhatsApp(tenantModels, tenantId, waapiBaseUrl, even
         });
       } catch (_) {}
     }
+    return { ok: false, reason: 'send_failed', error: err.message };
   }
 }

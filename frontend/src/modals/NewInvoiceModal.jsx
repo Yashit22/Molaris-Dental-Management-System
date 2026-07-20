@@ -224,12 +224,41 @@ const NewInvoiceModal = forwardRef(function NewInvoiceModal({
   const [attempted, setAttempted] = useState(false);
   const [showAddPatient, setShowAddPatient] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
+  // Overall discount + GST. GST rate defaults from InvoiceSettings but stays
+  // editable per-invoice. discountType toggles how discountValue is read.
+  const [discountType, setDiscountType] = useState('flat');   // 'flat' | 'percent'
+  const [discountValue, setDiscountValue] = useState(0);
+  const [taxRatePct, setTaxRatePct] = useState(0);
+  const [defaultTaxRatePct, setDefaultTaxRatePct] = useState(0);
 
   // Expose save() so parent can auto-trigger on tab open / treatment change.
   // The hook is declared BEFORE any early return so the hook order stays stable.
   // It calls through a ref that always points at the latest handleSubmit closure.
   const handleSubmitRef = useRef(null);
   useImperativeHandle(ref, () => ({ save: () => handleSubmitRef.current?.() }), []);
+
+  // Load the clinic's default GST rate from DocumentSettings — the same store
+  // the "Share with Patient → GST & Tax" settings write to (and that the printed
+  // invoice already reads gstin from). The effective rate is CGST+SGST (intra-
+  // state) or IGST (inter-state); these are mutually exclusive in practice, so
+  // summing all three yields the right combined rate either way. Pre-fills
+  // taxRatePct on new invoices (still editable per-invoice below).
+  useEffect(() => {
+    let alive = true;
+    API.get('/documents/settings')
+      .then(({ data }) => {
+        if (!alive) return;
+        const rate = (Number(data?.cgst_rate) || 0)
+          + (Number(data?.sgst_rate) || 0)
+          + (Number(data?.igst_rate) || 0);
+        setDefaultTaxRatePct(rate);
+        // Pre-fill the rate for a fresh invoice if it settled before this
+        // response arrived (avoids clobbering an edit or a user's own entry).
+        if (!editInvoice) setTaxRatePct(prev => prev || rate);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync patient when initialPatient loads/changes
   useEffect(() => {
@@ -294,6 +323,9 @@ const NewInvoiceModal = forwardRef(function NewInvoiceModal({
         id:    editInvoice.patient_id || null,
       });
       setDate((editInvoice.date || editInvoice.createdAt || today).toString().split('T')[0]);
+      setDiscountType(editInvoice.discount?.type || 'flat');
+      setDiscountValue(editInvoice.discount?.value || 0);
+      setTaxRatePct(Number(editInvoice.taxRatePct) || 0);
     }
   }, [editInvoiceId, initialItemsSig, inline]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -306,6 +338,16 @@ const NewInvoiceModal = forwardRef(function NewInvoiceModal({
     setSubmitting(false);
     setAttempted(false);
     setSuccessMsg('');
+
+    if (editInvoice) {
+      setDiscountType(editInvoice.discount?.type || 'flat');
+      setDiscountValue(editInvoice.discount?.value || 0);
+      setTaxRatePct(Number(editInvoice.taxRatePct) || 0);
+    } else {
+      setDiscountType('flat');
+      setDiscountValue(0);
+      setTaxRatePct(defaultTaxRatePct);
+    }
 
     if (editInvoice) {
       setPatientInfo({
@@ -390,6 +432,17 @@ const NewInvoiceModal = forwardRef(function NewInvoiceModal({
 
   const subtotal = items.reduce((acc, it) => acc + (it.total || 0), 0);
 
+  // Totals chain: subtotal → (− discount) → taxable base → (+ GST) → total.
+  const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const rawDiscount = discountType === 'percent'
+    ? subtotal * (Number(discountValue) || 0) / 100
+    : (Number(discountValue) || 0);
+  // Never discount below zero.
+  const discountAmount = round2(Math.min(Math.max(rawDiscount, 0), subtotal));
+  const taxableBase = subtotal - discountAmount;
+  const taxAmount = round2(taxableBase * (Number(taxRatePct) || 0) / 100);
+  const totalAmount = round2(taxableBase + taxAmount);
+
   // ── Validation ──────────────────────────────────────────────────────────────
   const itemErrors = items.map(it => ({
     name:     !it.name?.trim(),
@@ -425,7 +478,14 @@ const NewInvoiceModal = forwardRef(function NewInvoiceModal({
           item_id:    it.item_id,
         })),
         subtotal,
-        total_amount: subtotal,
+        discount: {
+          type:   discountType,
+          value:  Number(discountValue) || 0,
+          amount: discountAmount,
+        },
+        taxRatePct: Number(taxRatePct) || 0,
+        tax: taxAmount,
+        total_amount: totalAmount,
       };
 
       // Update existing invoice, or create a new one
@@ -625,11 +685,57 @@ const NewInvoiceModal = forwardRef(function NewInvoiceModal({
         {attempted && items.length > 0 && hasItemErrors && <p className="text-xs text-red-500 mt-1">Each item must have a name and quantity ≥ 1.</p>}
       </div>
 
-      {/* Total */}
-      <div className="border-t pt-4">
-        <div className="flex justify-between">
+      {/* Discount + GST + Total */}
+      <div className="border-t pt-4 space-y-2">
+        <div className="flex justify-between text-sm">
+          <span className="text-slate-500">Subtotal</span>
+          <span className="font-medium text-slate-700">₹{round2(subtotal)}</span>
+        </div>
+
+        {/* Discount row: type toggle + value input */}
+        <div className="flex justify-between items-center text-sm">
+          <div className="flex items-center gap-2">
+            <span className="text-slate-500">Discount</span>
+            <div className="flex rounded-md overflow-hidden border border-slate-200">
+              <button
+                type="button"
+                onClick={() => setDiscountType('flat')}
+                className={`px-2 py-0.5 text-xs ${discountType === 'flat' ? 'bg-[#137fec] text-white' : 'bg-white text-slate-500'}`}
+              >₹</button>
+              <button
+                type="button"
+                onClick={() => setDiscountType('percent')}
+                className={`px-2 py-0.5 text-xs ${discountType === 'percent' ? 'bg-[#137fec] text-white' : 'bg-white text-slate-500'}`}
+              >%</button>
+            </div>
+            <input
+              type="number" min="0" step="any"
+              className="w-20 border border-slate-200 rounded px-2 py-1 text-sm text-right"
+              value={discountValue}
+              onChange={e => setDiscountValue(e.target.value)}
+            />
+          </div>
+          <span className="font-medium text-red-500">− ₹{discountAmount}</span>
+        </div>
+
+        {/* GST row: editable rate */}
+        <div className="flex justify-between items-center text-sm">
+          <div className="flex items-center gap-2">
+            <span className="text-slate-500">GST</span>
+            <input
+              type="number" min="0" step="any"
+              className="w-16 border border-slate-200 rounded px-2 py-1 text-sm text-right"
+              value={taxRatePct}
+              onChange={e => setTaxRatePct(e.target.value)}
+            />
+            <span className="text-slate-400 text-xs">%</span>
+          </div>
+          <span className="font-medium text-slate-700">+ ₹{taxAmount}</span>
+        </div>
+
+        <div className="flex justify-between border-t pt-2">
           <span className="text-slate-500">Total Amount</span>
-          <span className="text-xl font-bold text-slate-900">₹{subtotal}</span>
+          <span className="text-xl font-bold text-slate-900">₹{totalAmount}</span>
         </div>
       </div>
     </>

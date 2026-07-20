@@ -214,7 +214,11 @@ const NewAppointmentModal = ({ isOpen, onClose, onSave, appointmentToEdit, defau
 
   // 3. Handle New Patient
   const handleNewPatientCreated = (createdPatient) => {
-    setFormData(prev => ({ ...prev, selectedPatient: createdPatient }));
+    setFormData(prev => ({
+      ...prev,
+      selectedPatient: createdPatient,
+      patientEmail: createdPatient.contact?.email || '',
+    }));
     const fullName = `${createdPatient.first_name} ${createdPatient.last_name || ''}`.trim();
     setSearchTerm(fullName);
     setIsAddPatientOpen(false); 

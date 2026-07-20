@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from 'react';
-import { X, Bold, Italic, Underline, List, ListOrdered, Loader2, Mic, MicOff, Trash2, AlertTriangle } from 'lucide-react';
+import { X, Bold, Italic, Underline, List, ListOrdered, Loader2, Mic, MicOff, Trash2, AlertTriangle, Sparkles } from 'lucide-react';
 import { useLiveTranscriptionSocket } from '../hooks/useLiveTranscriptionSocket.js';
+import API from '../services/api';
 
 const TOOLBAR_BUTTONS = [
   { cmd: 'bold',                icon: Bold,         label: 'Bold'          },
@@ -10,6 +11,13 @@ const TOOLBAR_BUTTONS = [
   { cmd: 'insertUnorderedList', icon: List,          label: 'Bullet list'   },
   { cmd: 'insertOrderedList',   icon: ListOrdered,   label: 'Numbered list' },
 ];
+
+function escapeHtml(s) {
+  return (s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
 
 const TEXT_SIZES = [
   { label: 'Small',  cmd: 'fontSize', arg: '2' },
@@ -33,6 +41,8 @@ export default function RichTextEditorModal({ isOpen, onClose, type, initialCont
   const savedRangeRef   = useRef(null);
   const mediaRecorderRef = useRef(null);
   const streamRef        = useRef(null);
+  const baseHtmlRef      = useRef('');   // editor HTML snapshot taken when recording starts
+  const dictationSecondsRef = useRef(0); // accumulated dictation seconds, billed on AI Format
 
   const [saving, setSaving]       = useState(false);
   const [deleting, setDeleting]   = useState(false);
@@ -42,6 +52,7 @@ export default function RichTextEditorModal({ isOpen, onClose, type, initialCont
   // Live voice dictation over the WS relay (same transport as the AI report flow).
   const [recording, setRecording]       = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  const [summarizing, setSummarizing]   = useState(false);
   const [dictateError, setDictateError] = useState('');
   const liveSocket = useLiveTranscriptionSocket();
 
@@ -49,6 +60,8 @@ export default function RichTextEditorModal({ isOpen, onClose, type, initialCont
   useEffect(() => {
     if (!isOpen || !editorRef.current) return;
     editorRef.current.innerHTML = initialContent || '';
+    dictationSecondsRef.current = 0;
+    baseHtmlRef.current = '';
     const text = editorRef.current.innerText?.trim() || '';
     setIsEmpty(text.length === 0);
     const range = document.createRange();
@@ -59,6 +72,27 @@ export default function RichTextEditorModal({ isOpen, onClose, type, initialCont
     sel.addRange(range);
     editorRef.current.focus();
   }, [isOpen, initialContent]);
+
+  // Stream the live transcript into the editor as segments arrive. While
+  // recording we render baseHtml (whatever was there when Stop→Record started)
+  // followed by the growing transcript, and keep the caret at the end.
+  useEffect(() => {
+    if (!recording || !editorRef.current) return;
+    const live = liveSocket.liveTranscript || '';
+    const base = baseHtmlRef.current || '';
+    const liveHtml = live
+      ? `${base ? '<br>' : ''}<span data-live-transcript="1">${escapeHtml(live)}</span>`
+      : '';
+    editorRef.current.innerHTML = base + liveHtml;
+    // Caret to end so the user sees text accumulate.
+    const range = document.createRange();
+    const sel   = window.getSelection();
+    range.selectNodeContents(editorRef.current);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    handleInput();
+  }, [liveSocket.liveTranscript, recording]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Selection helpers ---
   function saveSelection() {
@@ -122,22 +156,6 @@ export default function RichTextEditorModal({ isOpen, onClose, type, initialCont
     }
   }
 
-  function insertTranscript(text) {
-    const t = (text || '').trim();
-    if (!t) return;
-    editorRef.current?.focus();
-    const sel = window.getSelection();
-    if (savedRangeRef.current && sel) {
-      sel.removeAllRanges();
-      sel.addRange(savedRangeRef.current);
-    }
-    // Prepend a space when inserting mid-text so words don't run together.
-    const needsSpace = !!editorRef.current?.innerText?.trim();
-    document.execCommand('insertText', false, (needsSpace ? ' ' : '') + t);
-    saveSelection();
-    handleInput();
-  }
-
   async function startDictation() {
     setDictateError('');
     try {
@@ -161,6 +179,10 @@ export default function RichTextEditorModal({ isOpen, onClose, type, initialCont
         if (e.data.size > 0) liveSocket.sendChunk(e.data); // buffered until socket is 'ready'
       };
       mediaRecorderRef.current = recorder;
+      // Snapshot existing editor content so the streaming transcript appends to
+      // it instead of overwriting it. Drop a lone empty <br>/whitespace.
+      const currentHtml = editorRef.current?.innerHTML || '';
+      baseHtmlRef.current = editorRef.current?.innerText?.trim() ? currentHtml : '';
       recorder.start(100);
       setRecording(true);
 
@@ -183,23 +205,88 @@ export default function RichTextEditorModal({ isOpen, onClose, type, initialCont
     }
   }
 
+  // Replace the whole editor with beautified HTML and place the cursor at the end.
+  function replaceEditorHtml(html) {
+    if (!editorRef.current) return;
+    editorRef.current.innerHTML = html || '';
+    editorRef.current.focus();
+    const range = document.createRange();
+    const sel   = window.getSelection();
+    range.selectNodeContents(editorRef.current);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    saveSelection();
+    handleInput();
+  }
+
+  // Rewrite the current editor text into clean clinical bullet points via the LLM
+  // (note = clinician-facing, advice = patient-facing). Billed per accumulated
+  // second of dictation, matching the AI report flow. On error the prior content
+  // is restored so the dictation is never lost.
+  async function summarizeEditor() {
+    const text = editorRef.current?.innerText?.trim() || '';
+    if (!text) return;
+    setSummarizing(true);
+    const priorHtml = editorRef.current?.innerHTML || '';
+    try {
+      const { data } = await API.post('/report/beautify', {
+        type,
+        transcript_text: text,
+        audio_duration_seconds: dictationSecondsRef.current,
+      });
+      if (data?.html?.trim()) {
+        replaceEditorHtml(data.html);
+        dictationSecondsRef.current = 0; // charged once for this content
+      } else {
+        setDictateError('Summarize returned nothing — your text is unchanged.');
+      }
+    } catch (err) {
+      if (err?.response?.status === 402) {
+        setDictateError(err.response.data?.message || 'Out of AI credits. Contact your administrator.');
+      } else {
+        setDictateError('Could not summarize the dictation — your raw transcript is kept below.');
+      }
+      if (editorRef.current) editorRef.current.innerHTML = priorHtml;
+    } finally {
+      setSummarizing(false);
+    }
+  }
+
+  // Stop = finalize the streamed transcript into the box, then automatically
+  // summarize it (one button: Dictate → Stop → Summarizing… → Dictate).
   async function stopDictation() {
     setRecording(false);
     setTranscribing(true);
     try {
       try { mediaRecorderRef.current?.stop(); } catch { /* ignore */ }
       stopTracks();
-      const { transcript } = await liveSocket.stop();
-      insertTranscript(transcript);
+      const result = await liveSocket.stop();
+      const transcript = (result?.transcript || '').trim();
+      dictationSecondsRef.current += Math.max(0, Math.round(Number(result?.duration_seconds) || 0));
+      // Settle the streamed text into the box as ordinary content first.
+      const base = baseHtmlRef.current || '';
+      const finalHtml = transcript
+        ? base + `${base ? '<br>' : ''}${escapeHtml(transcript)}`
+        : base;
+      replaceEditorHtml(finalHtml);
     } catch (err) {
       setDictateError(err?.message || 'Transcription failed — please try again.');
-    } finally {
       liveSocket.disconnect();
       setTranscribing(false);
+      return;
+    }
+    liveSocket.disconnect();
+    setTranscribing(false);
+
+    // Auto-summarize if there's anything to work with.
+    if (editorRef.current?.innerText?.trim()) {
+      await summarizeEditor();
     }
   }
 
   function handleMicClick() {
+    if (transcribing || summarizing) return; // busy finalizing/summarizing — ignore taps
     if (recording) return stopDictation();
     return startDictation();
   }
@@ -212,6 +299,7 @@ export default function RichTextEditorModal({ isOpen, onClose, type, initialCont
     liveSocket.disconnect();
     setRecording(false);
     setTranscribing(false);
+    setSummarizing(false);
     setDictateError('');
   }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -255,12 +343,14 @@ export default function RichTextEditorModal({ isOpen, onClose, type, initialCont
     ? 'bg-orange-100 text-orange-600 hover:bg-orange-200'
     : recording
     ? 'bg-red-500 text-white animate-pulse'
-    : transcribing
+    : (transcribing || summarizing)
     ? 'bg-slate-200 text-slate-500'
     : 'bg-slate-100 text-slate-600 hover:bg-slate-200';
 
-  const micBtnContent = transcribing
-    ? <><Loader2 size={14} className="animate-spin" /> Transcribing…</>
+  const micBtnContent = summarizing
+    ? <><Sparkles size={14} className="animate-pulse" /> Summarizing…</>
+    : transcribing
+    ? <><Loader2 size={14} className="animate-spin" /> Finalizing…</>
     : recording
     ? <><MicOff size={14} /> Stop</>
     : dictateError
@@ -331,7 +421,7 @@ export default function RichTextEditorModal({ isOpen, onClose, type, initialCont
               type="button"
               onMouseDown={e => e.preventDefault()}
               onClick={handleMicClick}
-              disabled={transcribing}
+              disabled={transcribing || summarizing}
               title={recording ? 'Stop recording' : 'Dictate (speech to text)'}
               className={`flex items-center gap-1.5 px-3 h-8 rounded-md text-xs font-semibold transition-colors disabled:opacity-50 ${micBtnClass}`}
             >
@@ -339,11 +429,18 @@ export default function RichTextEditorModal({ isOpen, onClose, type, initialCont
             </button>
           </div>
 
-          {/* Dictate status strip — shown while recording or on error */}
-          {(recording || dictateError) && (
-            <div className={`px-4 py-2 text-xs flex items-center gap-2 ${recording ? 'bg-red-50 text-red-700' : 'bg-orange-50 text-orange-700'}`}>
+          {/* Dictate status strip — shown while recording, summarizing, or on error */}
+          {(recording || summarizing || dictateError) && (
+            <div className={`px-4 py-2 text-xs flex items-center gap-2 ${
+              recording ? 'bg-red-50 text-red-700'
+              : summarizing ? 'bg-blue-50 text-blue-700'
+              : 'bg-orange-50 text-orange-700'
+            }`}>
               {recording && <span className="size-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" />}
-              {recording ? 'Recording… tap Stop when done.' : dictateError}
+              {summarizing && <Loader2 size={13} className="animate-spin flex-shrink-0" />}
+              {recording ? 'Recording… speak now, tap Stop when done.'
+                : summarizing ? 'AI is formatting your text into clear points…'
+                : dictateError}
               {dictateError && (
                 <button
                   onClick={() => setDictateError('')}

@@ -8,7 +8,7 @@ import {
   testSend,
   getTreatmentNames,
   getJourneys,    createJourney,   updateJourney,   deleteJourney,
-  getFeedback, sendFeedbackPoll,
+  getFeedback, sendFeedbackPoll, sendManualFeedback,
   sendReportWhatsApp,
 } from '../controllers/whatsapp.controller.js';
 
@@ -52,6 +52,7 @@ router.post('/send-report', sendReportWhatsApp);
 
 // Feedback / Poll Responses (protected)
 router.post('/feedback/send', sendFeedbackPoll);
+router.post('/feedback/manual/:appointmentId', sendManualFeedback);
 router.get('/feedback', getFeedback);
 
 export default router;

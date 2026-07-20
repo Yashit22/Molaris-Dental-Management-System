@@ -15,6 +15,68 @@ const LANGUAGES = [
   { code: "mr", label: "Marathi", flag: "🟠" },
 ];
 
+// What each variable actually resolves to at send time. Keep this in lockstep with the
+// `data` object each controller passes to triggerWhatsApp — a variable listed here but
+// not sent by the backend resolves to EMPTY in the patient's message.
+// Example values used by the phone preview AND by the variable legend, so both show the
+// same thing. Every key here is a variable the backend genuinely sends — nothing else.
+const SAMPLE_DATA = {
+  name: "Priya Mehta",
+  firstName: "Priya",
+  patientId: "PID-042",
+  mobile: "919812345678",
+  date: "24 Apr 2026",
+  time: "10:30",
+  doctorName: "Dr. Kapoor",
+  appointmentType: "Consultation",
+  invoiceId: "INV-2026-042",
+  amount: "₹2,500.00",
+  treatment: "Root Canal",
+  teethNumbers: "11, 12",
+  drug: "Amoxicillin 500mg",
+  dosage: "1 tablet twice daily",
+  duration: "5 days",
+  instructions: "Take after meals",
+  prescriptionUrl: "https://res.cloudinary.com/.../prescription-123.pdf",
+};
+
+const VARIABLE_DESC = {
+  // sent on every message
+  name:            "Patient's full name",
+  firstName:       "Patient's first name",
+  patientId:       "Clinic patient ID",
+  mobile:          "Patient's mobile number",
+  // appointment events
+  date:            "Appointment date",
+  time:            "Appointment time (24-hour, IST)",
+  doctorName:      "Doctor's name",
+  appointmentType: "Type of appointment",
+  // treatment / post-care
+  treatment:       "Treatment name",
+  teethNumbers:    "Teeth treated",
+  // invoice
+  amount:          "Invoice total",
+  invoiceId:       "Invoice number",
+  // prescription
+  drug:            "Medicine name",
+  dosage:          "Dosage",
+  duration:        "Duration",
+  instructions:    "Dosage instructions",
+  prescriptionUrl: "Link to the prescription PDF",
+};
+
+// Examples come straight from SAMPLE_DATA, so the legend and the phone preview can
+// never disagree about what a variable turns into.
+const VARIABLE_INFO = Object.fromEntries(
+  Object.entries(VARIABLE_DESC).map(([k, desc]) => [
+    k,
+    { desc, eg: SAMPLE_DATA[k] },
+  ]),
+);
+
+// Sent on every message, regardless of event.
+const COMMON_VARIABLES = ["name", "firstName", "patientId", "mobile"];
+
 const EVENTS = [
   {
     key: "appointmentBooked",
@@ -23,8 +85,7 @@ const EVENTS = [
     icon: "calendar_add_on",
     color: "blue",
     variables: [
-      "name",
-      "firstName",
+      ...COMMON_VARIABLES,
       "date",
       "time",
       "doctorName",
@@ -38,7 +99,13 @@ const EVENTS = [
     description: "Sent when an online booking request is scheduled by staff",
     icon: "check_circle",
     color: "green",
-    variables: ["name", "firstName", "appointmentDate", "appointmentTime", "appointmentType"],
+    variables: [
+      ...COMMON_VARIABLES,
+      "date",
+      "time",
+      "doctorName",
+      "appointmentType",
+    ],
     allowedContentTypes: ["text"],
   },
   {
@@ -47,7 +114,13 @@ const EVENTS = [
     description: "Reminder sent X hours before appointment",
     icon: "alarm",
     color: "indigo",
-    variables: ["name", "firstName", "date", "time", "doctorName"],
+    variables: [
+      ...COMMON_VARIABLES,
+      "date",
+      "time",
+      "doctorName",
+      "appointmentType",
+    ],
     allowedContentTypes: ["text"],
   },
   {
@@ -57,8 +130,7 @@ const EVENTS = [
     icon: "edit_calendar",
     color: "amber",
     variables: [
-      "name",
-      "firstName",
+      ...COMMON_VARIABLES,
       "date",
       "time",
       "doctorName",
@@ -73,8 +145,7 @@ const EVENTS = [
     icon: "medical_services",
     color: "orange",
     variables: [
-      "name",
-      "firstName",
+      ...COMMON_VARIABLES,
       "treatment",
       "teethNumbers",
       "date",
@@ -88,7 +159,7 @@ const EVENTS = [
     description: "Send text/image/video feedback after appointment completion",
     icon: "feedback",
     color: "teal",
-    variables: ["name", "firstName", "date", "doctorName"],
+    variables: [...COMMON_VARIABLES, "date", "time", "doctorName"],
     allowedContentTypes: ["text"],
   },
   {
@@ -97,9 +168,20 @@ const EVENTS = [
     description: "Send 1-5 rating poll survey after appointment completion",
     icon: "poll",
     color: "cyan",
-    variables: ["name", "firstName", "date", "doctorName"],
+    variables: [...COMMON_VARIABLES, "date", "time", "doctorName"],
     isFeedbackPoll: true,
     allowedContentTypes: ["poll"],
+  },
+  {
+    key: "feedbackManual",
+    label: "Manual Feedback",
+    description:
+      "Sent only when you click Send Feedback on a completed appointment — no automation",
+    icon: "touch_app",
+    color: "teal",
+    variables: [...COMMON_VARIABLES, "date", "time", "doctorName"],
+    isManual: true,
+    allowedContentTypes: ["text", "poll"],
   },
   {
     key: "postCare",
@@ -108,8 +190,7 @@ const EVENTS = [
     icon: "healing",
     color: "rose",
     variables: [
-      "name",
-      "firstName",
+      ...COMMON_VARIABLES,
       "treatment",
       "teethNumbers",
       "date",
@@ -238,26 +319,6 @@ const TIPS = [
   },
 ];
 
-const SAMPLE_DATA = {
-  name: "Priya Mehta",
-  firstName: "Priya",
-  date: "24 Apr 2026",
-  time: "10:30 AM",
-  doctorName: "Dr. Kapoor",
-  appointmentType: "Consultation",
-  invoiceId: "INV-2026-042",
-  amount: "₹2,500",
-  paidAmount: "₹2,000",
-  pendingAmount: "₹500",
-  paymentMethod: "Cash",
-  treatment: "Root Canal",
-  teethNumbers: "11, 12",
-  drug: "Amoxicillin 500mg",
-  dosage: "1 tablet twice daily",
-  duration: "5 days",
-  instructions: "Take after meals",
-  prescriptionUrl: "https://res.cloudinary.com/.../prescription-123.pdf",
-};
 
 function replacePlaceholders(str) {
   if (typeof str !== "string") return str;
@@ -414,19 +475,60 @@ function Toggle({ value, onChange }) {
 }
 
 function VariableChips({ variables, onInsert }) {
+  const [showAll, setShowAll] = useState(false);
+
   return (
-    <div className="flex flex-wrap gap-1.5 mt-2">
-      <span className="text-xs text-slate-400 self-center">Insert:</span>
-      {variables.map((v) => (
+    <div className="mt-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-xs text-slate-400 self-center">Insert:</span>
+        {variables.map((v) => {
+          const info = VARIABLE_INFO[v];
+          return (
+            <button
+              key={v}
+              type="button"
+              onClick={() => onInsert(v)}
+              title={info ? `${info.desc} — e.g. ${info.eg}` : v}
+              className="text-xs px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-[#137fec] font-mono border border-slate-200 dark:border-slate-600 hover:bg-blue-50 dark:hover:bg-slate-600 transition-colors"
+            >
+              {`{{${v}}}`}
+            </button>
+          );
+        })}
         <button
-          key={v}
           type="button"
-          onClick={() => onInsert(v)}
-          className="text-xs px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-[#137fec] font-mono border border-slate-200 dark:border-slate-600 hover:bg-blue-50 dark:hover:bg-slate-600 transition-colors"
+          onClick={() => setShowAll((s) => !s)}
+          className="text-xs text-slate-400 hover:text-[#137fec] underline underline-offset-2 transition-colors"
         >
-          {`{{${v}}}`}
+          {showAll ? "hide" : "what do these mean?"}
         </button>
-      ))}
+      </div>
+
+      {showAll && (
+        <div className="mt-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-2">
+            These are the only variables this message can use. Anything else is
+            replaced with nothing.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
+            {variables.map((v) => {
+              const info = VARIABLE_INFO[v];
+              if (!info) return null;
+              return (
+                <div key={v} className="flex items-baseline gap-2 text-xs">
+                  <code className="font-mono text-[#137fec] whitespace-nowrap">{`{{${v}}}`}</code>
+                  <span className="text-slate-500 dark:text-slate-400 truncate">
+                    {info.desc}{" "}
+                    <span className="text-slate-400 dark:text-slate-500">
+                      ({info.eg})
+                    </span>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1418,20 +1520,28 @@ function FeedbackPollLangEditor({
 
 // ─── Generic LangEditor (for other event types) ──────────────────────────────
 
-function LangEditor({ lang, event, template, onSaved }) {
-  const existingType = template?.contentType || null;
+function LangEditor({ lang, event, template, onSaved, settings, onSettingChange }) {
+  // For the manual event the chosen type lives in settings (it drives what the
+  // Send Feedback button sends), not in a per-language template row.
+  const manualType = event.isManual
+    ? settings?.events?.[event.key]?.contentType || null
+    : null;
+  const existingType = event.isManual ? manualType : template?.contentType || null;
   const [selectedType, setSelectedType] = useState(existingType);
   const [content, setContent] = useState(template?.content || {});
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setSelectedType(template?.contentType || null);
+    setSelectedType(event.isManual ? manualType : template?.contentType || null);
     setContent(template?.content || {});
-  }, [template?._id, lang]);
+  }, [template?._id, lang, event.isManual, manualType]);
 
   function handleTypeSelect(type) {
     setSelectedType(type);
     setContent({});
+    // The manual event's type is a setting, not a template field — persist it so
+    // the Send Feedback button knows whether to send text or a poll.
+    if (event.isManual) onSettingChange?.(event.key, "contentType", type);
   }
 
   async function handleSave() {
@@ -1487,6 +1597,42 @@ function LangEditor({ lang, event, template, onSaved }) {
 
   const ctInfo = CONTENT_TYPES.find((c) => c.type === selectedType);
   const langLabel = LANGUAGES.find((l) => l.code === lang)?.label;
+
+  // Manual feedback sent as a poll: the poll (question, options) and its per-rating
+  // auto-replies are configured exactly as they are for the automated Feedback Poll,
+  // so reuse that editor rather than the generic content form.
+  if (event.isManual && selectedType === "poll") {
+    return (
+      <div className="space-y-5">
+        {/* Type pill + change — same affordance as the generic editor */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+            <span className="material-symbols-outlined text-base text-slate-500">
+              {ctInfo?.icon || "poll"}
+            </span>
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+              {ctInfo?.label || "Poll"}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSelectedType(null)}
+            className="text-xs text-slate-400 hover:text-[#137fec] underline underline-offset-2 transition-colors"
+          >
+            Change type
+          </button>
+        </div>
+
+        <FeedbackPollConfigEditor
+          event={event}
+          settings={settings}
+          onSettingChange={onSettingChange}
+          hideHeader
+          lang={lang}
+        />
+      </div>
+    );
+  }
 
   // Step 1: pick content type
   if (!selectedType) {
@@ -1654,6 +1800,7 @@ function TemplateEditor({
   onSaved,
   settings,
   onSettingChange,
+  hideHeader,
 }) {
   const colors = COLOR_MAP[event.color];
   const [activeLang, setActiveLang] = useState("en");
@@ -1664,7 +1811,8 @@ function TemplateEditor({
 
   return (
     <div className="space-y-5">
-      {/* Back + badge */}
+      {/* Back + badge — suppressed when a parent editor already renders one */}
+      {!hideHeader && (
       <div className="flex items-center gap-3">
         <button
           type="button"
@@ -1687,8 +1835,11 @@ function TemplateEditor({
           </span>
         </div>
       </div>
+      )}
 
-      {/* Enable + delay */}
+      {/* Enable + delay — a manual event is never sent automatically, so there is
+          nothing to enable or delay; it goes out only on an explicit click. */}
+      {event.isManual ? null : (
       <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -1735,6 +1886,7 @@ function TemplateEditor({
             </div>
           ))}
       </div>
+      )}
 
       {/* Language tabs */}
       <div>
@@ -1785,6 +1937,8 @@ function TemplateEditor({
         event={event}
         template={templatesByLang[activeLang] || null}
         onSaved={onSaved}
+        settings={settings}
+        onSettingChange={onSettingChange}
       />
     </div>
   );
@@ -1793,7 +1947,14 @@ function TemplateEditor({
 // ─── Journey Editor ───────────────────────────────────────────────────────────
 
 const DELAY_UNITS = ["minutes", "hours", "days"];
-const JOURNEY_VARIABLES = ["name", "treatment", "date"];
+// Journey steps receive the same data object as treatmentCompleted, plus `treatment`.
+const JOURNEY_VARIABLES = [
+  ...COMMON_VARIABLES,
+  "treatment",
+  "teethNumbers",
+  "date",
+  "doctorName",
+];
 
 // ─── Per-step full-featured editor ───────────────────────────────────────────
 // Reuses LangEditor for each language — content type picker, media upload,
@@ -2714,7 +2875,11 @@ function EventCard({
   onConfigure,
 }) {
   const colors = COLOR_MAP[event.color];
-  const enabled = evConfig?.enabled ?? false;
+  // A manual event isn't governed by an automation toggle — it counts as set up
+  // as soon as a template exists in any language.
+  const enabled = event.isManual
+    ? Object.values(byLang || {}).some(Boolean)
+    : (evConfig?.enabled ?? false);
 
   return (
     <div
@@ -2749,7 +2914,7 @@ function EventCard({
           </p>
           {enabled && (
             <span className="text-[10px] px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-full font-medium">
-              Active
+              {event.isManual ? "Configured" : "Active"}
             </span>
           )}
         </div>
@@ -2800,30 +2965,51 @@ function EventCard({
         <span className="material-symbols-outlined text-sm">settings</span>
       </button>
 
-      {/* Toggle */}
-      <button
-        type="button"
-        onClick={() => onToggle(event.key, !enabled)}
-        className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
-          enabled ? "bg-[#137fec]" : "bg-slate-300 dark:bg-slate-600"
-        }`}
-      >
-        <span
-          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${enabled ? "translate-x-6" : "translate-x-1"}`}
-        />
-      </button>
+      {/* Toggle — manual events have no automation to switch on */}
+      {!event.isManual && (
+        <button
+          type="button"
+          onClick={() => onToggle(event.key, !enabled)}
+          className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
+            enabled ? "bg-[#137fec]" : "bg-slate-300 dark:bg-slate-600"
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${enabled ? "translate-x-6" : "translate-x-1"}`}
+          />
+        </button>
+      )}
     </div>
   );
 }
 
 // ─── Feedback Poll Config Editor ─────────────────────────────────────────────
 
+// The backend requires each option to start with its rating digit ("1 -" … "5 -") —
+// that leading digit is what the webhook parses to derive the rating. The label after
+// it is free text, so translated polls (hi/mr) work as long as the prefix survives.
+const DEFAULT_POLL_OPTIONS = [
+  "1 - Very Unhappy",
+  "2 - Unhappy",
+  "3 - Neutral",
+  "4 - Happy",
+  "5 - Very Happy",
+];
+
 function FeedbackPollConfigEditor({
   event,
   settings,
   onSettingChange,
   onBack,
+  hideHeader,
+  lang: langProp,
+  onLangChange,
 }) {
+  // Standalone (automated Feedback Poll) owns its own language tabs. Nested inside
+  // the manual TemplateEditor, the parent owns them and passes `lang` down.
+  const [ownLang, setOwnLang] = useState("en");
+  const isNested = langProp != null;
+  const lang = isNested ? langProp : ownLang;
   const colors = COLOR_MAP[event.color];
   const eventSettings = settings.events?.[event.key] || {
     enabled: false,
@@ -2831,11 +3017,17 @@ function FeedbackPollConfigEditor({
     pollTemplateId: null,
   };
 
+  // A manual event has no automation toggle, so its config is always open for
+  // editing — it's "enabled" in the sense that the dentist can author it, it just
+  // never fires on its own.
+  const isManual = !!event.isManual;
+  const open = isManual || eventSettings.enabled;
+
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [pollForm, setPollForm] = useState({
     question: "",
-    options: ["1 😠 Very Unhappy", "2 🙁 Unhappy", "3 😐 Neutral", "4 🙂 Happy", "5 😄 Very Happy"],
+    options: DEFAULT_POLL_OPTIONS,
   });
   const [responses, setResponses] = useState({
     rating1: { contentType: "text", content: { text: "" }, isEnabled: true },
@@ -2867,14 +3059,23 @@ function FeedbackPollConfigEditor({
       if (!tenantId) return;
       setLoading(true);
       try {
-        const dmsResp = await api.get("/feedback/poll-templates");
-        if (dmsResp.data && dmsResp.data.length > 0) {
-          const template = dmsResp.data[0];
+        // Polls are per-language: load the one for the language tab being edited.
+        const dmsResp = await api.get("/feedback/poll-templates", {
+          params: { language: lang },
+        });
+        const template = dmsResp.data?.find((t) => t.language === lang);
+        if (template) {
           setPollForm({
             question: template.name,
             options: template.options,
           });
           // NOTE: don't call onSettingChange here — it triggers parent re-render → infinite loop
+        } else {
+          // No poll for this language yet — start from the default options.
+          setPollForm({
+            question: "",
+            options: DEFAULT_POLL_OPTIONS,
+          });
         }
 
         const wahaResp = await fetch(`${WAHA_BASE_URL}/waha/tenant-feedback/${tenantId}`, {
@@ -2912,28 +3113,29 @@ function FeedbackPollConfigEditor({
     if (tenantId) {
       load();
     }
+  // reloads when the language tab changes so each language edits its own poll
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantId]);
+  }, [tenantId, lang]);
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      let templateId = eventSettings.pollTemplateId;
-
-      // 1. Save core poll config to DMS (no feedbackResponses)
+      // 1. Save this language's poll. The backend upserts on (tenant, language), so
+      //    POST both creates and replaces — no create-vs-update branch needed.
       const dmsPayload = {
+        language: lang,
         name: pollForm.question,
         options: pollForm.options,
         sendDelayMinutes: eventSettings.delayMinutes ?? 15,
         isActive: true,
       };
 
-      if (!templateId) {
-        const createResp = await api.post("/feedback/poll-templates", dmsPayload);
-        templateId = createResp.data._id;
-        onSettingChange(event.key, "pollTemplateId", templateId);
-      } else {
-        await api.put(`/feedback/poll-templates/${templateId}`, dmsPayload);
+      const saveResp = await api.post("/feedback/poll-templates", dmsPayload);
+
+      // Pin the primary-language poll so tenants with no per-language poll still
+      // resolve to something (the resolver falls back to this id).
+      if (lang === "en" && saveResp.data?._id !== eventSettings.pollTemplateId) {
+        onSettingChange(event.key, "pollTemplateId", saveResp.data._id);
       }
 
       // 2. Bulk-save all 5 rating responses directly to WAHA
@@ -2988,7 +3190,8 @@ function FeedbackPollConfigEditor({
 
   return (
     <div className="space-y-5">
-      {/* Back + badge */}
+      {/* Back + badge — suppressed when a parent editor already renders one */}
+      {!hideHeader && (
       <div className="flex items-center gap-3">
         <button
           type="button"
@@ -3011,10 +3214,46 @@ function FeedbackPollConfigEditor({
           </span>
         </div>
       </div>
+      )}
+
+      {/* Language tabs — polls are per-language, resolved against the appointment's
+          whatsapp_language. Only rendered standalone; nested, the parent owns them. */}
+      {!isNested && (
+        <div>
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">
+            Configure per language
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            {LANGUAGES.map((l) => {
+              const isActive = lang === l.code;
+              return (
+                <button
+                  key={l.code}
+                  type="button"
+                  onClick={() => {
+                    setOwnLang(l.code);
+                    onLangChange?.(l.code);
+                  }}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border-2 transition-all ${
+                    isActive
+                      ? "border-[#137fec] bg-blue-50 dark:bg-blue-900/20 text-[#137fec]"
+                      : "border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-600"
+                  }`}
+                >
+                  <span className="text-base">{l.flag}</span>
+                  <span>{l.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Main config card */}
       <div className="space-y-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
-        {/* Enable toggle + delay */}
+        {/* Enable toggle + delay — a manual poll is never auto-sent, so there is
+            nothing to enable or delay. */}
+        {isManual ? null : (
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-sm font-semibold text-slate-800 dark:text-white">
@@ -3050,30 +3289,36 @@ function FeedbackPollConfigEditor({
             />
           </div>
         </div>
+        )}
 
-        {/* Poll config (visible when enabled) */}
-        {eventSettings.enabled && (
+        {/* Poll config (always open for a manual poll) */}
+        {open && (
           <div className="border-t border-slate-200 dark:border-slate-600 pt-4 space-y-4">
-            {/* Poll question */}
+            {/* Poll question — supports the same variables as any other message */}
             <div>
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                 Poll Question
               </label>
-              <textarea
+              <TextareaWithVars
                 value={pollForm.question}
-                onChange={(e) =>
-                  setPollForm({ ...pollForm, question: e.target.value })
-                }
-                placeholder="e.g., How satisfied were you with your treatment?"
-                className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#137fec]"
+                onChange={(v) => setPollForm({ ...pollForm, question: v })}
+                placeholder="e.g., Hi {{firstName}}, how satisfied were you with your treatment?"
+                variables={event.variables || []}
                 rows={2}
               />
             </div>
 
-            {/* Response messages (collapsible accordions) */}
+            {/* Response messages (collapsible accordions).
+                These are stored on and sent by the WhatsApp gateway, not by this
+                backend — our {{variable}} substitution never runs on them, so no
+                variable chips here: they would be sent as literal text. */}
             <div>
-              <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
                 Response Messages (sent after patient votes)
+              </p>
+              <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
+                Plain text only — <code className="font-mono">{"{{variables}}"}</code>{" "}
+                do not work in these replies.
               </p>
               <div className="space-y-2">
                 {[1, 2, 3, 4, 5].map((rating) => {
@@ -3457,7 +3702,7 @@ function FeedbackPollConfigEditor({
       </div>
 
       {/* Info box */}
-      {!eventSettings.enabled && (
+      {!open && (
         <div className="flex items-start gap-3 p-4 rounded-2xl bg-cyan-50 dark:bg-cyan-900/20 border border-cyan-200 dark:border-cyan-800">
           <span
             className="material-symbols-outlined text-cyan-600 dark:text-cyan-400 flex-shrink-0 mt-0.5"
@@ -3900,8 +4145,15 @@ function MessagesTab({
   onToggle,
   onConfigure,
 }) {
-  const appointmentEvents = events.filter((e) => !e.isJourney && e.key !== "postCare");
+  const appointmentEvents = events.filter(
+    (e) => !e.isJourney && !e.isManual && e.key !== "postCare",
+  );
+  const manualEvent = events.find((e) => e.isManual);
   const journeyEvent = events.find((e) => e.isJourney);
+
+  const feedbackAutomationOn =
+    (settings.events?.feedbackMessage?.enabled ?? false) ||
+    (settings.events?.feedbackPoll?.enabled ?? false);
 
   return (
     <div className="space-y-6">
@@ -3926,6 +4178,50 @@ function MessagesTab({
           />
         ))}
       </section>
+
+      {/* ── Manual feedback ── */}
+      {manualEvent && (
+        <section className="space-y-2">
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+            Manual Feedback
+          </p>
+
+          <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-teal-50 dark:bg-teal-900/20 border border-teal-200 dark:border-teal-800">
+            <span
+              className="material-symbols-outlined text-teal-500 dark:text-teal-400 flex-shrink-0 mt-0.5"
+              style={{ fontSize: 16 }}
+            >
+              info
+            </span>
+            <p className="text-xs text-teal-700 dark:text-teal-300 leading-relaxed">
+              {feedbackAutomationOn ? (
+                <>
+                  Feedback automation is <strong>on</strong>, so every completed
+                  patient is messaged automatically. Turn off Feedback Message
+                  and Feedback Poll above to instead choose patients one by one
+                  — a <strong>Send Feedback</strong> button then appears against
+                  each completed appointment.
+                </>
+              ) : (
+                <>
+                  Feedback automation is <strong>off</strong>. Configure the
+                  message below, then send it to individual patients using the{" "}
+                  <strong>Send Feedback</strong> button on each completed
+                  appointment.
+                </>
+              )}
+            </p>
+          </div>
+
+          <EventCard
+            event={manualEvent}
+            evConfig={settings.events?.[manualEvent.key]}
+            byLang={templatesByLangFor(manualEvent.key)}
+            onToggle={onToggle}
+            onConfigure={onConfigure}
+          />
+        </section>
+      )}
 
       {/* ── Post-care journey ── */}
       {journeyEvent && (
@@ -4380,7 +4676,9 @@ const DEFAULT_SETTINGS = {
     EVENTS.map((e) =>
       e.key === "appointmentReminder"
         ? [e.key, { enabled: false, hoursBeforeAppointment: 24 }]
-        : [e.key, { enabled: false, delayMinutes: 0 }],
+        : e.isManual
+          ? [e.key, { contentType: "text", pollTemplateId: null }]
+          : [e.key, { enabled: false, delayMinutes: 0 }],
     ),
   ),
 };
@@ -4450,7 +4748,9 @@ export default function WhatsAppPage() {
     const defaultConfig =
       eventKey === "appointmentReminder"
         ? { enabled: false, hoursBeforeAppointment: 24 }
-        : { enabled: false, delayMinutes: 0 };
+        : eventKey === "feedbackManual"
+          ? { contentType: "text", pollTemplateId: null }
+          : { enabled: false, delayMinutes: 0 };
 
     const newEvents = {
       ...settings.events,

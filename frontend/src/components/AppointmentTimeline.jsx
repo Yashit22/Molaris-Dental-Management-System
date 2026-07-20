@@ -12,11 +12,13 @@ const STATUS_STYLES = {
   'In Progress':'bg-yellow-50 text-yellow-700 border-yellow-200',
 };
 
+// Appointment times are stored as UTC; display them in IST (Asia/Kolkata) to
+// match the rest of the app. Never add +5:30 manually — let toLocale* convert.
 function fmt(date) {
-  return new Date(date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  return new Date(date).toLocaleDateString('en-GB', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' });
 }
 function fmtTime(date) {
-  return new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return new Date(date).toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
 }
 
 const DONE_STATUSES = ['Completed', 'Cancelled', 'No Show'];
@@ -71,23 +73,8 @@ export default function AppointmentTimeline({ patientId, patient, buttonLabel = 
     }
   }
 
-  async function handleSave(formData) {
-    const startTime = new Date(`${formData.date}T${formData.time}`);
-    const endTime   = new Date(startTime.getTime() + Number(formData.duration) * 60000);
-
-    await API.post('/appointments', {
-      patient_id:  formData.selectedPatient._id,
-      doctor_id:   formData.doctorId,
-      start_time:  startTime,
-      end_time:    endTime,
-      title:       formData.type,
-      type:        formData.type,
-      notes:       formData.notes,
-      status:      'Scheduled',
-    });
-    fetchAppointments();
-  }
-
+  // NewAppointmentModal persists the appointment itself and calls onSave with the
+  // saved record; we only need to refresh the list (no second POST here).
   const now  = new Date();
 
   // past = done status OR start_time already passed
@@ -188,7 +175,7 @@ export default function AppointmentTimeline({ patientId, patient, buttonLabel = 
       <NewAppointmentModal
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
-        onSave={handleSave}
+        onSave={() => fetchAppointments()}
         defaultPatient={patient}
       />
     </div>
@@ -236,10 +223,10 @@ function AppointmentCard({ appt, dim, highlight, onClick, onContextMenu }) {
                 </span>
               )}
             </div>
-            {appt.notes && (
+            {(appt.chief_complaint || appt.notes) && (
               <p className="flex items-start gap-1 mt-1.5 text-xs text-slate-500 italic">
                 <FileText size={11} className="mt-0.5 shrink-0" />
-                {appt.notes}
+                {appt.chief_complaint || appt.notes}
               </p>
             )}
           </div>

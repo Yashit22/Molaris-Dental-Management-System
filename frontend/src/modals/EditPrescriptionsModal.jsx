@@ -27,14 +27,19 @@ export default function EditPrescriptionsModal({ isOpen, onClose, patient, appoi
 
   if (!isOpen) return null;
 
-  // Resolve the SAME visit the print/docs preview uses, so both show identical
-  // prescriptions for this appointment.
-  const matchedVisit =
-    (appointmentId && visits.find(v => String(v.appointment_id) === String(appointmentId)))
-    || visits[0]
-    || null;
+  // Resolve the SAME visit the documents modal uses: STRICTLY the one linked to
+  // this appointment (appointment_id is the single source of truth). We must NOT
+  // fall back to visits[0] — saving a prescription to an arbitrary/older visit
+  // makes it land on a different visit than the docs modal reads, so it never
+  // shows there, and it inherits that older visit's date.
+  const idOf = (a) => (a && typeof a === 'object' ? a._id : a);
+  const matchedVisit = appointmentId
+    ? (visits.find(v => String(idOf(v.appointment_id)) === String(appointmentId)) || null)
+    : (visits[0] || null);
   const targetVisitId = matchedVisit?._id || null;
-  // Scope the panel to this visit's prescriptions (paired to the visit).
+  // When no visit is linked to this appointment yet, leave targetVisitId null so
+  // the save is scoped to the appointment — the backend creates/adopts the
+  // appointment-linked visit, which is exactly what the docs modal will find.
   const scopedVisits = matchedVisit ? [matchedVisit] : [];
 
   return (

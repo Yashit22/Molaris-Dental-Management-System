@@ -6,6 +6,11 @@ export const PollTemplateSchema = new mongoose.Schema(
   {
     tenantId: { type: String, required: true, index: true },
 
+    // Language of this poll. Resolved against the appointment's whatsapp_language
+    // with the same chain WhatsAppTemplate uses (explicit → default → fallback → en),
+    // so a patient who booked in Hindi gets the Hindi poll.
+    language: { type: String, enum: ['en', 'hi', 'mr'], required: true, default: 'en' },
+
     // Poll question/name
     name: { type: String, required: true },
 
@@ -42,5 +47,14 @@ export const PollTemplateSchema = new mongoose.Schema(
 );
 
 PollTemplateSchema.index({ tenantId: 1, isActive: 1 });
+PollTemplateSchema.index({ tenantId: 1, language: 1, isActive: 1 });
+
+// At most ONE active poll per (tenant, language). Resolution picks a poll by
+// (tenantId, language, isActive), so two active rows in the same language would make
+// the choice arbitrary. Deactivated rows are exempt — they're kept as history.
+PollTemplateSchema.index(
+  { tenantId: 1, language: 1 },
+  { unique: true, partialFilterExpression: { isActive: true } },
+);
 
 export default mongoose.model('PollTemplate', PollTemplateSchema);

@@ -308,29 +308,45 @@ function drawPrescription(doc, { visit, patient, doctor, ds }) {
   }
 
   // ── Signature & Stamp box (bottom-right) ────────────────────────────────────
-  const stampH  = 90;
-  const stampW  = 210;
+  // Roomier box: wider column, taller image area, and more space below for the
+  // doctor's details so nothing is cramped against the right margin.
+  const PH      = doc.page.height;
+  const stampH  = 110;
+  const stampW  = 260;
   const stampX  = PW - MR - stampW;
-  const stampY  = Math.min(doc.y + 30, PW - 160);   // A4 is tall; keep within page
+  // Keep the whole block (box ~110 + ~48 for 3 detail lines) clear of the
+  // footer, which sits near PH-48. Clamp so the details never overlap it.
+  const stampY  = Math.min(doc.y + 34, PH - 210);
 
   doc.rect(stampX, stampY, stampW, stampH)
      .dash(4, { space: 3 }).strokeColor(BORDER_LIGHT).lineWidth(0.8).stroke();
   doc.undash().lineWidth(1);
 
+  // Embed the doctor's digital signature/stamp image inside the box when
+  // available (setting on + on file); otherwise leave it blank to hand-sign.
+  if (doc._signatureBuf) {
+    try {
+      const pad = 10;
+      doc.image(doc._signatureBuf, stampX + pad, stampY + pad, {
+        fit: [stampW - pad * 2, stampH - 24], align: 'center', valign: 'center',
+      });
+    } catch { /* unreadable image — fall back to the blank box */ }
+  }
+
   doc.fillColor(MUTED).font('Helvetica').fontSize(7.5)
      .text('Signature & Stamp', stampX, stampY + stampH - 13, { width: stampW, align: 'center' });
 
-  // Doctor details below stamp box
-  let infoY = stampY + stampH + 5;
+  // Doctor details below the box, with a little breathing room.
+  let infoY = stampY + stampH + 8;
   if (doctor?.name) {
-    doc.fillColor(BRAND_DARK).font('Helvetica-Bold').fontSize(10)
+    doc.fillColor(BRAND_DARK).font('Helvetica-Bold').fontSize(10.5)
        .text(doctor.name, stampX, infoY, { width: stampW, align: 'center' });
-    infoY = doc.y;
+    infoY = doc.y + 1;
   }
   if (doctor?.qualification && ds.prescription_show_qualification !== false) {
     doc.fillColor(MUTED).font('Helvetica').fontSize(8.5)
        .text(doctor.qualification, stampX, infoY, { width: stampW, align: 'center' });
-    infoY = doc.y;
+    infoY = doc.y + 1;
   }
   if (doctor?.license_number && ds.prescription_show_reg !== false) {
     doc.fillColor(MUTED).font('Helvetica').fontSize(8.5)
@@ -466,7 +482,8 @@ function drawSmartReport(doc, { visit, patient, doctor, ds }) {
     });
     doc.moveDown(0.4);
   } else {
-    // Legacy flat (no per-tooth) findings/diagnosis.
+    // Flat (no per-tooth) findings/diagnosis. Only shown when there is no
+    // per-tooth table (that table already carries findings & diagnosis).
     const clinicalFindings = (findings.clinical_findings || []).filter(Boolean);
     const diagnosis = (findings.diagnosis_notes || '').trim();
     if (clinicalFindings.length || diagnosis) {
@@ -483,6 +500,23 @@ function drawSmartReport(doc, { visit, patient, doctor, ds }) {
       }
       doc.moveDown(0.2);
     }
+  }
+
+  // Clinical / consultation notes — per-note entries plus the visit-level
+  // Clinical Notes field (visit.notes) edited from the treatment card modal.
+  const consultationNotes = visit?.consultation_notes || [];
+  const visitNotes = (visit?.notes || '').trim();
+  if (consultationNotes.length || visitNotes) {
+    sectionTitle(doc, 'Clinical Notes', doc.y);
+    consultationNotes.forEach(n => {
+      doc.fillColor(BODY_TEXT).font('Helvetica').fontSize(10).text(htmlToText(n.content), { width: 495 });
+      doc.moveDown(0.3);
+    });
+    if (visitNotes) {
+      doc.fillColor(BODY_TEXT).font('Helvetica').fontSize(10).text(visitNotes, { width: 495 });
+      doc.moveDown(0.3);
+    }
+    doc.moveDown(0.2);
   }
 
   const advices    = visit?.advices || [];
@@ -662,6 +696,12 @@ async function renderDocsToBuffer(ds, { include, visit, patient, doctor, invoice
     }
   }
 
+  // Doctor's digital signature/stamp image — only when the prescription is being
+  // rendered, the "Digital Signature" setting is on, and one is on file.
+  const wantSignature = include.includes('prescription')
+    && ds.prescription_show_signature !== false && !!doctor?.signature_url;
+  const signatureBuf = wantSignature ? await fetchImageBuffer(doctor.signature_url) : null;
+
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 50, size: 'A4', bufferPages: true });
@@ -672,6 +712,7 @@ async function renderDocsToBuffer(ds, { include, visit, patient, doctor, invoice
 
     doc._logoBuf = logoBuf;
     doc._qrBufs = qrBufs;
+    doc._signatureBuf = signatureBuf;
 
     let first = true;
     const page = (fn) => {

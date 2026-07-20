@@ -1,7 +1,7 @@
 import { buildVisitDocumentPdfFromIds } from '../services/documentPdf.service.js';
 import { htmlToPdfBuffer } from '../services/htmlPdf.service.js';
 import { appendDriveFilesToPdf, emptyPdfBuffer } from '../services/pdfMerge.service.js';
-import { uploadFile } from '../services/cloudinary.service.js';
+import { uploadFile, deleteFileByUrl } from '../services/cloudinary.service.js';
 import { sendEmail } from '../services/email.service.js';
 
 // Resolve the combined-document PDF buffer.
@@ -107,6 +107,22 @@ export async function uploadDocumentImage(req, res) {
     res.status(201).json({ url: uploaded.url, publicId: uploaded.publicId });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+}
+
+// DELETE /api/documents/image  → best-effort cleanup of a replaced/removed
+// branding image (logo, payment QR, doctor signature). Body: { url }.
+// Always responds 200 — a failed Cloudinary delete must never block the UI.
+export async function deleteDocumentImage(req, res) {
+  try {
+    const url = req.body?.url;
+    if (!url) return res.status(400).json({ error: 'url is required' });
+    const deleted = await deleteFileByUrl(url, req.tenantConfig);
+    res.json({ deleted });
+  } catch (err) {
+    // Cleanup is best-effort; report but do not surface as a failure.
+    console.error('[documents] deleteDocumentImage error:', err.message);
+    res.json({ deleted: false });
   }
 }
 

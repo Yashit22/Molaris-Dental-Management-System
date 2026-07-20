@@ -152,9 +152,15 @@ const ViewInvoiceModal = ({ invoiceId, onClose }) => {
                       <span>Subtotal</span><span>{cur}{Number(invoice.subtotal).toLocaleString('en-IN')}</span>
                     </div>
                   )}
+                  {invoice.discount?.amount > 0 && (
+                    <div className="flex justify-between text-sm text-slate-500">
+                      <span>Discount{invoice.discount.type === 'percent' ? ` (${invoice.discount.value}%)` : ''}</span>
+                      <span>− {cur}{Number(invoice.discount.amount).toLocaleString('en-IN')}</span>
+                    </div>
+                  )}
                   {invoice.tax > 0 && branding?.invoice_show_gst !== false && (
                     <div className="flex justify-between text-sm text-slate-500">
-                      <span>{branding?.gstin ? 'GST' : 'Tax'}</span><span>{cur}{Number(invoice.tax).toLocaleString('en-IN')}</span>
+                      <span>{branding?.gstin ? 'GST' : 'Tax'}{invoice.taxRatePct > 0 ? ` (${invoice.taxRatePct}%)` : ''}</span><span>{cur}{Number(invoice.tax).toLocaleString('en-IN')}</span>
                     </div>
                   )}
                   <div className="flex justify-between font-bold text-base text-slate-800 border-t border-slate-200 pt-2 mt-1">

@@ -1,10 +1,11 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import axios from '../services/api';
 import { API_BASE_URL } from '../config/env.js';
 import {
   MoreVertical, Calendar, TrendingUp, Users, CreditCard, Plus,
   Clock, PlayCircle, AlertCircle, XCircle, Loader2, Edit, Trash2, Mail, Phone, User,
-  CheckCircle2, FolderOpen, Receipt, Pill
+  CheckCircle2, FolderOpen, Receipt, Pill, MessageSquareHeart, Maximize2, Minimize2
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -18,7 +19,9 @@ import { useTreatment } from '../Context/TreatmentContext.jsx';
 import { useAuth } from '../Context/AuthContext.jsx';
 
 // --- HELPER: Calendar Math ---
-const START_HOUR = 9; 
+// Full 24-hour timeline so no appointment (early morning / late night) is ever
+// clipped off the grid. The view auto-scrolls to the current time on open.
+const START_HOUR = 0;
 const calculatePosition = (dateObj, durationMins = 30) => {
   const hour = dateObj.getHours();
   const minutes = dateObj.getMinutes();
@@ -74,7 +77,7 @@ const AppointmentBlock = ({ style, statusColor, time, patient, type, cancelled =
   );
 };
 
-const END_HOUR = 21;
+const END_HOUR = 24;
 const HOUR_HEIGHT = 64; // px per hour
 const TOTAL_HEIGHT = (END_HOUR - START_HOUR) * HOUR_HEIGHT;
 
@@ -95,7 +98,16 @@ const AppointmentsPage = () => {
   const scopedDoctorId = user?.role === 'Doctor' ? (user?.doctorId ? String(user.doctorId) : null) : null;
   const navigate = useNavigate();
   const [isNewApptOpen, setIsNewApptOpen] = useState(false);
-  const [viewMode, setViewMode] = useState('table'); // 'table' | 'calendar'
+  // Remember the user's last-used view across reloads / sign-outs. Falls back to
+  // 'table' if nothing stored or the stored value is unrecognised.
+  const [viewMode, setViewMode] = useState(() => {
+    const saved = localStorage.getItem('appointments_view_mode');
+    return saved === 'table' || saved === 'calendar' ? saved : 'table';
+  }); // 'table' | 'calendar'
+
+  useEffect(() => {
+    localStorage.setItem('appointments_view_mode', viewMode);
+  }, [viewMode]);
 
   // --- STATE ---
   const [appointments, setAppointments] = useState([]);
@@ -106,7 +118,10 @@ const AppointmentsPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [currentTimeTop, setCurrentTimeTop] = useState(null);
+  const [currentTimeLabel, setCurrentTimeLabel] = useState('');
   const calendarRef = useRef(null);
+  const calendarScrollRef = useRef(null); // vertical scroller — used to auto-scroll to "now"
+  const [timelineFullscreen, setTimelineFullscreen] = useState(false);
   const [selectedDoctorId, setSelectedDoctorId] = useState(null);
   // Get today's date in IST (UTC+5:30), not UTC
   const getIndiaDate = () => {
@@ -124,6 +139,9 @@ const AppointmentsPage = () => {
   };
   
   const [activeDropdown, setActiveDropdown] = useState(null);
+  // Screen-anchor (viewport coords) for the timeline-view dropdown, which must be
+  // rendered position:fixed to escape the calendar's overflow-scroll clipping.
+  const [timelineMenuPos, setTimelineMenuPos] = useState(null); // { x, y }
   const dropdownRef = useRef(null);
   const [editingAppointment, setEditingAppointment] = useState(null);
   const [editPatientModal, setEditPatientModal] = useState(null); // { patientId, first_name, last_name, email, mobile }
@@ -135,6 +153,16 @@ const AppointmentsPage = () => {
   const [completedRxState, setCompletedRxState] = useState(null);
   // { patient } — drives EditPrescriptionsModal
 
+  // Manual feedback — only offered while the feedback automations are off, so the
+  // dentist can pick which completed patients get a feedback request.
+  const [whatsappSettings, setWhatsappSettings] = useState(null);
+  const [feedbackState, setFeedbackState] = useState({}); // { [appointmentId]: 'sending' | 'sent' | 'error' }
+
+  const feedbackAutomationOn =
+    (whatsappSettings?.events?.feedbackMessage?.enabled ?? false) ||
+    (whatsappSettings?.events?.feedbackPoll?.enabled ?? false);
+  const showManualFeedback = !!whatsappSettings?.enabled && !feedbackAutomationOn;
+
   const ALL_STATUSES = ['Requested', 'Scheduled', 'Checked In', 'In Progress', 'Completed', 'Cancelled', 'No Show'];
 
   // Click Outside Hook
@@ -142,11 +170,27 @@ const AppointmentsPage = () => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setActiveDropdown(null);
+        setTimelineMenuPos(null);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // The timeline-view dropdown is position:fixed at a captured anchor. If the
+  // user scrolls (the calendar body, or the page) or resizes, that anchor goes
+  // stale and the menu would detach/overflow — so close it on any scroll/resize.
+  useEffect(() => {
+    if (activeDropdown === null || timelineMenuPos === null) return;
+    const close = () => { setActiveDropdown(null); setTimelineMenuPos(null); };
+    // capture:true so we catch scrolls on the inner calendar container too.
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [activeDropdown, timelineMenuPos]);
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -215,11 +259,13 @@ const AppointmentsPage = () => {
           utcStartIso: apt.start_time, // Raw UTC ISO string â€” used for edit modal (must NOT be shifted again)
           duration: duration || 30,
           time: utcStart.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }),
+          endTime: utcEnd.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }),
           patient: patientName,
 
           rawPatient: apt.patient_id,
 
           patientId: apt.patient_id?._id,
+          phone: apt.patient_id?.contact?.mobile || '',
           treatment: apt.type,
           doctor: doctorName,
           doctorId: doctorId,
@@ -244,6 +290,25 @@ const AppointmentsPage = () => {
     fetchData();
   }, [selectedDate]);
 
+  // WhatsApp settings decide whether the manual Send Feedback button is offered.
+  useEffect(() => {
+    axios.get('/whatsapp/settings')
+      .then(res => setWhatsappSettings(res.data || null))
+      .catch(err => console.error('Failed to load WhatsApp settings:', err));
+  }, []);
+
+  const handleSendFeedback = async (apt) => {
+    if (feedbackState[apt.id] === 'sending' || feedbackState[apt.id] === 'sent') return;
+    setFeedbackState(prev => ({ ...prev, [apt.id]: 'sending' }));
+    try {
+      await axios.post(`/whatsapp/feedback/manual/${apt.id}`);
+      setFeedbackState(prev => ({ ...prev, [apt.id]: 'sent' }));
+    } catch (err) {
+      setFeedbackState(prev => ({ ...prev, [apt.id]: 'error' }));
+      alert(err.response?.data?.error || 'Failed to send feedback message');
+    }
+  };
+
   // Re-fetch when treatment session closes so concluded appointments show as Completed
   const prevActiveTreatment = useRef(activeTreatment);
   useEffect(() => {
@@ -253,12 +318,49 @@ const AppointmentsPage = () => {
     prevActiveTreatment.current = activeTreatment;
   }, [activeTreatment]);
 
+  // Fullscreen timeline: lock body scroll while active and allow Esc to exit.
+  useEffect(() => {
+    if (!timelineFullscreen) return;
+    const onKey = (e) => { if (e.key === 'Escape') setTimelineFullscreen(false); };
+    document.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [timelineFullscreen]);
+
+  // If the user switches away from the timeline view, drop fullscreen.
+  useEffect(() => {
+    if (viewMode !== 'calendar' && timelineFullscreen) setTimelineFullscreen(false);
+  }, [viewMode]);
+
+  // Auto-scroll the timeline so the view opens centered on the current time.
+  // Runs when entering the calendar view, changing date, toggling fullscreen, or
+  // after data loads. Uses the same IST-based position math as the time line.
+  useEffect(() => {
+    if (viewMode !== 'calendar') return;
+    const el = calendarScrollRef.current;
+    if (!el) return;
+    // Only auto-center on "today"; other days just start at the top.
+    const anchor = selectedDate === getIndiaDate() ? calcCalendarPos(new Date(), 0) : null;
+    // rAF so it runs after the calendar has laid out (heights are known).
+    const id = requestAnimationFrame(() => {
+      if (!calendarScrollRef.current) return;
+      const target = anchor ? Math.max(0, anchor.top - calendarScrollRef.current.clientHeight / 2) : 0;
+      calendarScrollRef.current.scrollTo({ top: target, behavior: 'smooth' });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [viewMode, selectedDate, timelineFullscreen, loading]);
+
   // Current-time line — updates every minute
   useEffect(() => {
     const updateLine = () => {
       const now = new Date();
       const pos = calcCalendarPos(now, 0);
       setCurrentTimeTop(pos ? pos.top : null);
+      setCurrentTimeLabel(now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }));
     };
     updateLine();
     const t = setInterval(updateLine, 60000);
@@ -688,7 +790,11 @@ const AppointmentsPage = () => {
                         <tbody className="divide-y divide-slate-100">
                           {appointmentsDesc.length > 0 ? (
                             appointmentsDesc.map((apt, index) => (
-                              <tr key={index} className="hover:bg-slate-50 transition-colors group">
+                              <tr
+                                key={index}
+                                onClick={() => setActiveDropdown(activeDropdown === apt.id ? null : apt.id)}
+                                className="hover:bg-slate-50 transition-colors group cursor-pointer"
+                              >
                                 <td className="px-6 py-4 font-medium text-slate-900 whitespace-nowrap">{apt.time}</td>
                                 <td className="px-6 py-4">
                                   <div className="flex items-center gap-3">
@@ -718,6 +824,7 @@ const AppointmentsPage = () => {
                                       <div
                                         className="absolute right-0 top-full mt-1 w-56 max-h-96 bg-white border border-slate-200 rounded-lg shadow-xl z-[60] overflow-y-auto text-left"
                                         onMouseDown={e => e.stopPropagation()}
+                                        onClick={e => e.stopPropagation()}
                                       >
                                         {apt.status === 'Requested' && (
                                           <div className="sticky top-0 bg-white p-1 border-b border-slate-100 z-10 space-y-1">
@@ -793,11 +900,37 @@ const AppointmentsPage = () => {
                     slate:  { border: 'border-slate-400',  bg: 'bg-slate-50',  text: 'text-slate-700',  sub: 'text-slate-400' },
                   };
 
-                  const AptDropdown = ({ apt }) => (
+                  const AptDropdown = ({ apt }) => {
+                    // Rendered position:fixed at the click anchor so the menu is not
+                    // clipped by the calendar's overflow-x/y scroll containers.
+                    const pos = timelineMenuPos || { x: 0, y: 0 };
+                    const MENU_W = 224; // w-56
+                    const MARGIN  = 8;  // min gap from any viewport edge
+                    // Horizontal clamp is known up-front (fixed width).
+                    const left = Math.max(MARGIN, Math.min(pos.x, window.innerWidth - MENU_W - MARGIN));
+                    // Callback ref: once mounted we know the menu's REAL height, so
+                    // clamp it to the viewport — flip up if it would overflow the
+                    // bottom, and never let it run past the top either.
+                    const clampToViewport = (el) => {
+                      dropdownRef.current = el;
+                      if (!el) return;
+                      const h = el.offsetHeight;
+                      const vh = window.innerHeight;
+                      let top = pos.y;
+                      if (top + h > vh - MARGIN) top = pos.y - h - 8;      // flip above the block
+                      if (top < MARGIN) top = Math.max(MARGIN, vh - h - MARGIN); // still too tall: pin to bottom
+                      el.style.top = `${top}px`;
+                    };
+                    // Portal to <body> so the menu leaves every appointment block's
+                    // stacking context — otherwise sibling cards (each z-index:10)
+                    // paint over it. As a top-level node its z-index always wins.
+                    return createPortal(
                     <div
-                      ref={dropdownRef}
-                      className="absolute left-0 top-full mt-1 w-56 max-h-96 bg-white border border-slate-200 rounded-lg shadow-xl z-[60] overflow-y-auto text-left"
+                      ref={clampToViewport}
+                      style={{ position: 'fixed', left: `${left}px`, top: `${pos.y}px` }}
+                      className="w-56 max-h-[calc(100vh-16px)] bg-white border border-slate-200 rounded-lg shadow-xl z-[9999] overflow-y-auto text-left"
                       onMouseDown={e => e.stopPropagation()}
+                      onClick={e => e.stopPropagation()}
                     >
                       {apt.status === 'Requested' && (
                         <div className="sticky top-0 bg-white p-1 border-b border-slate-100 z-10 space-y-1">
@@ -831,11 +964,27 @@ const AppointmentsPage = () => {
                         <button onClick={(e) => { e.stopPropagation(); handleEditPatient(apt); }} className="w-full text-left px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded-md flex items-center gap-2"><User size={14} className="text-[#137fec]" /> Edit Patient Details</button>
                         <button onClick={(e) => { e.stopPropagation(); handleEdit(apt); }} className="w-full text-left px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded-md flex items-center gap-2"><Edit size={14} className="text-[#137fec]" /> Edit Appointment</button>
                       </div>
-                    </div>
-                  );
+                    </div>,
+                    document.body
+                    );
+                  };
 
                   return (
-                    <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                    <div className={timelineFullscreen
+                      ? 'fixed inset-0 z-[70] bg-white flex flex-col overflow-hidden'
+                      : 'bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden'}>
+                      {/* Timeline toolbar — date label + fullscreen toggle */}
+                      <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 bg-slate-50">
+                        <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+                          {timelineFullscreen ? 'Timeline — Full Screen' : 'Timeline'}
+                        </span>
+                        <button
+                          onClick={() => setTimelineFullscreen(v => !v)}
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-[#137fec] border border-blue-200 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+                        >
+                          {timelineFullscreen ? <><Minimize2 size={13} /> Exit full screen</> : <><Maximize2 size={13} /> Full screen</>}
+                        </button>
+                      </div>
                       {/* Mobile Doctor Selector */}
                       <div className="md:hidden p-4 border-b border-slate-200 bg-slate-50">
                         <label className="text-xs font-bold text-slate-600 uppercase block mb-2">Select Doctor</label>
@@ -852,7 +1001,7 @@ const AppointmentsPage = () => {
                       </div>
 
                       {/* Single horizontal-scroll wrapper keeps the doctor header aligned with the columns below */}
-                      <div className="overflow-x-auto" ref={calendarRef}>
+                      <div className={`overflow-x-auto ${timelineFullscreen ? 'flex-1 min-h-0' : ''}`} ref={calendarRef}>
                         <div style={{ minWidth: selectedDoctorId ? `${56 + 100}px` : `${56 + doctors.length * 140}px` }}>
 
                           {/* Sticky header row: time gutter + one cell per doctor */}
@@ -871,14 +1020,17 @@ const AppointmentsPage = () => {
                           </div>
 
                           {/* Vertically scrollable body */}
-                          <div className="overflow-y-auto max-h-[400px] md:max-h-[640px]">
+                          <div
+                            ref={calendarScrollRef}
+                            className={`overflow-y-auto ${timelineFullscreen ? 'max-h-[calc(100vh-160px)]' : 'max-h-[400px] md:max-h-[640px]'}`}
+                          >
                             <div className="flex">
 
                           {/* Hour gutter */}
                           <div className="w-14 shrink-0 border-r border-slate-100 bg-slate-50/70 select-none relative" style={{ height: `${TOTAL_HEIGHT}px` }}>
                             {Array.from({ length: END_HOUR - START_HOUR }, (_, i) => {
                               const h = START_HOUR + i;
-                              const label = h === 12 ? '12 PM' : h < 12 ? `${h} AM` : `${h - 12} PM`;
+                              const label = h === 0 ? '12 AM' : h === 12 ? '12 PM' : h < 12 ? `${h} AM` : `${h - 12} PM`;
                               return (
                                 <div key={h} style={{ position: 'absolute', top: `${i * HOUR_HEIGHT}px`, width: '100%' }} className="pr-2 flex items-start justify-end pt-1">
                                   <span className="text-[10px] font-medium text-slate-400 leading-none">{label}</span>
@@ -920,9 +1072,14 @@ const AppointmentsPage = () => {
 
                                 {/* Current time line */}
                                 {currentTimeTop !== null && selectedDate === getIndiaDate() && (
-                                  <div style={{ position: 'absolute', top: `${currentTimeTop}px`, left: 0, right: 0, zIndex: 25 }} className="flex items-center pointer-events-none">
-                                    {colIdx === 0 && <div className="w-2 h-2 rounded-full bg-red-500 -ml-1 shrink-0 shadow-sm shadow-red-300" />}
-                                    <div className="flex-1 h-px bg-red-500 opacity-80" />
+                                  <div style={{ position: 'absolute', top: `${currentTimeTop}px`, left: 0, right: 0, zIndex: 25 }} className="flex items-center pointer-events-none -translate-y-1/2">
+                                    {colIdx === 0 && (
+                                      <span className="shrink-0 -ml-1 mr-1 px-1 py-0.5 rounded bg-red-500 text-white text-[9px] font-bold leading-none shadow-sm">
+                                        {currentTimeLabel}
+                                      </span>
+                                    )}
+                                    {colIdx === 0 && <div className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0 shadow-sm shadow-red-300" />}
+                                    <div className="flex-1 h-0.5 bg-red-500" />
                                   </div>
                                 )}
 
@@ -936,11 +1093,30 @@ const AppointmentsPage = () => {
                                       key={apt.id}
                                       style={{ position: 'absolute', top: `${pos.top}px`, height: `${pos.height}px`, left: '4px', right: '4px', zIndex: 10 }}
                                       className={`rounded-md border-l-4 px-2 py-1 cursor-pointer overflow-hidden shadow-sm hover:shadow-md transition-shadow ${c.border} ${c.bg}`}
-                                      onClick={() => setActiveDropdown(activeDropdown === apt.id ? null : apt.id)}
+                                      onClick={(e) => {
+                                        if (activeDropdown === apt.id) { setActiveDropdown(null); return; }
+                                        // Anchor the fixed dropdown just below the clicked block.
+                                        const r = e.currentTarget.getBoundingClientRect();
+                                        setTimelineMenuPos({ x: r.left, y: r.bottom + 4 });
+                                        setActiveDropdown(apt.id);
+                                      }}
                                     >
-                                      <p className={`text-[10px] font-bold leading-none ${c.text}`}>{apt.time}</p>
+                                      <div className="flex items-center justify-between gap-1 leading-none">
+                                        <p className={`text-[10px] font-bold ${c.text}`}>{apt.time}–{apt.endTime}</p>
+                                        <span className={`size-1.5 rounded-full shrink-0 ${getDotColor(apt.statusColor)}`} title={apt.status} />
+                                      </div>
                                       <p className="text-[11px] font-semibold text-slate-800 truncate mt-0.5 leading-tight">{apt.patient}</p>
-                                      {pos.height >= 44 && <p className={`text-[10px] truncate ${c.sub}`}>{apt.treatment}</p>}
+                                      {pos.height >= 40 && (
+                                        <p className={`text-[10px] truncate leading-tight ${c.sub}`}>
+                                          {apt.treatment}{apt.doctor && apt.doctor !== 'Unassigned' ? ` · ${apt.doctor}` : ''}
+                                        </p>
+                                      )}
+                                      {pos.height >= 58 && apt.phone && (
+                                        <p className="text-[9px] text-slate-400 truncate leading-tight">📞 {apt.phone}</p>
+                                      )}
+                                      {pos.height >= 74 && apt.chief_complaint && (
+                                        <p className="text-[9px] text-slate-500 italic truncate leading-tight mt-0.5">{apt.chief_complaint}</p>
+                                      )}
                                       {activeDropdown === apt.id && <AptDropdown apt={apt} />}
                                     </div>
                                   );
@@ -1049,6 +1225,32 @@ const AppointmentsPage = () => {
                           >
                             <Pill size={14} />
                           </button>
+                          {/* Manual feedback — only while the feedback automations are off */}
+                          {showManualFeedback && (() => {
+                            const state = feedbackState[apt.id];
+                            if (state === 'sent') {
+                              return (
+                                <span
+                                  title="Feedback message sent"
+                                  className="p-1.5 rounded-lg text-green-600 flex items-center"
+                                >
+                                  <CheckCircle2 size={14} />
+                                </span>
+                              );
+                            }
+                            return (
+                              <button
+                                title="Send feedback message"
+                                disabled={state === 'sending'}
+                                onClick={() => handleSendFeedback(apt)}
+                                className="p-1.5 rounded-lg hover:bg-teal-50 text-slate-400 hover:text-teal-600 transition-colors disabled:opacity-50"
+                              >
+                                {state === 'sending'
+                                  ? <Loader2 size={14} className="animate-spin" />
+                                  : <MessageSquareHeart size={14} />}
+                              </button>
+                            );
+                          })()}
                         </div>
                       </div>
                     ))}
